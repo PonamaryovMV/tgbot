@@ -1,0 +1,3588 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎁%3C/text%3E%3C/svg%3E" />
+  <title>Персональный Вишлист — Telegram Mini App</title>
+  <!-- Официальный скрипт Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Выразительная типографика 2026: Plus Jakarta Sans (Display) + Inter (UI) + JetBrains Mono (Tabular Nums) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+  <style>
+    /* ==========================================================================
+       1. АРХИТЕКТУРА ПОВЕРХНОСТЕЙ, ТЕМА TELEGRAM И СВЕТОТЕНЬ (DESIGN TOKENS)
+       ========================================================================== */
+    :root {
+      /* Нативные CSS-переменные Telegram с премиальными fallback-значениями (TG Dark Obsidian по умолчанию) */
+      --tg-theme-bg-color: #090a0f;
+      --tg-theme-secondary-bg-color: #12141d;
+      --tg-theme-text-color: #f8fafc;
+      --tg-theme-hint-color: #94a3b8;
+      --tg-theme-button-color: #3b82f6;
+      --tg-theme-button-text-color: #ffffff;
+      --tg-theme-destructive-text-color: #f43f5e;
+
+      /* Многослойные поверхности и спекулярные 1px границы */
+      --surface-elevated: rgba(22, 25, 36, 0.78);
+      --surface-card: #131620;
+      --surface-card-hover: #181c29;
+      --surface-input: rgba(9, 10, 15, 0.75);
+      --surface-glass: rgba(18, 20, 29, 0.76);
+      --border-hairline: rgba(255, 255, 255, 0.08);
+      --border-highlight: rgba(255, 255, 255, 0.16);
+      --border-focus: rgba(59, 130, 246, 0.55);
+      --specular-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.09);
+
+      /* Акцентные палитры и семантика */
+      --accent-glow: rgba(59, 130, 246, 0.22);
+      --accent-soft: rgba(59, 130, 246, 0.14);
+      --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+      --priority-gradient: linear-gradient(135deg, #ff4b1f 0%, #ff9068 100%);
+      --priority-glow: rgba(255, 75, 31, 0.28);
+      --crowdfund-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      --crowdfund-soft: rgba(99, 102, 241, 0.14);
+      --success-color: #10b981;
+      --success-soft: rgba(16, 185, 129, 0.15);
+      --danger-soft: rgba(244, 63, 94, 0.14);
+
+      /* Фоновые атмосферные пятна */
+      --mesh-spot-1: rgba(59, 130, 246, 0.13);
+      --mesh-spot-2: rgba(139, 92, 246, 0.11);
+
+      /* Тени и геометрия */
+      --shadow-sm: 0 4px 16px -2px rgba(0, 0, 0, 0.35);
+      --shadow-md: 0 14px 34px -6px rgba(0, 0, 0, 0.5);
+      --shadow-lg: 0 24px 56px -10px rgba(0, 0, 0, 0.7);
+      --radius-2xl: 24px;
+      --radius-xl: 20px;
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 10px;
+      --safe-bottom: env(safe-area-inset-bottom, 16px);
+
+      /* Пружинная физика анимаций */
+      --spring: 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+      --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    /* Пресет 2: TG Light Studio (Чистый светлый режим) */
+    body[data-theme="light"] {
+      --tg-theme-bg-color: #f8fafc;
+      --tg-theme-secondary-bg-color: #f1f5f9;
+      --tg-theme-text-color: #0f172a;
+      --tg-theme-hint-color: #64748b;
+      --tg-theme-button-color: #2563eb;
+      --tg-theme-button-text-color: #ffffff;
+      --tg-theme-destructive-text-color: #e11d48;
+
+      --surface-elevated: rgba(255, 255, 255, 0.88);
+      --surface-card: #ffffff;
+      --surface-card-hover: #ffffff;
+      --surface-input: #f8fafc;
+      --surface-glass: rgba(255, 255, 255, 0.82);
+      --border-hairline: rgba(15, 23, 42, 0.08);
+      --border-highlight: rgba(15, 23, 42, 0.15);
+      --border-focus: rgba(37, 99, 235, 0.45);
+      --specular-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+
+      --accent-glow: rgba(37, 99, 235, 0.16);
+      --accent-soft: rgba(37, 99, 235, 0.09);
+      --crowdfund-soft: rgba(99, 102, 241, 0.09);
+      --success-color: #059669;
+      --success-soft: rgba(5, 150, 105, 0.12);
+      --danger-soft: rgba(225, 29, 72, 0.1);
+
+      --mesh-spot-1: rgba(59, 130, 246, 0.08);
+      --mesh-spot-2: rgba(168, 85, 247, 0.07);
+
+      --shadow-sm: 0 2px 10px rgba(15, 23, 42, 0.04);
+      --shadow-md: 0 12px 30px -4px rgba(15, 23, 42, 0.08);
+      --shadow-lg: 0 24px 48px -8px rgba(15, 23, 42, 0.15);
+    }
+
+    /* Пресет 3: Midnight Amethyst (Глубокий фиолетовый неон) */
+    body[data-theme="amethyst"] {
+      --tg-theme-bg-color: #0b0714;
+      --tg-theme-secondary-bg-color: #161026;
+      --tg-theme-text-color: #faf5ff;
+      --tg-theme-hint-color: #a78bfa;
+      --tg-theme-button-color: #8b5cf6;
+      --tg-theme-button-text-color: #ffffff;
+      --tg-theme-destructive-text-color: #fb7185;
+
+      --surface-elevated: rgba(26, 18, 46, 0.82);
+      --surface-card: #150f24;
+      --surface-card-hover: #1c1430;
+      --surface-input: rgba(11, 7, 20, 0.8);
+      --surface-glass: rgba(22, 16, 38, 0.82);
+      --border-hairline: rgba(196, 181, 253, 0.11);
+      --border-highlight: rgba(196, 181, 253, 0.24);
+      --accent-glow: rgba(139, 92, 246, 0.28);
+      --accent-soft: rgba(139, 92, 246, 0.16);
+      --accent-gradient: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+      --mesh-spot-1: rgba(139, 92, 246, 0.18);
+      --mesh-spot-2: rgba(236, 72, 153, 0.12);
+    }
+
+    /* ==========================================================================
+       2. БАЗОВЫЙ СБРОС, ФОНОВЫЕ СПОТЛАЙТЫ И ТИПОГРАФИКА
+       ========================================================================== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      background-color: var(--tg-theme-bg-color);
+      color: var(--tg-theme-text-color);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.5;
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    /* Атмосферное радиальное свечение на фоне */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background:
+        radial-gradient(circle at 12% 8%, var(--mesh-spot-1) 0%, transparent 45%),
+        radial-gradient(circle at 88% 18%, var(--mesh-spot-2) 0%, transparent 50%);
+    }
+
+    button, input, textarea, select {
+      font-family: inherit;
+      font-size: inherit;
+      color: inherit;
+      border: none;
+      outline: none;
+      background: none;
+    }
+
+    button {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .tabular-nums {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    /* ==========================================================================
+       3. ПЛАВАЮЩАЯ ДЕМО-СТУДИЯ (DEMO STUDIO DOCK)
+       ========================================================================== */
+    .demo-dock-wrapper {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--surface-glass);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border-hairline);
+      padding: 8px 14px;
+    }
+
+    .demo-dock {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .demo-dock-left,
+    .demo-dock-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .studio-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--tg-theme-hint-color);
+      padding-right: 4px;
+    }
+
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success-color);
+      box-shadow: 0 0 0 3px var(--success-soft);
+    }
+
+    .pill-Segmented {
+      display: inline-flex;
+      background: var(--surface-input);
+      padding: 3px;
+      border-radius: 999px;
+      border: 1px solid var(--border-hairline);
+    }
+
+    .role-pill-btn {
+      padding: 5px 11px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 999px;
+      color: var(--tg-theme-hint-color);
+      transition: var(--spring);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .role-pill-btn.active {
+      background: var(--tg-theme-button-color);
+      color: var(--tg-theme-button-text-color);
+      box-shadow: 0 2px 10px var(--accent-glow);
+    }
+
+    .studio-tool-btn {
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-text-color);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: var(--spring);
+    }
+
+    .studio-tool-btn.active {
+      border-color: var(--tg-theme-button-color);
+      color: var(--tg-theme-button-color);
+      background: var(--accent-soft);
+    }
+
+    /* ==========================================================================
+       4. ОСНОВНОЙ КОНТЕЙНЕР И BENTO HERO HEADER
+       ========================================================================== */
+    .app-shell {
+      position: relative;
+      z-index: 1;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 18px 14px calc(48px + var(--safe-bottom));
+    }
+
+    .bento-hero {
+      background: var(--surface-elevated);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-hairline);
+      box-shadow: var(--specular-inset), var(--shadow-sm);
+      border-radius: var(--radius-2xl);
+      padding: 18px;
+      margin-bottom: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .hero-identity {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .avatar-ring {
+      position: relative;
+      width: 54px;
+      height: 54px;
+      border-radius: 18px;
+      padding: 2px;
+      background: var(--accent-gradient);
+      flex-shrink: 0;
+      box-shadow: 0 6px 18px var(--accent-glow);
+    }
+
+    .avatar-inner {
+      width: 100%;
+      height: 100%;
+      border-radius: 16px;
+      background: var(--surface-card);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
+
+    .avatar-status-badge {
+      position: absolute;
+      bottom: -3px;
+      right: -3px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--success-color);
+      border: 3px solid var(--surface-card);
+    }
+
+    .hero-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .hero-title-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .hero-title {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+    }
+
+    .role-mode-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--tg-theme-button-color);
+      border: 1px solid var(--border-focus);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .hero-subtitle {
+      font-size: 13px;
+      color: var(--tg-theme-hint-color);
+    }
+
+    /* Кнопки в шапке */
+    .btn-accent {
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: var(--radius-md);
+      background: var(--accent-gradient);
+      color: var(--tg-theme-button-text-color);
+      font-weight: 600;
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 6px 20px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      transition: var(--spring);
+    }
+
+    .btn-accent:active {
+      transform: scale(0.97);
+    }
+
+    .btn-glass {
+      min-height: 44px;
+      padding: 0 16px;
+      border-radius: var(--radius-md);
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-text-color);
+      font-weight: 600;
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: var(--spring);
+    }
+
+    /* Bento-метрики в шапке */
+    .hero-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-hairline);
+    }
+
+    .metric-tile {
+      min-width: 0;
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--tg-theme-hint-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .metric-value {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--tg-theme-text-color);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ==========================================================================
+       5. КОМПОЗЕР ДОБАВЛЕНИЯ ПОДАРКА (LINEAR / RAYCAST STYLE)
+       ========================================================================== */
+    .composer-card {
+      background: var(--surface-elevated);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-hairline);
+      box-shadow: var(--specular-inset), var(--shadow-sm);
+      border-radius: var(--radius-2xl);
+      padding: 16px;
+      margin-bottom: 20px;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    .composer-card:focus-within {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow-md);
+    }
+
+    .composer-QuickRow {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .input-modern {
+      width: 100%;
+      min-height: 46px;
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-text-color);
+      font-size: 15px;
+      transition: var(--spring);
+    }
+
+    .input-modern::placeholder {
+      color: var(--tg-theme-hint-color);
+      opacity: 0.75;
+    }
+
+    .input-modern:focus {
+      border-color: var(--tg-theme-button-color);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .textarea-modern {
+      min-height: 82px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    .composer-bar-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .expand-drawer-btn {
+      min-height: 38px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-button-color);
+      font-size: 13px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: var(--spring);
+    }
+
+    .expand-drawer-btn.active {
+      background: var(--accent-soft);
+      border-color: var(--border-focus);
+    }
+
+    .expand-chevron {
+      display: inline-block;
+      transition: transform 0.25s ease;
+    }
+
+    .expand-drawer-btn.active .expand-chevron {
+      transform: rotate(180deg);
+    }
+
+    .composer-hint {
+      font-size: 12px;
+      color: var(--tg-theme-hint-color);
+    }
+
+    /* Раскрывающийся блок деталей */
+    .composer-drawer {
+      display: none;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-hairline);
+      animation: drawerReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .composer-drawer.open {
+      display: block;
+    }
+
+    @keyframes drawerReveal {
+      from {
+        opacity: 0;
+        transform: translateY(-8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .form-bento-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    .field-block {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--tg-theme-hint-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Блок загрузки фотографии (Файл с Canvas-сжатием или прямая ссылка) */
+    .source-Segment {
+      display: inline-flex;
+      background: var(--surface-input);
+      padding: 3px;
+      border-radius: 10px;
+      border: 1px solid var(--border-hairline);
+      width: fit-content;
+      margin-bottom: 6px;
+    }
+
+    .source-tab-btn {
+      padding: 6px 12px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--tg-theme-hint-color);
+      transition: var(--spring);
+    }
+
+    .source-tab-btn.active {
+      background: var(--tg-theme-button-color);
+      color: var(--tg-theme-button-text-color);
+    }
+
+    .dropzone-modern {
+      border: 1.5px dashed var(--border-highlight);
+      background: var(--surface-input);
+      border-radius: var(--radius-lg);
+      padding: 18px 14px;
+      text-align: center;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      transition: var(--spring);
+    }
+
+    .dropzone-modern:hover {
+      border-color: var(--tg-theme-button-color);
+      background: var(--accent-soft);
+    }
+
+    .dropzone-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: var(--accent-soft);
+      color: var(--tg-theme-button-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 2px;
+    }
+
+    .upload-progress-wrap {
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+    }
+
+    .upload-progress-wrap.active {
+      display: flex;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--border-hairline);
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent-gradient);
+      transition: width 0.2s ease;
+    }
+
+    .photo-preview-card {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: var(--surface-input);
+      border: 1px solid var(--border-highlight);
+      border-radius: var(--radius-md);
+    }
+
+    .photo-preview-card.active {
+      display: flex;
+    }
+
+    .photo-preview-card img {
+      width: 68px;
+      height: 46px;
+      object-fit: cover;
+      border-radius: 8px;
+      background: var(--tg-theme-secondary-bg-color);
+      flex-shrink: 0;
+    }
+
+    .photo-preview-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .photo-preview-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--tg-theme-text-color);
+    }
+
+    .photo-preview-sub {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--success-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .btn-remove-photo {
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--danger-soft);
+      color: var(--tg-theme-destructive-text-color);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* Чипсы выбора категории в форме */
+    .category-preset-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .cat-preset-btn {
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-text-color);
+      font-size: 13px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: var(--spring);
+    }
+
+    .cat-preset-btn.selected {
+      background: var(--tg-theme-button-color);
+      color: var(--tg-theme-button-text-color);
+      border-color: var(--tg-theme-button-color);
+      box-shadow: 0 3px 12px var(--accent-glow);
+    }
+
+    /* Bento-переключатели (Toggles) */
+    .bento-switches-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .bento-switch-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: var(--spring);
+    }
+
+    .bento-switch-card:hover {
+      border-color: var(--border-highlight);
+    }
+
+    .switch-text-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .switch-title {
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .switch-subtitle {
+      font-size: 12px;
+      color: var(--tg-theme-hint-color);
+    }
+
+    .ios-switch {
+      position: relative;
+      width: 48px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    .ios-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .ios-slider {
+      position: absolute;
+      inset: 0;
+      background: rgba(148, 163, 184, 0.25);
+      border-radius: 999px;
+      transition: var(--spring);
+      border: 1px solid var(--border-hairline);
+    }
+
+    .ios-slider::before {
+      content: "";
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      left: 2px;
+      bottom: 2px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      transition: var(--spring);
+    }
+
+    .ios-switch input:checked + .ios-slider {
+      background: var(--tg-theme-button-color);
+      border-color: var(--tg-theme-button-color);
+    }
+
+    .ios-switch input:checked + .ios-slider::before {
+      transform: translateX(20px);
+    }
+
+    /* ==========================================================================
+       6. СЕГМЕНТИРОВАННЫЕ ВКЛАДКИ И ПАНЕЛЬ ФИЛЬТРОВ (SCROLL CHIPS)
+       ========================================================================== */
+    .controls-section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .segmented-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: var(--surface-elevated);
+      padding: 4px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-hairline);
+      box-shadow: var(--specular-inset);
+    }
+
+    .seg-tab-btn {
+      min-height: 42px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--tg-theme-hint-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: var(--spring);
+    }
+
+    .seg-tab-btn.active {
+      background: var(--surface-card);
+      color: var(--tg-theme-text-color);
+      border: 1px solid var(--border-hairline);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .seg-count {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--surface-input);
+      color: var(--tg-theme-hint-color);
+    }
+
+    .seg-tab-btn.active .seg-count {
+      background: var(--accent-soft);
+      color: var(--tg-theme-button-color);
+    }
+
+    /* Горизонтальная лента чипсов */
+    .filters-rail {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 2px 2px 6px;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .filters-rail::-webkit-scrollbar {
+      display: none;
+    }
+
+    .filter-pill {
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 999px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-text-color);
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      transition: var(--spring);
+    }
+
+    .filter-pill.active {
+      background: var(--tg-theme-button-color);
+      color: var(--tg-theme-button-text-color);
+      border-color: var(--tg-theme-button-color);
+      box-shadow: 0 4px 14px var(--accent-glow);
+    }
+
+    .rail-divider {
+      width: 1px;
+      height: 20px;
+      background: var(--border-hairline);
+      flex-shrink: 0;
+    }
+
+    /* ==========================================================================
+       7. BENTO-СЕТКА И ПРЕМИАЛЬНЫЕ КАРТОЧКИ ПОДАРКОВ (GIFT CARDS)
+       ========================================================================== */
+    .gifts-bento-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    .gift-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--specular-inset), var(--shadow-sm);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      transition: transform var(--spring), box-shadow var(--spring), border-color var(--spring);
+    }
+
+    /* Выделение приоритетных карточек «🔥 Очень хочу» */
+    .gift-card.is-priority {
+      border-color: rgba(255, 75, 31, 0.35);
+      box-shadow: var(--specular-inset), 0 8px 28px -6px rgba(255, 75, 31, 0.14);
+    }
+
+    .gift-card.is-gifted-card {
+      opacity: 0.88;
+    }
+
+    /* Верхняя визуальная часть 16:10 */
+    .card-media {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      overflow: hidden;
+      background: var(--tg-theme-secondary-bg-color);
+    }
+
+    .card-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* Градиентная виньетка снизу фото для идеальной читаемости бейджей */
+    .card-media::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        180deg,
+        rgba(9, 10, 15, 0.45) 0%,
+        transparent 38%,
+        transparent 65%,
+        rgba(9, 10, 15, 0.55) 100%
+      );
+      pointer-events: none;
+    }
+
+    /* Дизайнерская арт-заглушка, если фотография не задана */
+    .card-art-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #ffffff;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card-art-placeholder::before {
+      content: "";
+      position: absolute;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.22) 0%, transparent 70%);
+      top: -60px;
+      right: -60px;
+    }
+
+    .art-icon-orb {
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.16);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      z-index: 1;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    }
+
+    .art-cat-caption {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      opacity: 0.92;
+      z-index: 1;
+    }
+
+    /* Плавающие бейджи поверх визуала */
+    .media-badges-left {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 2;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-width: calc(100% - 120px);
+    }
+
+    .media-badge-right {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 2;
+    }
+
+    .glass-pill {
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+
+    .pill-priority {
+      background: var(--priority-gradient);
+      color: #ffffff;
+      box-shadow: 0 4px 14px var(--priority-glow);
+    }
+
+    .pill-category {
+      background: rgba(15, 23, 42, 0.72);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+    }
+
+    .pill-status-booked {
+      background: rgba(15, 23, 42, 0.85);
+      color: #f8fafc;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    .pill-status-mine {
+      background: var(--success-color);
+      color: #ffffff;
+    }
+
+    .pill-status-crowdfund {
+      background: var(--crowdfund-gradient);
+      color: #ffffff;
+    }
+
+    /* Контентная часть карточки */
+    .card-content {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .card-title {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.32;
+      letter-spacing: -0.01em;
+      color: var(--tg-theme-text-color);
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .card-meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .price-badge {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 10px;
+      background: var(--accent-soft);
+      color: var(--tg-theme-button-color);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .price-badge.muted {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--surface-input);
+      color: var(--tg-theme-hint-color);
+      border-color: var(--border-hairline);
+    }
+
+    .store-ext-btn {
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 10px;
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-text-color);
+      font-size: 12px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: var(--spring);
+    }
+
+    .card-note-box {
+      font-size: 13px;
+      color: var(--tg-theme-hint-color);
+      background: var(--surface-input);
+      border-left: 3px solid var(--tg-theme-button-color);
+      padding: 8px 11px;
+      border-radius: 4px 10px 10px 4px;
+      line-height: 1.42;
+      word-break: break-word;
+    }
+
+    /* Интерактивный виджет совместного сбора (Складчина) */
+    .crowdfund-widget {
+      padding: 11px 12px;
+      border-radius: var(--radius-md);
+      background: var(--crowdfund-soft);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .cf-top-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .cf-participants-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .avatar-stack {
+      display: flex;
+      align-items: center;
+    }
+
+    .stack-Chip {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--crowdfund-gradient);
+      border: 2px solid var(--surface-card);
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: -6px;
+    }
+
+    .stack-Chip:first-child {
+      margin-left: 0;
+    }
+
+    .cf-count-text {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--tg-theme-text-color);
+    }
+
+    .cf-split-pill {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--tg-theme-hint-color);
+      line-height: 1.35;
+    }
+
+    /* Футер карточки с действиями */
+    .card-actions-footer {
+      padding: 0 16px 16px;
+      margin-top: auto;
+    }
+
+    .owner-btn-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 42px;
+      gap: 8px;
+    }
+
+    .action-btn {
+      min-height: 42px;
+      padding: 0 12px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      transition: var(--spring);
+    }
+
+    .action-btn:active:not(:disabled) {
+      transform: scale(0.97);
+    }
+
+    .btn-owner-edit {
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-text-color);
+    }
+
+    .btn-owner-archive {
+      background: var(--success-soft);
+      border: 1px solid rgba(16, 185, 129, 0.28);
+      color: var(--success-color);
+    }
+
+    .btn-owner-delete {
+      padding: 0;
+      background: var(--danger-soft);
+      border: 1px solid rgba(244, 63, 94, 0.25);
+      color: var(--tg-theme-destructive-text-color);
+    }
+
+    /* Кнопки для Гостя */
+    .btn-guest-book {
+      background: var(--accent-gradient);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      box-shadow: 0 6px 18px var(--accent-glow);
+    }
+
+    .btn-guest-unbook {
+      background: var(--success-soft);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: var(--success-color);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .btn-guest-crowdfund {
+      background: var(--crowdfund-gradient);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      box-shadow: 0 6px 18px rgba(139, 92, 246, 0.28);
+    }
+
+    .btn-guest-locked {
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-hint-color);
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+
+    /* ==========================================================================
+       8. СКЕЛЕТОНЫ (SKELETON LOADERS) И ПУСТЫЕ СОСТОЯНИЯ (EMPTY STATES)
+       ========================================================================== */
+    .skeleton-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+    }
+
+    .shimmer-block {
+      background: linear-gradient(
+        90deg,
+        var(--surface-input) 25%,
+        var(--border-hairline) 50%,
+        var(--surface-input) 75%
+      );
+      background-size: 200% 100%;
+      animation: shimmerWave 1.5s infinite;
+    }
+
+    @keyframes shimmerWave {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .sk-media { width: 100%; aspect-ratio: 16 / 10; }
+    .sk-content { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .sk-bar { height: 16px; border-radius: 8px; }
+    .sk-bar.lg { width: 78%; height: 22px; }
+    .sk-bar.sm { width: 42%; }
+    .sk-bar.full { width: 100%; height: 42px; border-radius: 12px; margin-top: 4px; }
+
+    .empty-bento {
+      grid-column: 1 / -1;
+      background: var(--surface-elevated);
+      border: 1px dashed var(--border-highlight);
+      border-radius: var(--radius-2xl);
+      padding: 48px 24px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .empty-orb {
+      width: 68px;
+      height: 68px;
+      border-radius: 22px;
+      background: var(--accent-soft);
+      border: 1px solid var(--border-focus);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin-bottom: 4px;
+    }
+
+    .empty-heading {
+      font-family: var(--font-display);
+      font-size: 19px;
+      font-weight: 800;
+    }
+
+    .empty-subtext {
+      font-size: 14px;
+      color: var(--tg-theme-hint-color);
+      max-width: 380px;
+    }
+
+    /* ==========================================================================
+       9. МОДАЛЬНЫЕ ОКНА (BOTTOM SHEET НА МОБИЛЬНЫХ / ЦЕНТР НА ПЛАНШЕТАХ И ПК)
+       ========================================================================== */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 250;
+      background: rgba(5, 6, 10, 0.68);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+      opacity: 1;
+    }
+
+    .modal-sheet-box {
+      width: 100%;
+      max-height: 92vh;
+      background: var(--surface-card);
+      border-top: 1px solid var(--border-highlight);
+      border-radius: 26px 26px 0 0;
+      padding: 16px 16px calc(22px + var(--safe-bottom));
+      overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+      animation: sheetSlideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    @keyframes sheetSlideUp {
+      from { transform: translateY(32px); opacity: 0.5; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .sheet-pill-handle {
+      width: 42px;
+      height: 5px;
+      border-radius: 999px;
+      background: var(--border-highlight);
+      margin: 0 auto 14px;
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .modal-title {
+      font-family: var(--font-display);
+      font-size: 19px;
+      font-weight: 800;
+    }
+
+    .btn-close-circle {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--surface-input);
+      border: 1px solid var(--border-hairline);
+      color: var(--tg-theme-hint-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .confirm-box {
+      width: calc(100% - 32px);
+      max-width: 380px;
+      background: var(--surface-card);
+      border: 1px solid var(--border-highlight);
+      border-radius: var(--radius-2xl);
+      padding: 24px 20px;
+      margin: auto;
+      text-align: center;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .btn-destructive {
+      min-height: 44px;
+      padding: 0 16px;
+      border-radius: var(--radius-md);
+      background: var(--tg-theme-destructive-text-color);
+      color: #ffffff;
+      font-weight: 700;
+      flex: 1;
+    }
+
+    /* ==========================================================================
+       10. TOAST-УВЕДОМЛЕНИЯ
+       ========================================================================== */
+    .toast-stack {
+      position: fixed;
+      bottom: calc(20px + var(--safe-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 350;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: calc(100% - 28px);
+      max-width: 420px;
+      pointer-events: none;
+    }
+
+    .toast-item {
+      background: rgba(15, 23, 42, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #ffffff;
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(12px);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: toastPop 0.26s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    @keyframes toastPop {
+      from { opacity: 0; transform: translateY(14px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* ==========================================================================
+       11. АДАПТИВНАЯ СЕТКА (MOBILE < 600px, TABLET 600-1024px, DESKTOP > 1024px)
+       ========================================================================== */
+    @media (max-width: 380px) {
+      .hero-metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .metric-tile:last-child {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (min-width: 600px) {
+      .app-shell {
+        padding: 24px 20px 56px;
+      }
+
+      .bento-hero {
+        padding: 22px 24px;
+      }
+
+      .hero-title {
+        font-size: 25px;
+      }
+
+      .metric-value {
+        font-size: 19px;
+      }
+
+      .gifts-bento-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+      }
+
+      .form-bento-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .field-block.span-2 {
+        grid-column: 1 / -1;
+      }
+
+      .bento-switches-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      /* Модальные окна по центру экрана на планшетах и ПК */
+      .modal-overlay {
+        align-items: center;
+        padding: 20px;
+      }
+
+      .modal-sheet-box {
+        max-width: 520px;
+        border: 1px solid var(--border-highlight);
+        border-radius: 24px;
+        padding: 24px;
+      }
+
+      .sheet-pill-handle {
+        display: none;
+      }
+    }
+
+    @media (min-width: 1025px) {
+      .app-shell {
+        padding: 32px 24px 72px;
+      }
+
+      .gifts-bento-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+      }
+
+      /* Плавные :hover состояния для курсора мыши */
+      .gift-card:hover {
+        transform: translateY(-5px);
+        background: var(--surface-card-hover);
+        border-color: var(--border-highlight);
+        box-shadow: var(--specular-inset), var(--shadow-md);
+      }
+
+      .gift-card:hover .card-media img {
+        transform: scale(1.04);
+      }
+
+      .btn-accent:hover,
+      .btn-guest-book:hover,
+      .btn-guest-crowdfund:hover {
+        filter: brightness(1.08);
+        transform: translateY(-1px);
+      }
+
+      .btn-glass:hover,
+      .studio-tool-btn:hover,
+      .btn-owner-edit:hover,
+      .store-ext-btn:hover {
+        border-color: var(--border-highlight);
+        background: var(--accent-soft);
+      }
+
+      .filter-pill:not(.active):hover,
+      .cat-preset-btn:not(.selected):hover {
+        border-color: var(--tg-theme-button-color);
+        color: var(--tg-theme-button-color);
+      }
+    }
+  </style>
+</head>
+<body data-theme="dark">
+
+  <!-- ========================================================================
+       ВЕРХНЯЯ ДЕМО-СТУДИЯ (ПЕРЕКЛЮЧЕНИЕ РОЛЕЙ, ТЕМ И СКЕЛЕТОНОВ В 1 КЛИК)
+       ======================================================================== -->
+  <div class="demo-dock-wrapper" aria-label="Панель тестирования Telegram Mini App">
+    <div class="demo-dock">
+      <div class="demo-dock-left">
+        <span class="studio-tag">
+          <span class="pulse-dot"></span>
+          TG Mini App Studio
+        </span>
+        <div class="pill-Segmented" role="group" aria-label="Выбор роли">
+          <button type="button" class="role-pill-btn active" data-role="owner" onclick="switchDemoRole('owner')">
+            👑 Владелец (Максим)
+          </button>
+          <button type="button" class="role-pill-btn" data-role="guest1" onclick="switchDemoRole('guest1')">
+            👤 Гость 1 (Анна)
+          </button>
+          <button type="button" class="role-pill-btn" data-role="guest2" onclick="switchDemoRole('guest2')">
+            👤 Гость 2 (Дима)
+          </button>
+        </div>
+      </div>
+
+      <div class="demo-dock-right">
+        <button type="button" class="studio-tool-btn active" data-theme-btn="dark" onclick="setThemePreset('dark')">
+          🌑 Obsidian
+        </button>
+        <button type="button" class="studio-tool-btn" data-theme-btn="light" onclick="setThemePreset('light')">
+          ☀️ Light Studio
+        </button>
+        <button type="button" class="studio-tool-btn" data-theme-btn="amethyst" onclick="setThemePreset('amethyst')">
+          🔮 Amethyst
+        </button>
+        <button type="button" class="studio-tool-btn" onclick="previewSkeletons()">
+          ⚡ Скелетоны
+        </button>
+        <button type="button" class="studio-tool-btn" onclick="resetDemoData()">
+          🔄 Сброс
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       ОСНОВНОЙ КОНТЕЙНЕР ПРИЛОЖЕНИЯ
+       ======================================================================== -->
+  <main class="app-shell">
+
+    <!-- 4.1. BENTO HERO HEADER -->
+    <header class="bento-hero">
+      <div class="hero-top-row">
+        <div class="hero-identity">
+          <div class="avatar-ring">
+            <div class="avatar-inner" id="heroAvatarEmoji">🎁</div>
+            <span class="avatar-status-badge"></span>
+          </div>
+          <div class="hero-title-group">
+            <div class="hero-title-line">
+              <h1 class="hero-title" id="headerTitle">🎁 Мой вишлист</h1>
+              <span class="role-mode-badge" id="roleBadge">Владелец списка</span>
+            </div>
+            <p class="hero-subtitle" id="headerSubtitle">
+              Делитесь списком с друзьями — вы не увидите, кто что забронировал, чтобы сохранить сюрприз
+            </p>
+          </div>
+        </div>
+
+        <div class="hero-actions">
+          <!-- Кнопка «Поделиться» для владельца -->
+          <button type="button" class="btn-accent" id="shareListBtn" onclick="shareWishlist()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+              <polyline points="16 6 12 2 8 6"/>
+              <line x1="12" y1="2" x2="12" y2="15"/>
+            </svg>
+            <span>Поделиться списком</span>
+          </button>
+
+          <!-- Кнопка возврата в свой список для гостя -->
+          <button type="button" class="btn-glass" id="backToOwnListBtn" style="display: none;" onclick="returnToOwnWishlist()">
+            <span>← Мой вишлист</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Bento-метрики вишлиста -->
+      <div class="hero-metrics-grid">
+        <div class="metric-tile">
+          <span class="metric-label">Актуальных желаний</span>
+          <span class="metric-value" id="metricActiveCount">0</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-label">Свободно для брони</span>
+          <span class="metric-value" id="metricFreeCount">0</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-label">Сумма вишлиста</span>
+          <span class="metric-value" id="metricTotalSum">0 ₽</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- 4.2. КОМПОЗЕР ДОБАВЛЕНИЯ ПОДАРКА (ТОЛЬКО ДЛЯ ВЛАДЕЛЬЦА) -->
+    <section class="composer-card" id="ownerAddSection" aria-label="Форма добавления нового подарка">
+      <form id="addGiftForm" onsubmit="handleAddGiftSubmit(event)">
+        <!-- Базовый уровень (всегда открыт) -->
+        <div class="composer-QuickRow">
+          <input
+            type="text"
+            id="addTitleInput"
+            class="input-modern"
+            placeholder="О чём вы мечтаете? (например, Кофемолка Fellow Ode)..."
+            required
+            maxlength="120"
+          />
+          <button type="submit" class="btn-accent" id="addSubmitBtn">
+            <span>Добавить</span>
+          </button>
+        </div>
+
+        <div class="composer-bar-bottom">
+          <button type="button" class="expand-drawer-btn" id="toggleDetailsBtn" onclick="toggleAddDetails()">
+            <span>＋ Детали (фото, цена, ссылка, тег...)</span>
+            <span class="expand-chevron">▾</span>
+          </button>
+          <span class="composer-hint">Быстрое добавление в 1 клик или с полным описанием</span>
+        </div>
+
+        <!-- Расширенный блок (прогрессивное раскрытие) -->
+        <div class="composer-drawer" id="addDetailsPanel">
+          <div class="form-bento-grid">
+
+            <!-- Фотография товара (2 способа: загрузка файла со сжатием в Canvas или URL) -->
+            <div class="field-block span-2">
+              <div class="field-label">
+                <span>Фотография товара</span>
+                <span class="tabular-nums" style="text-transform: none;">HTML5 Canvas автосжатие до 600px (WebP/JPEG 0.75)</span>
+              </div>
+
+              <div class="source-Segment">
+                <button type="button" class="source-tab-btn active" id="addTabFileBtn" onclick="switchPhotoTab('add', 'file')">
+                  📁 Загрузить с устройства
+                </button>
+                <button type="button" class="source-tab-btn" id="addTabUrlBtn" onclick="switchPhotoTab('add', 'url')">
+                  🔗 Прямая ссылка на фото
+                </button>
+              </div>
+
+              <!-- Способ 1: Загрузка файла -->
+              <div id="addPhotoFileWrap">
+                <label class="dropzone-modern" for="addFileInput">
+                  <div class="dropzone-icon">📷</div>
+                  <span style="font-weight: 700; font-size: 13px;">Выберите фото из галереи или перетащите сюда</span>
+                  <span style="font-size: 12px; color: var(--tg-theme-hint-color);">Автоматическое сжатие и отправка на POST /api/upload</span>
+                </label>
+                <input
+                  type="file"
+                  id="addFileInput"
+                  accept="image/*"
+                  style="display: none;"
+                  onchange="handleFileSelect(event, 'add')"
+                />
+
+                <div class="upload-progress-wrap" id="addUploadProgress">
+                  <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                    <span id="addUploadStatusText">Сжатие через Canvas...</span>
+                    <span class="tabular-nums" id="addUploadPercentText">0%</span>
+                  </div>
+                  <div class="progress-track">
+                    <div class="progress-fill" id="addUploadProgressBar"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Способ 2: Вставка прямой ссылки -->
+              <div id="addPhotoUrlWrap" style="display: none;">
+                <input
+                  type="url"
+                  id="addImageUrlInput"
+                  class="input-modern"
+                  placeholder="https://images.unsplash.com/photo-..."
+                  oninput="handleImageUrlInput('add')"
+                />
+              </div>
+
+              <!-- Превью сжатого или выбранного фото -->
+              <div class="photo-preview-card" id="addPhotoPreviewBox">
+                <img id="addPhotoPreviewImg" src="" alt="Превью подарка" />
+                <div class="photo-preview-info">
+                  <div class="photo-preview-title">Изображение прикреплено</div>
+                  <div class="photo-preview-sub" id="addPhotoPreviewMeta">Готово к публикации</div>
+                </div>
+                <button type="button" class="btn-remove-photo" onclick="clearPhoto('add')">Удалить</button>
+              </div>
+            </div>
+
+            <!-- Примерная цена -->
+            <div class="field-block">
+              <label class="field-label" for="addPriceInput">Примерная цена (₽)</label>
+              <input
+                type="number"
+                id="addPriceInput"
+                class="input-modern tabular-nums"
+                placeholder="Например: 6500"
+                min="0"
+                step="1"
+              />
+            </div>
+
+            <!-- Ссылка на магазин -->
+            <div class="field-block">
+              <label class="field-label" for="addLinkInput">Ссылка на магазин (где купить)</label>
+              <input
+                type="url"
+                id="addLinkInput"
+                class="input-modern"
+                placeholder="https://..."
+              />
+            </div>
+
+            <!-- Категория (тег) -->
+            <div class="field-block span-2">
+              <label class="field-label" for="addCategoryInput">Категория (выберите чипс или введите свою)</label>
+              <div class="category-preset-row" id="addCategoryChips">
+                <button type="button" class="cat-preset-btn" data-cat="Техника" onclick="selectPresetCategory('add', 'Техника')">🎧 Техника</button>
+                <button type="button" class="cat-preset-btn" data-cat="Дом" onclick="selectPresetCategory('add', 'Дом')">☕ Дом</button>
+                <button type="button" class="cat-preset-btn" data-cat="Одежда" onclick="selectPresetCategory('add', 'Одежда')">👟 Одежда</button>
+                <button type="button" class="cat-preset-btn" data-cat="Хобби" onclick="selectPresetCategory('add', 'Хобби')">🎨 Хобби</button>
+                <button type="button" class="cat-preset-btn" data-cat="Впечатления" onclick="selectPresetCategory('add', 'Впечатления')">🎟 Впечатления</button>
+              </div>
+              <input
+                type="text"
+                id="addCategoryInput"
+                class="input-modern"
+                placeholder="Или введите собственную категорию (например, Книги или Спорт)"
+                maxlength="40"
+                oninput="syncCategoryChipHighlight('add')"
+              />
+            </div>
+
+            <!-- Комментарий -->
+            <div class="field-block span-2">
+              <label class="field-label" for="addCommentInput">Комментарий (цвет, размер, комплектация)</label>
+              <textarea
+                id="addCommentInput"
+                class="input-modern textarea-modern"
+                placeholder="Уточните важные детали: например, цвет чёрный матовый, размер M, европейская вилка"
+                maxlength="300"
+              ></textarea>
+            </div>
+
+            <!-- Переключатели: Очень хочу и Можно скинуться -->
+            <div class="field-block span-2">
+              <div class="bento-switches-grid">
+                <label class="bento-switch-card" for="addPriorityToggle">
+                  <div class="switch-text-wrap">
+                    <span class="switch-title">🔥 Очень хочу</span>
+                    <span class="switch-subtitle">Закрепить в самом верху списка с ярким акцентом</span>
+                  </div>
+                  <div class="ios-switch">
+                    <input type="checkbox" id="addPriorityToggle" />
+                    <span class="ios-slider"></span>
+                  </div>
+                </label>
+
+                <label class="bento-switch-card" for="addCrowdfundToggle">
+                  <div class="switch-text-wrap">
+                    <span class="switch-title">🤝 Можно скинуться</span>
+                    <span class="switch-subtitle">Несколько гостей смогут разделить цену поровну</span>
+                  </div>
+                  <div class="ios-switch">
+                    <input type="checkbox" id="addCrowdfundToggle" />
+                    <span class="ios-slider"></span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- 4.3 & 4.4. ВКЛАДКИ НАВИГАЦИИ И ГОРИЗОНТАЛЬНЫЕ ЧИПСЫ ФИЛЬТРОВ -->
+    <section class="controls-section" aria-label="Навигация и фильтры">
+      <div class="segmented-tabs" role="tablist">
+        <button type="button" class="seg-tab-btn active" id="tabActiveBtn" onclick="switchTab('active')">
+          <span>Актуальные</span>
+          <span class="seg-count" id="tabActiveCount">0</span>
+        </button>
+        <button type="button" class="seg-tab-btn" id="tabGiftedBtn" onclick="switchTab('gifted')">
+          <span>Уже подарили</span>
+          <span class="seg-count" id="tabGiftedCount">0</span>
+        </button>
+      </div>
+
+      <div class="filters-rail" id="filtersBar" aria-label="Фильтры по статусу, цене и категориям">
+        <!-- Динамические чипсы рендерятся в JS -->
+      </div>
+    </section>
+
+    <!-- 4.5. BENTO-СЕТКА КАРТОЧЕК ПОДАРКОВ -->
+    <section class="gifts-bento-grid" id="giftsGrid" aria-live="polite">
+      <!-- Скелетоны или карточки рендерятся здесь -->
+    </section>
+
+  </main>
+
+  <!-- ========================================================================
+       МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ПОДАРКА (BOTTOM SHEET НА МОБИЛЬНЫХ / МОДАЛКА НА ПК)
+       ======================================================================== -->
+  <div class="modal-overlay" id="editModalBackdrop" onclick="handleBackdropClick(event, 'editModalBackdrop')">
+    <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+      <div class="sheet-pill-handle"></div>
+      <div class="modal-head">
+        <h2 class="modal-title" id="editModalTitle">✏️ Редактировать подарок</h2>
+        <button type="button" class="btn-close-circle" onclick="closeEditModal()" aria-label="Закрыть">✕</button>
+      </div>
+
+      <form id="editGiftForm" onsubmit="handleEditGiftSubmit(event)">
+        <input type="hidden" id="editGiftId" />
+
+        <div class="form-bento-grid">
+          <div class="field-block span-2">
+            <label class="field-label" for="editTitleInput">Название подарка *</label>
+            <input type="text" id="editTitleInput" class="input-modern" required maxlength="120" />
+          </div>
+
+          <div class="field-block span-2">
+            <div class="field-label">
+              <span>Фотография товара</span>
+              <span class="tabular-nums">До 600px WebP/JPEG</span>
+            </div>
+
+            <div class="source-Segment">
+              <button type="button" class="source-tab-btn active" id="editTabFileBtn" onclick="switchPhotoTab('edit', 'file')">
+                📁 Загрузить файл
+              </button>
+              <button type="button" class="source-tab-btn" id="editTabUrlBtn" onclick="switchPhotoTab('edit', 'url')">
+                🔗 Ссылка на фото
+              </button>
+            </div>
+
+            <div id="editPhotoFileWrap">
+              <label class="dropzone-modern" for="editFileInput" style="padding: 14px;">
+                <span style="font-weight: 700; font-size: 13px;">📷 Заменить фото с устройства</span>
+              </label>
+              <input
+                type="file"
+                id="editFileInput"
+                accept="image/*"
+                style="display: none;"
+                onchange="handleFileSelect(event, 'edit')"
+              />
+              <div class="upload-progress-wrap" id="editUploadProgress">
+                <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                  <span id="editUploadStatusText">Сжатие фото...</span>
+                  <span class="tabular-nums" id="editUploadPercentText">0%</span>
+                </div>
+                <div class="progress-track">
+                  <div class="progress-fill" id="editUploadProgressBar"></div>
+                </div>
+              </div>
+            </div>
+
+            <div id="editPhotoUrlWrap" style="display: none;">
+              <input
+                type="url"
+                id="editImageUrlInput"
+                class="input-modern"
+                placeholder="https://example.com/photo.jpg"
+                oninput="handleImageUrlInput('edit')"
+              />
+            </div>
+
+            <div class="photo-preview-card" id="editPhotoPreviewBox">
+              <img id="editPhotoPreviewImg" src="" alt="Превью" />
+              <div class="photo-preview-info">
+                <div class="photo-preview-title">Текущее изображение</div>
+                <div class="photo-preview-sub" id="editPhotoPreviewMeta">Готово</div>
+              </div>
+              <button type="button" class="btn-remove-photo" onclick="clearPhoto('edit')">Удалить</button>
+            </div>
+          </div>
+
+          <div class="field-block">
+            <label class="field-label" for="editPriceInput">Примерная цена (₽)</label>
+            <input type="number" id="editPriceInput" class="input-modern tabular-nums" min="0" step="1" />
+          </div>
+
+          <div class="field-block">
+            <label class="field-label" for="editLinkInput">Ссылка на магазин</label>
+            <input type="url" id="editLinkInput" class="input-modern" placeholder="https://..." />
+          </div>
+
+          <div class="field-block span-2">
+            <label class="field-label" for="editCategoryInput">Категория</label>
+            <div class="category-preset-row" id="editCategoryChips">
+              <button type="button" class="cat-preset-btn" data-cat="Техника" onclick="selectPresetCategory('edit', 'Техника')">🎧 Техника</button>
+              <button type="button" class="cat-preset-btn" data-cat="Дом" onclick="selectPresetCategory('edit', 'Дом')">☕ Дом</button>
+              <button type="button" class="cat-preset-btn" data-cat="Одежда" onclick="selectPresetCategory('edit', 'Одежда')">👟 Одежда</button>
+              <button type="button" class="cat-preset-btn" data-cat="Хобби" onclick="selectPresetCategory('edit', 'Хобби')">🎨 Хобби</button>
+              <button type="button" class="cat-preset-btn" data-cat="Впечатления" onclick="selectPresetCategory('edit', 'Впечатления')">🎟 Впечатления</button>
+            </div>
+            <input
+              type="text"
+              id="editCategoryInput"
+              class="input-modern"
+              placeholder="Своя категория"
+              maxlength="40"
+              oninput="syncCategoryChipHighlight('edit')"
+            />
+          </div>
+
+          <div class="field-block span-2">
+            <label class="field-label" for="editCommentInput">Комментарий</label>
+            <textarea id="editCommentInput" class="input-modern textarea-modern" maxlength="300"></textarea>
+          </div>
+
+          <div class="field-block span-2">
+            <div class="bento-switches-grid">
+              <label class="bento-switch-card" for="editPriorityToggle">
+                <div class="switch-text-wrap">
+                  <span class="switch-title">🔥 Очень хочу</span>
+                  <span class="switch-subtitle">Приоритет в начале списка</span>
+                </div>
+                <div class="ios-switch">
+                  <input type="checkbox" id="editPriorityToggle" />
+                  <span class="ios-slider"></span>
+                </div>
+              </label>
+
+              <label class="bento-switch-card" for="editCrowdfundToggle">
+                <div class="switch-text-wrap">
+                  <span class="switch-title">🤝 Можно скинуться</span>
+                  <span class="switch-subtitle">Совместный сбор</span>
+                </div>
+                <div class="ios-switch">
+                  <input type="checkbox" id="editCrowdfundToggle" />
+                  <span class="ios-slider"></span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn-glass" style="flex: 1;" onclick="closeEditModal()">Отмена</button>
+          <button type="submit" class="btn-accent" style="flex: 2;">Сохранить изменения</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       МОДАЛЬНОЕ ОКНО ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ
+       ======================================================================== -->
+  <div class="modal-overlay" id="deleteConfirmBackdrop" onclick="handleBackdropClick(event, 'deleteConfirmBackdrop')">
+    <div class="confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="deleteDialogTitle">
+      <div class="empty-orb" style="margin: 0 auto 12px; background: var(--danger-soft); border-color: rgba(244,63,94,0.3);">🗑</div>
+      <h3 id="deleteDialogTitle" style="font-family: var(--font-display); font-size: 18px; font-weight: 800; margin-bottom: 6px;">
+        Удалить подарок?
+      </h3>
+      <p id="deleteDialogText" style="font-size: 13px; color: var(--tg-theme-hint-color); margin-bottom: 20px;">
+        Это желание будет удалено из вашего вишлиста без возможности восстановления.
+      </p>
+      <div style="display: flex; gap: 10px;">
+        <button type="button" class="btn-glass" style="flex: 1;" onclick="closeDeleteConfirm()">Отмена</button>
+        <button type="button" class="btn-destructive" id="confirmDeleteBtn">Удалить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- КОНТЕЙНЕР TOAST-УВЕДОМЛЕНИЙ -->
+  <div class="toast-stack" id="toastContainer"></div>
+
+  <!-- ========================================================================
+       JAVASCRIPT: SDK TELEGRAM, КОНТРАКТ API, СЖАТИЕ В CANVAS И UI-ЛОГИКА
+       ======================================================================== -->
+  <script>
+    /**
+     * 1. КОНСТАНТЫ КОНФИГУРАЦИИ БЭКЕНДА И БОТА (по ТЗ п. 5)
+     */
+    // После первого deploy укажите адрес Worker без завершающего слэша.
+    const API_BASE_URL = ""; // Например: "https://tgbot.example.workers.dev"
+    const API_ORIGIN = API_BASE_URL.replace(/\/+$/, "");
+    const FALLBACK_BOT_USERNAME = "personal_wishlist_bot"; // Используется только в браузерном демо
+    const STORAGE_KEY = "tg_miniapp_wishlist_2026_v2";
+    const MAX_IMAGE_BYTES = 512 * 1024;
+
+    /**
+     * 2. ИНИЦИАЛИЗАЦИЯ TELEGRAM WEBAPP SDK
+     */
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      try {
+        tg.ready();
+        tg.expand();
+        if (tg.colorScheme === "light") {
+          setThemePreset("light", true);
+        }
+      } catch (err) {
+        console.warn("Telegram WebApp init fallback:", err);
+      }
+    }
+
+    /**
+     * Тактильный отклик Telegram (HapticFeedback)
+     */
+    function triggerHaptic(type = "light") {
+      try {
+        if (!tg?.HapticFeedback) return;
+        if (type === "success" || type === "warning" || type === "error") {
+          tg.HapticFeedback.notificationOccurred(type);
+        } else {
+          tg.HapticFeedback.impactOccurred(type);
+        }
+      } catch (e) {
+        // Игнорируем в десктопном браузере
+      }
+    }
+
+    /**
+     * 3. РОЛЕВАЯ МОДЕЛЬ И СТЕЙТ ПРИЛОЖЕНИЯ
+     */
+    const DEMO_USERS = {
+      owner: { id: 1001, name: "Максим", label: "Владелец (Максим)", avatar: "🎁", initials: "М" },
+      guest1: { id: 2002, name: "Анна", label: "Гость 1 (Анна)", avatar: "✨", initials: "А" },
+      guest2: { id: 3003, name: "Дима", label: "Гость 2 (Дима)", avatar: "🚀", initials: "Д" }
+    };
+
+    function parsePositiveId(value) {
+      const id = Number(value);
+      return Number.isSafeInteger(id) && id > 0 ? id : null;
+    }
+
+    const telegramUser = tg?.initDataUnsafe?.user;
+    const telegramUserId = parsePositiveId(telegramUser?.id);
+    const isTelegramSession = Boolean(tg?.initData && telegramUserId);
+    const tgUserId = isTelegramSession ? telegramUserId : DEMO_USERS.owner.id;
+    const startParam = tg?.initDataUnsafe?.start_param || "";
+    const queryListParam = new URLSearchParams(window.location.search).get("list") || "";
+    const requestedOwnerId = startParam.startsWith("list_")
+      ? startParam.slice(5)
+      : queryListParam;
+    const parsedOwnerId = parsePositiveId(requestedOwnerId) || tgUserId;
+    const telegramViewerName = String(telegramUser?.first_name || "Пользователь").trim() || "Пользователь";
+
+    const state = {
+      ownerId: parsedOwnerId,
+      viewerId: tgUserId,
+      ownerName: parsedOwnerId === tgUserId && isTelegramSession ? telegramViewerName : "Пользователь",
+      viewerName: isTelegramSession ? telegramViewerName : DEMO_USERS.owner.name,
+      botUsername: isTelegramSession ? "" : FALLBACK_BOT_USERNAME,
+      activeRoleKey: "owner",
+      activeTab: "active", // 'active' (is_gifted: false) | 'gifted' (is_gifted: true)
+      onlyFreeFilter: false,
+      priceFilter: "all", // 'all' | 'under2k' | '2k_5k' | 'over5k'
+      categoryFilter: "all",
+      isLoading: true,
+      loadError: "",
+      gifts: [],
+      photoDraft: {
+        add: "",
+        edit: ""
+      },
+      pendingDeleteId: null
+    };
+
+    /**
+     * Арт-дирекшн для категорий (используется для бейджей и стильных заглушек без фото)
+     */
+    const CATEGORY_STYLES = {
+      "Техника": {
+        emoji: "🎧",
+        gradient: "linear-gradient(135deg, #1d4ed8 0%, #4338ca 50%, #6d28d9 100%)"
+      },
+      "Дом": {
+        emoji: "☕",
+        gradient: "linear-gradient(135deg, #047857 0%, #0d9488 100%)"
+      },
+      "Одежда": {
+        emoji: "👟",
+        gradient: "linear-gradient(135deg, #be185d 0%, #e11d48 100%)"
+      },
+      "Хобби": {
+        emoji: "🎨",
+        gradient: "linear-gradient(135deg, #b45309 0%, #ea580c 100%)"
+      },
+      "Впечатления": {
+        emoji: "🎟",
+        gradient: "linear-gradient(135deg, #4f46e5 0%, #0891b2 100%)"
+      },
+      "default": {
+        emoji: "🎁",
+        gradient: "linear-gradient(135deg, #334155 0%, #0f172a 100%)"
+      }
+    };
+
+    /**
+     * Начальный демонстрационный набор подарков (покрывает все сценарии ТЗ)
+     */
+    function getInitialDemoGifts() {
+      return [
+        {
+          id: 1731672009000,
+          title: "Беспроводные наушники Sony WH-1000XM5",
+          link: "https://example.com/sony-wh1000xm5",
+          image: "https://images.unsplash.com/photo-1618366712010-f4ae9c647dcb?auto=format&fit=crop&w=800&q=80",
+          price: 29900,
+          category: "Техника",
+          comment: "Цвет Platinum Silver (платиновый серебристый) или чёрный матовый",
+          priority: true,
+          is_crowdfund: true,
+          booked_by: null,
+          participants: [2002, 3003],
+          is_gifted: false
+        },
+        {
+          id: 1731672008000,
+          title: "Кофемолка жерновая электрическая Fellow Ode Brew Gen 2",
+          link: "https://example.com/fellow-ode",
+          image: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=800&q=80",
+          price: 6500,
+          category: "Дом",
+          comment: "Цвет чёрный матовый, под альтернативу и пуровер V60",
+          priority: true,
+          is_crowdfund: false,
+          booked_by: null,
+          participants: [],
+          is_gifted: false
+        },
+        {
+          id: 1731672007000,
+          title: "Мастер-класс по гончарному кругу и керамике на двоих",
+          link: "https://example.com/pottery-studio",
+          image: "", // Демонстрация дизайнерской градиентной плашки без фото
+          price: 4200,
+          category: "Впечатления",
+          comment: "Сертификат с открытой датой на выходной день, включая обжиг",
+          priority: false,
+          is_crowdfund: false,
+          booked_by: 2002, // Забронировано Анной (Гость 1)
+          participants: [],
+          is_gifted: false
+        },
+        {
+          id: 1731672006000,
+          title: "Худи Heavyweight Oversize из плотного хлопка 480 г/м²",
+          link: "https://example.com/heavy-hoodie",
+          image: "", // Демонстрация арт-заглушки категории «Одежда»
+          price: 3900,
+          category: "Одежда",
+          comment: "Размер L, цвет графит или тёмный шалфей, без логотипов",
+          priority: false,
+          is_crowdfund: false,
+          booked_by: 3003, // Забронировано Димой (Гость 2)
+          participants: [],
+          is_gifted: false
+        },
+        {
+          id: 1731672005000,
+          title: "Набор акварельных маркеров Copic и скетчбук в твёрдом переплёте",
+          link: "https://example.com/markers-set",
+          image: "https://images.unsplash.com/photo-1513364776144-60967b0f800f?auto=format&fit=crop&w=800&q=80",
+          price: 1750,
+          category: "Хобби",
+          comment: "Палитра архитектурных и природных оттенков, бумага 180 г/м²",
+          priority: false,
+          is_crowdfund: false,
+          booked_by: null,
+          participants: [],
+          is_gifted: false
+        },
+        {
+          id: 1731672004000,
+          title: "Виниловый проигрыватель Audio-Technica AT-LP60XBT",
+          link: "https://example.com/turntable",
+          image: "https://images.unsplash.com/photo-1539375665275-f9de415ef9ac?auto=format&fit=crop&w=800&q=80",
+          price: 18900,
+          category: "Техника",
+          comment: "Версия с Bluetooth, цвет корпуса чёрный или орех",
+          priority: false,
+          is_crowdfund: true,
+          booked_by: null,
+          participants: [3003],
+          is_gifted: false
+        },
+        {
+          id: 1731672002000,
+          title: "Механическая клавиатура Keychron K2 Pro QMK/VIA",
+          link: "https://example.com/keychron-k2",
+          image: "https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=800&q=80",
+          price: 9400,
+          category: "Техника",
+          comment: "Тактильные свитчи Brown, алюминиевая рамка",
+          priority: true,
+          is_crowdfund: false,
+          booked_by: 2002,
+          participants: [],
+          is_gifted: true
+        },
+        {
+          id: 1731672001000,
+          title: "Термос Stanley Classic Legendary Bottle 0.75 л",
+          link: "https://example.com/stanley",
+          image: "",
+          price: 3600,
+          category: "Дом",
+          comment: "Фирменный молотковый зелёный цвет Hammertone Green",
+          priority: false,
+          is_crowdfund: false,
+          booked_by: 3003,
+          participants: [],
+          is_gifted: true
+        }
+      ];
+    }
+
+    /**
+     * 4. ЗАЩИТА ОТ XSS И ВАЛИДАЦИЯ ССЫЛОК (ТЗ п. 6)
+     */
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function isValidHttpUrl(string) {
+      if (!string) return false;
+      try {
+        const url = new URL(string);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function formatPrice(num) {
+      if (num === null || num === undefined || num === "" || isNaN(Number(num)) || Number(num) <= 0) {
+        return null;
+      }
+      return new Intl.NumberFormat("ru-RU").format(Math.round(Number(num))) + " ₽";
+    }
+
+    /**
+     * 5. ВЗАИМОДЕЙСТВИЕ С БЭКЕНДОМ И ОТДЕЛЬНЫЙ БРАУЗЕРНЫЙ DEMO-РЕЖИМ
+     */
+    function getAuthHeaders() {
+      return {
+        "X-Telegram-Init-Data": tg?.initData || ""
+      };
+    }
+
+    function resolveImageUrl(url) {
+      const value = String(url || "");
+      return value.startsWith("/api/img/") && API_ORIGIN
+        ? `${API_ORIGIN}${value}`
+        : value;
+    }
+
+    function applyServerData(data) {
+      if (!data || !Array.isArray(data.gifts)) {
+        throw new Error("Сервер вернул некорректные данные");
+      }
+      const responseOwnerId = parsePositiveId(data.owner?.id);
+      if (responseOwnerId) state.ownerId = responseOwnerId;
+      state.ownerName = String(data.owner?.first_name || "Пользователь").trim() || "Пользователь";
+      state.gifts = data.gifts;
+      state.loadError = "";
+    }
+
+    async function readApiResponse(response) {
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || `Ошибка сервера (${response.status})`);
+      }
+      return data;
+    }
+
+    async function loadBotConfig() {
+      if (!isTelegramSession || !API_ORIGIN) return;
+      try {
+        const response = await fetch(`${API_ORIGIN}/api/config`);
+        const data = await readApiResponse(response);
+        state.botUsername = String(data.botUsername || "").replace(/^@/, "");
+      } catch (error) {
+        console.warn("Bot config is unavailable:", error);
+      }
+    }
+
+    async function fetchGifts() {
+      state.isLoading = true;
+      state.loadError = "";
+      renderSkeletons();
+
+      if (isTelegramSession) {
+        state.gifts = [];
+        if (!API_ORIGIN) {
+          state.isLoading = false;
+          state.loadError = "Не указан адрес Cloudflare Worker в API_BASE_URL.";
+          renderAll();
+          return;
+        }
+
+        try {
+          const response = await fetch(
+            `${API_ORIGIN}/api/data?owner_id=${encodeURIComponent(state.ownerId)}`,
+            { method: "GET", headers: getAuthHeaders() }
+          );
+          applyServerData(await readApiResponse(response));
+        } catch (error) {
+          state.loadError = error.message || "Не удалось загрузить вишлист.";
+        }
+        state.isLoading = false;
+        renderAll();
+        return;
+      }
+
+      // Обычный браузер — только локальная демонстрация без запросов к боевому API.
+      await new Promise(resolve => setTimeout(resolve, 380));
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          state.gifts = Array.isArray(parsed) ? parsed : getInitialDemoGifts();
+        } catch (error) {
+          state.gifts = getInitialDemoGifts();
+        }
+      } else {
+        state.gifts = getInitialDemoGifts();
+      }
+      state.ownerName = DEMO_USERS.owner.name;
+      state.viewerName = DEMO_USERS[state.activeRoleKey]?.name || DEMO_USERS.owner.name;
+      saveLocalGifts();
+      state.isLoading = false;
+      renderAll();
+    }
+
+    function saveLocalGifts() {
+      if (isTelegramSession) return;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.gifts));
+      } catch (error) {
+        showToast("⚠️ Локальное хранилище переполнено");
+      }
+    }
+
+    async function mutateGifts(action, payload) {
+      if (isTelegramSession) {
+        if (!API_ORIGIN) {
+          showToast("❌ Сначала укажите адрес Cloudflare Worker");
+          return false;
+        }
+        try {
+          const response = await fetch(`${API_ORIGIN}/api/data`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...getAuthHeaders()
+            },
+            body: JSON.stringify({
+              owner_id: state.ownerId,
+              action,
+              payload
+            })
+          });
+          applyServerData(await readApiResponse(response));
+          renderAll();
+          return true;
+        } catch (error) {
+          showToast(`❌ ${error.message || "Ошибка синхронизации с сервером"}`);
+          return false;
+        }
+      }
+
+      if (action === "add") {
+        state.gifts.unshift(payload);
+      } else if (action === "update") {
+        state.gifts = state.gifts.map(g => (g.id === payload.id ? { ...g, ...payload } : g));
+      } else if (action === "delete") {
+        state.gifts = state.gifts.filter(g => g.id !== payload.id);
+      } else if (action === "toggle_gifted") {
+        state.gifts = state.gifts.map(g => (g.id === payload.id ? { ...g, is_gifted: !g.is_gifted } : g));
+      } else if (action === "toggle_book") {
+        state.gifts = state.gifts.map(g => {
+          if (g.id !== payload.id) return g;
+          if (g.booked_by === state.viewerId) return { ...g, booked_by: null };
+          if (g.booked_by === null) return { ...g, booked_by: state.viewerId };
+          return g;
+        });
+      } else if (action === "toggle_crowdfund") {
+        state.gifts = state.gifts.map(g => {
+          if (g.id !== payload.id) return g;
+          const list = Array.isArray(g.participants) ? [...g.participants] : [];
+          const idx = list.indexOf(state.viewerId);
+          if (idx >= 0) list.splice(idx, 1);
+          else list.push(state.viewerId);
+          return { ...g, participants: list };
+        });
+      }
+
+      saveLocalGifts();
+      renderAll();
+      return true;
+    }
+
+    /**
+     * 6. СЖАТИЕ ИЗОБРАЖЕНИЯ В HTML5 CANVAS (600px max, 0.75 quality) И ЗАГРУЗКА
+     */
+    async function compressAndUploadImage(file, formPrefix) {
+      const progressWrap = document.getElementById(`${formPrefix}UploadProgress`);
+      const progressBar = document.getElementById(`${formPrefix}UploadProgressBar`);
+      const statusText = document.getElementById(`${formPrefix}UploadStatusText`);
+      const percentText = document.getElementById(`${formPrefix}UploadPercentText`);
+
+      const setProgress = (pct, label) => {
+        progressWrap.classList.add("active");
+        progressBar.style.width = `${pct}%`;
+        statusText.textContent = label;
+        percentText.textContent = `${pct}%`;
+      };
+
+      setProgress(25, "Сжатие через HTML5 Canvas (до 600px)...");
+
+      const { blob, dataUrl, width, height } = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Ошибка чтения файла"));
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onerror = () => reject(new Error("Некорректный файл изображения"));
+          img.onload = () => {
+            const MAX_SIDE = 600;
+            let targetW = img.width;
+            let targetH = img.height;
+
+            if (targetW > targetH && targetW > MAX_SIDE) {
+              targetH = Math.round((targetH * MAX_SIDE) / targetW);
+              targetW = MAX_SIDE;
+            } else if (targetH >= targetW && targetH > MAX_SIDE) {
+              targetW = Math.round((targetW * MAX_SIDE) / targetH);
+              targetH = MAX_SIDE;
+            }
+
+            const canvas = document.createElement("canvas");
+            canvas.width = targetW;
+            canvas.height = targetH;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, targetW, targetH);
+
+            let mimeType = "image/webp";
+            let outDataUrl = canvas.toDataURL(mimeType, 0.75);
+            if (!outDataUrl.startsWith("data:image/webp")) {
+              mimeType = "image/jpeg";
+              outDataUrl = canvas.toDataURL(mimeType, 0.75);
+            }
+
+            canvas.toBlob(
+              (resultBlob) => {
+                resolve({
+                  blob: resultBlob,
+                  dataUrl: outDataUrl,
+                  width: targetW,
+                  height: targetH
+                });
+              },
+              mimeType,
+              0.75
+            );
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      setProgress(70, "Отправка сжатого файла...");
+
+      if (isTelegramSession) {
+        if (!API_ORIGIN) throw new Error("Не указан адрес Cloudflare Worker");
+        if (!blob) throw new Error("Браузер не смог сжать изображение");
+        if (blob.size > MAX_IMAGE_BYTES) {
+          throw new Error("Сжатое изображение всё ещё больше 512 КБ");
+        }
+
+        try {
+          const formData = new FormData();
+          const filename = blob.type === "image/jpeg" ? "gift-photo.jpg" : "gift-photo.webp";
+          formData.append("file", blob, filename);
+          const response = await fetch(`${API_ORIGIN}/api/upload`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: formData
+          });
+          const result = await readApiResponse(response);
+          if (!result.url) throw new Error("Сервер не вернул ссылку на изображение");
+          setProgress(100, "Загружено в Cloudflare KV!");
+          setTimeout(() => progressWrap.classList.remove("active"), 500);
+          return {
+            url: result.url,
+            meta: `${width}×${height}px · Cloudflare KV`
+          };
+        } catch (error) {
+          setProgress(100, "Ошибка загрузки");
+          throw new Error(error.message || "Не удалось загрузить изображение");
+        }
+      }
+
+      const sizeKb = blob ? Math.round(blob.size / 1024) : Math.round((dataUrl.length * 0.75) / 1024);
+      setProgress(100, "Сжато успешно!");
+      setTimeout(() => progressWrap.classList.remove("active"), 500);
+
+      return {
+        url: dataUrl,
+        meta: `${width}×${height}px · ~${sizeKb} КБ (WebP/JPEG 0.75)`
+      };
+    }
+
+    async function handleFileSelect(event, formPrefix) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const result = await compressAndUploadImage(file, formPrefix);
+        state.photoDraft[formPrefix] = result.url;
+        updatePhotoPreviewUI(formPrefix, result.url, result.meta);
+        triggerHaptic("success");
+      } catch (err) {
+        showToast(`❌ ${err.message || "Не удалось обработать выбранное изображение"}`);
+      }
+    }
+
+    function handleImageUrlInput(formPrefix) {
+      const input = document.getElementById(`${formPrefix}ImageUrlInput`);
+      const val = input.value.trim();
+      if (isValidHttpUrl(val)) {
+        state.photoDraft[formPrefix] = val;
+        updatePhotoPreviewUI(formPrefix, val, "Прямая веб-ссылка");
+      } else if (!val) {
+        state.photoDraft[formPrefix] = "";
+        updatePhotoPreviewUI(formPrefix, "", "");
+      }
+    }
+
+    function updatePhotoPreviewUI(formPrefix, url, metaText) {
+      const box = document.getElementById(`${formPrefix}PhotoPreviewBox`);
+      const img = document.getElementById(`${formPrefix}PhotoPreviewImg`);
+      const meta = document.getElementById(`${formPrefix}PhotoPreviewMeta`);
+
+      if (url) {
+        img.src = resolveImageUrl(url);
+        meta.textContent = metaText || "Фото выбрано";
+        box.classList.add("active");
+      } else {
+        img.src = "";
+        box.classList.remove("active");
+      }
+    }
+
+    function clearPhoto(formPrefix) {
+      state.photoDraft[formPrefix] = "";
+      const fileInput = document.getElementById(`${formPrefix}FileInput`);
+      const urlInput = document.getElementById(`${formPrefix}ImageUrlInput`);
+      if (fileInput) fileInput.value = "";
+      if (urlInput) urlInput.value = "";
+      updatePhotoPreviewUI(formPrefix, "", "");
+      triggerHaptic("light");
+    }
+
+    function switchPhotoTab(formPrefix, mode) {
+      const fileBtn = document.getElementById(`${formPrefix}TabFileBtn`);
+      const urlBtn = document.getElementById(`${formPrefix}TabUrlBtn`);
+      const fileWrap = document.getElementById(`${formPrefix}PhotoFileWrap`);
+      const urlWrap = document.getElementById(`${formPrefix}PhotoUrlWrap`);
+
+      if (mode === "file") {
+        fileBtn.classList.add("active");
+        urlBtn.classList.remove("active");
+        fileWrap.style.display = "block";
+        urlWrap.style.display = "none";
+      } else {
+        urlBtn.classList.add("active");
+        fileBtn.classList.remove("active");
+        fileWrap.style.display = "none";
+        urlWrap.style.display = "block";
+      }
+      triggerHaptic("light");
+    }
+
+    /**
+     * 7. УПРАВЛЕНИЕ ФОРМАМИ ДОБАВЛЕНИЯ И РЕДАКТИРОВАНИЯ
+     */
+    function toggleAddDetails() {
+      const panel = document.getElementById("addDetailsPanel");
+      const btn = document.getElementById("toggleDetailsBtn");
+      const isOpen = panel.classList.toggle("open");
+      btn.classList.toggle("active", isOpen);
+      triggerHaptic("light");
+    }
+
+    function selectPresetCategory(formPrefix, categoryName) {
+      const input = document.getElementById(`${formPrefix}CategoryInput`);
+      input.value = input.value.trim() === categoryName ? "" : categoryName;
+      syncCategoryChipHighlight(formPrefix);
+      triggerHaptic("light");
+    }
+
+    function syncCategoryChipHighlight(formPrefix) {
+      const val = document.getElementById(`${formPrefix}CategoryInput`).value.trim();
+      const container = document.getElementById(`${formPrefix}CategoryChips`);
+      container.querySelectorAll(".cat-preset-btn").forEach(btn => {
+        btn.classList.toggle("selected", btn.getAttribute("data-cat") === val);
+      });
+    }
+
+    async function handleAddGiftSubmit(event) {
+      event.preventDefault();
+      const titleEl = document.getElementById("addTitleInput");
+      const title = titleEl.value.trim();
+      if (!title) return;
+
+      const rawPrice = document.getElementById("addPriceInput").value.trim();
+      const rawLink = document.getElementById("addLinkInput").value.trim();
+      const category = document.getElementById("addCategoryInput").value.trim() || "Разное";
+      const comment = document.getElementById("addCommentInput").value.trim();
+      const priority = document.getElementById("addPriorityToggle").checked;
+      const isCrowdfund = document.getElementById("addCrowdfundToggle").checked;
+
+      if (rawLink && !isValidHttpUrl(rawLink)) {
+        showToast("⚠️ Ссылка должна начинаться с https:// или http://");
+        return;
+      }
+
+      const newGift = {
+        id: Date.now(),
+        title,
+        link: rawLink,
+        image: state.photoDraft.add || "",
+        price: rawPrice ? Number(rawPrice) : null,
+        category,
+        comment,
+        priority,
+        is_crowdfund: isCrowdfund,
+        booked_by: null,
+        participants: [],
+        is_gifted: false
+      };
+
+      const ok = await mutateGifts("add", newGift);
+      if (ok) {
+        triggerHaptic("success");
+        showToast("🎁 Желание добавлено в ваш вишлист!");
+        document.getElementById("addGiftForm").reset();
+        clearPhoto("add");
+        syncCategoryChipHighlight("add");
+        state.activeTab = "active";
+        renderAll();
+      }
+    }
+
+    function openEditModal(giftId) {
+      const gift = state.gifts.find(g => g.id === giftId);
+      if (!gift) return;
+
+      document.getElementById("editGiftId").value = gift.id;
+      document.getElementById("editTitleInput").value = gift.title || "";
+      document.getElementById("editPriceInput").value = gift.price || "";
+      document.getElementById("editLinkInput").value = gift.link || "";
+      document.getElementById("editCategoryInput").value = gift.category || "";
+      document.getElementById("editCommentInput").value = gift.comment || "";
+      document.getElementById("editPriorityToggle").checked = Boolean(gift.priority);
+      document.getElementById("editCrowdfundToggle").checked = Boolean(gift.is_crowdfund);
+
+      state.photoDraft.edit = gift.image || "";
+      document.getElementById("editImageUrlInput").value =
+        gift.image && gift.image.startsWith("http") ? gift.image : "";
+      updatePhotoPreviewUI("edit", gift.image || "", gift.image ? "Сохранено в карточке" : "");
+      syncCategoryChipHighlight("edit");
+
+      document.getElementById("editModalBackdrop").classList.add("open");
+      triggerHaptic("light");
+    }
+
+    function closeEditModal() {
+      document.getElementById("editModalBackdrop").classList.remove("open");
+    }
+
+    async function handleEditGiftSubmit(event) {
+      event.preventDefault();
+      const id = Number(document.getElementById("editGiftId").value);
+      const title = document.getElementById("editTitleInput").value.trim();
+      if (!title) return;
+
+      const rawPrice = document.getElementById("editPriceInput").value.trim();
+      const rawLink = document.getElementById("editLinkInput").value.trim();
+      const category = document.getElementById("editCategoryInput").value.trim() || "Разное";
+      const comment = document.getElementById("editCommentInput").value.trim();
+      const priority = document.getElementById("editPriorityToggle").checked;
+      const isCrowdfund = document.getElementById("editCrowdfundToggle").checked;
+
+      if (rawLink && !isValidHttpUrl(rawLink)) {
+        showToast("⚠️ Укажите корректный URL магазина (http:// или https://)");
+        return;
+      }
+
+      const updatedPayload = {
+        id,
+        title,
+        price: rawPrice ? Number(rawPrice) : null,
+        link: rawLink,
+        image: state.photoDraft.edit || "",
+        category,
+        comment,
+        priority,
+        is_crowdfund: isCrowdfund
+      };
+
+      const ok = await mutateGifts("update", updatedPayload);
+      if (ok) {
+        triggerHaptic("success");
+        closeEditModal();
+        showToast("✓ Изменения сохранены");
+      }
+    }
+
+    function requestDeleteGift(giftId) {
+      const gift = state.gifts.find(g => g.id === giftId);
+      if (!gift) return;
+      state.pendingDeleteId = giftId;
+      document.getElementById("deleteDialogText").textContent =
+        `Подарок «${gift.title}» будет навсегда удалён из вашего списка.`;
+      document.getElementById("deleteConfirmBackdrop").classList.add("open");
+      triggerHaptic("warning");
+    }
+
+    function closeDeleteConfirm() {
+      state.pendingDeleteId = null;
+      document.getElementById("deleteConfirmBackdrop").classList.remove("open");
+    }
+
+    document.getElementById("confirmDeleteBtn").addEventListener("click", async () => {
+      if (!state.pendingDeleteId) return;
+      const id = state.pendingDeleteId;
+      closeDeleteConfirm();
+      const ok = await mutateGifts("delete", { id });
+      if (ok) {
+        triggerHaptic("light");
+        showToast("🗑 Подарок удалён из списка");
+      }
+    });
+
+    function handleBackdropClick(event, backdropId) {
+      if (event.target.id === backdropId) {
+        document.getElementById(backdropId).classList.remove("open");
+      }
+    }
+
+    /**
+     * 8. ДЕЙСТВИЯ С КАРТОЧКАМИ (АРХИВ, БРОНЬ, СКЛАДЧИНА, ССЫЛКИ)
+     */
+    async function toggleGiftArchive(giftId) {
+      const gift = state.gifts.find(g => g.id === giftId);
+      if (!gift) return;
+      const willBeGifted = !gift.is_gifted;
+      const ok = await mutateGifts("toggle_gifted", { id: giftId });
+      if (ok) {
+        triggerHaptic("success");
+        showToast(willBeGifted ? "🎉 Перенесено в «Уже подарили»" : "↩ Возвращено в «Актуальные»");
+      }
+    }
+
+    async function toggleBookSingleGift(giftId) {
+      const gift = state.gifts.find(g => g.id === giftId);
+      if (!gift) return;
+      const isUnbooking = gift.booked_by === state.viewerId;
+      const ok = await mutateGifts("toggle_book", { id: giftId });
+      if (ok) {
+        triggerHaptic("success");
+        showToast(
+          isUnbooking
+            ? "Бронь снята — подарок снова свободен"
+            : "🎁 Вы забронировали подарок! Владелец не видит имя дарителя."
+        );
+      }
+    }
+
+    async function toggleCrowdfundJoin(giftId) {
+      const gift = state.gifts.find(g => g.id === giftId);
+      if (!gift) return;
+      const isLeaving = Array.isArray(gift.participants) && gift.participants.includes(state.viewerId);
+      const ok = await mutateGifts("toggle_crowdfund", { id: giftId });
+      if (ok) {
+        triggerHaptic("success");
+        showToast(
+          isLeaving
+            ? "Вы вышли из совместного сбора"
+            : "🤝 Вы присоединились к сбору! Доля автоматически пересчитана."
+        );
+      }
+    }
+
+    function openStoreLink(url) {
+      if (!isValidHttpUrl(url)) {
+        showToast("⚠️ Некорректная ссылка на магазин");
+        return;
+      }
+      triggerHaptic("light");
+      if (tg?.openLink) {
+        tg.openLink(url);
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    }
+
+    async function shareWishlist() {
+      triggerHaptic("light");
+      if (!state.botUsername && isTelegramSession) await loadBotConfig();
+      if (!state.botUsername) {
+        showToast("⚠️ Не удалось получить username бота. Проверьте BOT_TOKEN и Worker.");
+        return;
+      }
+
+      // Через /start бот гарантированно получает deep link и выдаёт кнопку Mini App.
+      const shareUrl = `https://t.me/${state.botUsername}?start=list_${state.ownerId}`;
+      const shareText = "Привет! Загляни в мой вишлист подарков в Telegram 🎁 Тут можно забронировать подарок или скинуться вместе с друзьями:";
+      const telegramShareLink = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
+      const copied = await copyToClipboard(shareUrl);
+      showToast(copied ? "🔗 Ссылка на вишлист скопирована!" : "🔗 Откройте меню отправки ссылки");
+
+      if (tg?.openTelegramLink && tg?.initData) {
+        try {
+          tg.openTelegramLink(telegramShareLink);
+        } catch (error) {
+          // Ссылка уже скопирована, поэтому ей можно поделиться вручную.
+        }
+      }
+    }
+
+    async function copyToClipboard(text) {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch (error) {
+        // Ниже — совместимый вариант для старых клиентов Telegram.
+      }
+
+      const tempInput = document.createElement("textarea");
+      tempInput.value = text;
+      tempInput.style.position = "fixed";
+      tempInput.style.opacity = "0";
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch (error) {}
+      document.body.removeChild(tempInput);
+      return copied;
+    }
+
+    async function returnToOwnWishlist() {
+      if (!isTelegramSession) {
+        switchDemoRole("owner");
+        return;
+      }
+      if (state.ownerId === state.viewerId) return;
+
+      state.ownerId = state.viewerId;
+      state.ownerName = state.viewerName;
+      state.activeTab = "active";
+      state.onlyFreeFilter = false;
+      state.priceFilter = "all";
+      state.categoryFilter = "all";
+      const url = new URL(window.location.href);
+      url.searchParams.delete("list");
+      window.history.replaceState({}, "", url);
+      await fetchGifts();
+    }
+
+    /**
+     * 9. ФИЛЬТРЫ, ТЕМА, РОЛИ И ПРЕВЬЮ СКЕЛЕТОНОВ
+     */
+    function switchTab(tabName) {
+      if (state.activeTab === tabName) return;
+      state.activeTab = tabName;
+      state.categoryFilter = "all";
+      triggerHaptic("light");
+      renderAll();
+    }
+
+    function toggleOnlyFreeFilter() {
+      state.onlyFreeFilter = !state.onlyFreeFilter;
+      triggerHaptic("light");
+      renderAll();
+    }
+
+    function setPriceFilter(val) {
+      state.priceFilter = state.priceFilter === val ? "all" : val;
+      triggerHaptic("light");
+      renderAll();
+    }
+
+    function setCategoryFilter(cat) {
+      state.categoryFilter = state.categoryFilter === cat ? "all" : cat;
+      triggerHaptic("light");
+      renderAll();
+    }
+
+    function resetAllFilters() {
+      state.onlyFreeFilter = false;
+      state.priceFilter = "all";
+      state.categoryFilter = "all";
+      triggerHaptic("light");
+      renderAll();
+    }
+
+    function switchDemoRole(roleKey) {
+      if (isTelegramSession || !DEMO_USERS[roleKey]) return;
+      state.activeRoleKey = roleKey;
+      state.ownerId = DEMO_USERS.owner.id;
+      state.viewerId = DEMO_USERS[roleKey].id;
+      state.ownerName = DEMO_USERS.owner.name;
+      state.viewerName = DEMO_USERS[roleKey].name;
+
+      document.querySelectorAll(".role-pill-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.getAttribute("data-role") === roleKey);
+      });
+
+      triggerHaptic("light");
+      renderAll();
+      showToast(
+        roleKey === "owner"
+          ? "👑 Режим Владельца: доступно добавление и управление"
+          : `👤 Гостевой режим (${DEMO_USERS[roleKey].name}): доступно бронирование и складчина`
+      );
+    }
+
+    function setThemePreset(themeName, silent = false) {
+      document.body.setAttribute("data-theme", themeName);
+      document.querySelectorAll("[data-theme-btn]").forEach(btn => {
+        btn.classList.toggle("active", btn.getAttribute("data-theme-btn") === themeName);
+      });
+      if (!silent) {
+        triggerHaptic("light");
+      }
+    }
+
+    function previewSkeletons() {
+      triggerHaptic("light");
+      state.isLoading = true;
+      renderSkeletons();
+      setTimeout(() => {
+        state.isLoading = false;
+        renderAll();
+      }, 950);
+    }
+
+    function resetDemoData() {
+      if (isTelegramSession) return;
+      state.gifts = getInitialDemoGifts();
+      saveLocalGifts();
+      resetAllFilters();
+      triggerHaptic("success");
+      showToast("🔄 Демо-вишлист восстановлен по умолчанию");
+    }
+
+    /**
+     * 10. РЕНДЕРИНГ ИНТЕРФЕЙСА (BENTO HEADER, TABS, FILTERS, CARDS)
+     */
+    function renderSkeletons() {
+      const grid = document.getElementById("giftsGrid");
+      let html = "";
+      for (let i = 0; i < 6; i++) {
+        html += `
+          <div class="skeleton-card" aria-hidden="true">
+            <div class="sk-media shimmer-block"></div>
+            <div class="sk-content">
+              <div class="sk-bar lg shimmer-block"></div>
+              <div class="sk-bar sm shimmer-block"></div>
+              <div class="sk-bar shimmer-block"></div>
+              <div class="sk-bar full shimmer-block"></div>
+            </div>
+          </div>
+        `;
+      }
+      grid.innerHTML = html;
+    }
+
+    function renderAll() {
+      if (state.isLoading) {
+        renderSkeletons();
+        return;
+      }
+
+      const isOwner = state.viewerId === state.ownerId;
+      const currentUser = isTelegramSession
+        ? { name: state.viewerName, avatar: "✨" }
+        : DEMO_USERS[state.activeRoleKey] || DEMO_USERS.owner;
+
+      // 1. Обновление Bento Hero Header
+      const headerTitle = document.getElementById("headerTitle");
+      const roleBadge = document.getElementById("roleBadge");
+      const headerSubtitle = document.getElementById("headerSubtitle");
+      const avatarEmoji = document.getElementById("heroAvatarEmoji");
+      const shareBtn = document.getElementById("shareListBtn");
+      const backBtn = document.getElementById("backToOwnListBtn");
+      const addSection = document.getElementById("ownerAddSection");
+
+      if (isOwner) {
+        headerTitle.textContent = "🎁 Мой вишлист";
+        roleBadge.textContent = "👑 Владелец списка";
+        headerSubtitle.textContent = "Добавляйте желанные подарки и делитесь списком с близкими в Telegram";
+        avatarEmoji.textContent = "🎁";
+        shareBtn.style.display = "inline-flex";
+        backBtn.style.display = "none";
+        addSection.style.display = "block";
+      } else {
+        headerTitle.textContent = `🎁 Вишлист ${state.ownerName}`;
+        roleBadge.textContent = `Гостевой режим · Вы: ${currentUser.name}`;
+        headerSubtitle.textContent = "Бронируйте подарки в 1 клик или скидывайтесь с друзьями — именинник не узнает заранее";
+        avatarEmoji.textContent = currentUser.avatar;
+        shareBtn.style.display = "none";
+        backBtn.style.display = "inline-flex";
+        addSection.style.display = "none";
+      }
+
+      const activeGifts = state.gifts.filter(g => !g.is_gifted);
+      const giftedGifts = state.gifts.filter(g => g.is_gifted);
+      const freeGiftsCount = activeGifts.filter(g => g.is_crowdfund || g.booked_by === null).length;
+      const totalActiveSum = activeGifts.reduce((acc, g) => acc + (Number(g.price) || 0), 0);
+
+      document.getElementById("metricActiveCount").textContent = activeGifts.length;
+      document.getElementById("metricFreeCount").textContent = `${freeGiftsCount} из ${activeGifts.length}`;
+      document.getElementById("metricTotalSum").textContent = formatPrice(totalActiveSum) || "0 ₽";
+
+      // 2. Вкладки
+      document.getElementById("tabActiveBtn").classList.toggle("active", state.activeTab === "active");
+      document.getElementById("tabGiftedBtn").classList.toggle("active", state.activeTab === "gifted");
+      document.getElementById("tabActiveCount").textContent = activeGifts.length;
+      document.getElementById("tabGiftedCount").textContent = giftedGifts.length;
+
+      // 3. Панель фильтров
+      const currentTabItems = state.activeTab === "active" ? activeGifts : giftedGifts;
+      renderFiltersBar(currentTabItems);
+
+      // 4. Фильтрация и сортировка
+      const filtered = currentTabItems
+        .filter(item => {
+          if (state.onlyFreeFilter) {
+            if (!item.is_crowdfund && item.booked_by !== null) return false;
+          }
+          if (state.priceFilter !== "all") {
+            const p = Number(item.price) || 0;
+            if (!p) return false;
+            if (state.priceFilter === "under2k" && p > 2000) return false;
+            if (state.priceFilter === "2k_5k" && (p < 2000 || p > 5000)) return false;
+            if (state.priceFilter === "over5k" && p <= 5000) return false;
+          }
+          if (state.categoryFilter !== "all" && item.category !== state.categoryFilter) {
+            return false;
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          if (state.activeTab === "active") {
+            if (Boolean(b.priority) !== Boolean(a.priority)) {
+              return b.priority ? 1 : -1;
+            }
+          }
+          return b.id - a.id;
+        });
+
+      renderGiftCards(filtered, currentTabItems.length === 0, isOwner);
+    }
+
+    function renderFiltersBar(tabItems) {
+      const bar = document.getElementById("filtersBar");
+      const categories = Array.from(new Set(tabItems.map(g => g.category).filter(Boolean)));
+      const isAllReset = !state.onlyFreeFilter && state.priceFilter === "all" && state.categoryFilter === "all";
+
+      let html = `
+        <button type="button" class="filter-pill ${isAllReset ? "active" : ""}" onclick="resetAllFilters()">
+          Все желания
+        </button>
+        <button type="button" class="filter-pill ${state.onlyFreeFilter ? "active" : ""}" onclick="toggleOnlyFreeFilter()">
+          🔓 Только свободные
+        </button>
+        <span class="rail-divider"></span>
+        <button type="button" class="filter-pill tabular-nums ${state.priceFilter === "under2k" ? "active" : ""}" onclick="setPriceFilter('under2k')">
+          До 2 000 ₽
+        </button>
+        <button type="button" class="filter-pill tabular-nums ${state.priceFilter === "2k_5k" ? "active" : ""}" onclick="setPriceFilter('2k_5k')">
+          2 000 – 5 000 ₽
+        </button>
+        <button type="button" class="filter-pill tabular-nums ${state.priceFilter === "over5k" ? "active" : ""}" onclick="setPriceFilter('over5k')">
+          От 5 000 ₽
+        </button>
+      `;
+
+      if (categories.length > 0) {
+        html += `<span class="rail-divider"></span>`;
+        categories.forEach(cat => {
+          const styleObj = CATEGORY_STYLES[cat] || CATEGORY_STYLES.default;
+          const activeClass = state.categoryFilter === cat ? "active" : "";
+          const safeCat = escapeHtml(cat);
+          html += `
+            <button type="button" class="filter-pill ${activeClass}" data-cat="${safeCat}" onclick="setCategoryFilter(this.getAttribute('data-cat'))">
+              <span>${styleObj.emoji}</span>
+              <span>${safeCat}</span>
+            </button>
+          `;
+        });
+      }
+
+      bar.innerHTML = html;
+    }
+
+    function renderGiftCards(items, isTabCompletelyEmpty, isOwner) {
+      const grid = document.getElementById("giftsGrid");
+
+      if (state.loadError) {
+        grid.innerHTML = `
+          <div class="empty-bento">
+            <div class="empty-orb">⚠️</div>
+            <div class="empty-heading">Не удалось загрузить вишлист</div>
+            <div class="empty-subtext">${escapeHtml(state.loadError)}</div>
+            <button type="button" class="btn-glass" style="margin-top: 6px;" onclick="fetchGifts()">
+              Повторить
+            </button>
+          </div>
+        `;
+        return;
+      }
+
+      if (items.length === 0) {
+        if (isTabCompletelyEmpty) {
+          grid.innerHTML = `
+            <div class="empty-bento">
+              <div class="empty-orb">${state.activeTab === "active" ? "🎁" : "🎉"}</div>
+              <div class="empty-heading">
+                ${state.activeTab === "active" ? "Список желаний пока пуст" : "В архиве пока нет подарков"}
+              </div>
+              <div class="empty-subtext">
+                ${
+                  state.activeTab === "active"
+                    ? isOwner
+                      ? "Используйте форму выше, чтобы добавить свой первый желанный подарок и поделиться ссылкой с друзьями."
+                      : "Владелец вишлиста ещё не добавил актуальные подарки."
+                    : "Когда подарки будут вручены, они появятся в этом разделе."
+                }
+              </div>
+            </div>
+          `;
+        } else {
+          grid.innerHTML = `
+            <div class="empty-bento">
+              <div class="empty-orb">🔍</div>
+              <div class="empty-heading">По выбранным фильтрам ничего не найдено</div>
+              <div class="empty-subtext">Попробуйте отключить фильтр «Только свободные» или изменить ценовой диапазон.</div>
+              <button type="button" class="btn-glass" style="margin-top: 6px;" onclick="resetAllFilters()">
+                Сбросить все фильтры
+              </button>
+            </div>
+          `;
+        }
+        return;
+      }
+
+      grid.innerHTML = items.map(gift => buildGiftCardHtml(gift, isOwner)).join("");
+    }
+
+    function buildGiftCardHtml(gift, isOwner) {
+      const catStyle = CATEGORY_STYLES[gift.category] || CATEGORY_STYLES.default;
+      const safeTitle = escapeHtml(gift.title);
+      const safeCategory = escapeHtml(gift.category || "Разное");
+      const safeComment = escapeHtml(gift.comment || "");
+      const formattedPrice = formatPrice(gift.price);
+      const hasValidLink = isValidHttpUrl(gift.link);
+
+      // 1. Визуальная шапка 16:10
+      let mediaContentHtml = "";
+      if (gift.image) {
+        const safeImg = escapeHtml(resolveImageUrl(gift.image));
+        mediaContentHtml = `
+          <img
+            src="${safeImg}"
+            alt="${safeTitle}"
+            loading="lazy"
+            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+          />
+          <div class="card-art-placeholder" style="display: none; background: ${catStyle.gradient};">
+            <div class="art-icon-orb">${catStyle.emoji}</div>
+            <span class="art-cat-caption">${safeCategory}</span>
+          </div>
+        `;
+      } else {
+        mediaContentHtml = `
+          <div class="card-art-placeholder" style="background: ${catStyle.gradient};">
+            <div class="art-icon-orb">${catStyle.emoji}</div>
+            <span class="art-cat-caption">${safeCategory}</span>
+          </div>
+        `;
+      }
+
+      // 2. Статус занятости / сбора
+      const participants = Array.isArray(gift.participants) ? gift.participants : [];
+      const isBookedByMe = gift.booked_by === state.viewerId;
+      const isBookedByOther = gift.booked_by !== null && gift.booked_by !== state.viewerId;
+      const isJoinedByMe = participants.includes(state.viewerId);
+
+      let rightBadgeHtml = "";
+      if (gift.is_gifted) {
+        rightBadgeHtml = `<span class="glass-pill pill-status-mine">✓ Подарено</span>`;
+      } else if (gift.is_crowdfund) {
+        rightBadgeHtml = `<span class="glass-pill pill-status-crowdfund">🤝 Сбор · ${participants.length} чел.</span>`;
+      } else if (isBookedByMe && !isOwner) {
+        rightBadgeHtml = `<span class="glass-pill pill-status-mine">✓ Вы дарите</span>`;
+      } else if (gift.booked_by !== null) {
+        rightBadgeHtml = `<span class="glass-pill pill-status-booked">🔒 Занято</span>`;
+      }
+
+      // 3. Виджет складчины (с аватарками и расчётом доли в рублях)
+      let crowdfundWidgetHtml = "";
+      if (gift.is_crowdfund) {
+        const count = participants.length;
+        const priceNum = Number(gift.price) || 0;
+        let splitDescription = "Совместный подарок — можно разделить стоимость";
+
+        if (priceNum > 0) {
+          if (count > 0) {
+            const perPerson = formatPrice(Math.ceil(priceNum / count));
+            splitDescription = `По ~${perPerson} с человека`;
+            if (!isOwner && !isJoinedByMe) {
+              const withMe = formatPrice(Math.ceil(priceNum / (count + 1)));
+              splitDescription += ` · с вами по ~${withMe}`;
+            }
+          } else {
+            const ifTwo = formatPrice(Math.ceil(priceNum / 2));
+            splitDescription = `Свободно · вдвоём выйдет по ~${ifTwo}`;
+          }
+        }
+
+        const avatarsHtml = participants
+          .slice(0, 4)
+          .map((uid, idx) => {
+            const label = uid === 2002 ? "А" : uid === 3003 ? "Д" : `Г${idx + 1}`;
+            return `<span class="stack-Chip" title="Участник сбора">${label}</span>`;
+          })
+          .join("");
+
+        crowdfundWidgetHtml = `
+          <div class="crowdfund-widget">
+            <div class="cf-top-line">
+              <div class="cf-participants-wrap">
+                ${avatarsHtml ? `<div class="avatar-stack">${avatarsHtml}</div>` : ""}
+                <span class="cf-count-text">Участвуют: ${count} чел.</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: var(--tg-theme-button-color);">Складчина</span>
+            </div>
+            <div class="cf-split-pill">(${splitDescription})</div>
+          </div>
+        `;
+      }
+
+      // 4. Кнопки внизу карточки
+      let footerHtml = "";
+      if (isOwner) {
+        footerHtml = `
+          <div class="owner-btn-row">
+            <button type="button" class="action-btn btn-owner-edit" onclick="openEditModal(${gift.id})">
+              <span>✏️ Изменить</span>
+            </button>
+            <button type="button" class="action-btn btn-owner-archive" onclick="toggleGiftArchive(${gift.id})">
+              <span>${gift.is_gifted ? "↩ Вернуть" : "Подарили ✓"}</span>
+            </button>
+            <button type="button" class="action-btn btn-owner-delete" onclick="requestDeleteGift(${gift.id})" title="Удалить подарок" aria-label="Удалить подарок">
+              🗑
+            </button>
+          </div>
+        `;
+      } else if (gift.is_gifted) {
+        footerHtml = `
+          <button type="button" class="action-btn btn-guest-locked" disabled>
+            🎉 Подарок уже вручён
+          </button>
+        `;
+      } else if (gift.is_crowdfund) {
+        if (isJoinedByMe) {
+          footerHtml = `
+            <button type="button" class="action-btn btn-guest-unbook" onclick="toggleCrowdfundJoin(${gift.id})">
+              ✓ Вы участвуете · Выйти
+            </button>
+          `;
+        } else {
+          footerHtml = `
+            <button type="button" class="action-btn btn-guest-crowdfund" onclick="toggleCrowdfundJoin(${gift.id})">
+              🤝 Скинуться
+            </button>
+          `;
+        }
+      } else {
+        if (gift.booked_by === null) {
+          footerHtml = `
+            <button type="button" class="action-btn btn-guest-book" onclick="toggleBookSingleGift(${gift.id})">
+              🎁 Я подарю
+            </button>
+          `;
+        } else if (isBookedByMe) {
+          footerHtml = `
+            <button type="button" class="action-btn btn-guest-unbook" onclick="toggleBookSingleGift(${gift.id})">
+              ✓ Вы дарите · Отменить
+            </button>
+          `;
+        } else if (isBookedByOther) {
+          footerHtml = `
+            <button type="button" class="action-btn btn-guest-locked" disabled>
+              🔒 Занято
+            </button>
+          `;
+        }
+      }
+
+      return `
+        <article class="gift-card ${gift.priority && !gift.is_gifted ? "is-priority" : ""} ${gift.is_gifted ? "is-gifted-card" : ""}">
+          <div class="card-media">
+            ${mediaContentHtml}
+            <div class="media-badges-left">
+              ${gift.priority ? `<span class="glass-pill pill-priority">🔥 Очень хочу</span>` : ""}
+              <span class="glass-pill pill-category">${catStyle.emoji} ${safeCategory}</span>
+            </div>
+            <div class="media-badge-right">
+              ${rightBadgeHtml}
+            </div>
+          </div>
+
+          <div class="card-content">
+            <h3 class="card-title">${safeTitle}</h3>
+
+            <div class="card-meta-row">
+              ${
+                formattedPrice
+                  ? `<span class="price-badge">${formattedPrice}</span>`
+                  : `<span class="price-badge muted">Цена не указана</span>`
+              }
+              ${
+                hasValidLink
+                  ? `<button type="button" class="store-ext-btn" data-url="${escapeHtml(gift.link)}" onclick="openStoreLink(this.getAttribute('data-url'))">
+                      <span>В магазин</span>
+                      <span>↗</span>
+                     </button>`
+                  : ""
+              }
+            </div>
+
+            ${safeComment ? `<div class="card-note-box">${safeComment}</div>` : ""}
+            ${crowdfundWidgetHtml}
+          </div>
+
+          <div class="card-actions-footer">
+            ${footerHtml}
+          </div>
+        </article>
+      `;
+    }
+
+    /**
+     * 11. ВСПЛЫВАЮЩИЕ TOAST-УВЕДОМЛЕНИЯ
+     */
+    function showToast(message) {
+      const container = document.getElementById("toastContainer");
+      const toast = document.createElement("div");
+      toast.className = "toast-item";
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transform = "translateY(8px)";
+        toast.style.transition = "all 0.22s ease";
+        setTimeout(() => toast.remove(), 240);
+      }, 2800);
+    }
+
+    /**
+     * ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ
+     */
+    window.addEventListener("DOMContentLoaded", () => {
+      const demoDock = document.querySelector(".demo-dock-wrapper");
+      if (demoDock) demoDock.style.display = isTelegramSession ? "none" : "";
+
+      if (!isTelegramSession && state.ownerId !== state.viewerId) {
+        switchDemoRole("guest1");
+      }
+      fetchGifts();
+      loadBotConfig();
+    });
+  </script>
+</body>
+</html>
