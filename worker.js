@@ -43,6 +43,10 @@ export default {
         const botUsername = await getBotUsername(env);
         return json({ botUsername });
       }
+      if (path === "/api/participations" && method === "GET") {
+        const user = await authenticateTelegram(request, env);
+        return await handleParticipationsGet(env, user);
+      }
 
       const imageMatch = path.match(/^\/api\/img\/([A-Za-z0-9_-]{16,64})$/);
       if (imageMatch && method === "GET") {
@@ -182,6 +186,8 @@ async function handleGiftsGet(url, env, viewer) {
   const record = await loadWishlist(env, ownerId, viewer);
   if (ownerId === viewer.id && !record.owner.first_name) {
     record.owner.first_name = viewer.first_name;
+  } else {
+    await syncWishlistParticipation(env, ownerId, viewer, record);
   }
   return json(serializeWishlist(record, viewer.id));
 }
@@ -283,6 +289,9 @@ async function handleGiftsPost(request, env, viewer) {
   }
 
   await saveWishlist(env, ownerId, record);
+  if (!isOwner) {
+    await syncWishlistParticipation(env, ownerId, viewer, record);
+  }
   const imageIsStillUsed = imageToDelete
     && record.gifts.some(gift => gift.image === imageToDelete);
   if (imageToDelete && !imageIsStillUsed) {
@@ -299,6 +308,8 @@ function sanitizeGift(payload) {
   const comment = cleanPlainText(payload.comment || "", 300);
   const link = sanitizeHttpUrl(payload.link || "", "link");
   const image = sanitizeImage(payload.image || "");
+  const desire = sanitizeDesire(payload.desire, payload.priority);
+  const tags = sanitizeTags(payload.tags);
   let price = null;
 
   if (payload.price !== null && payload.price !== undefined && payload.price !== "") {
@@ -316,9 +327,39 @@ function sanitizeGift(payload) {
     price,
     category,
     comment,
-    priority: Boolean(payload.priority),
+    desire,
+    tags,
+    priority: desire === "high",
     is_crowdfund: Boolean(payload.is_crowdfund)
   };
+}
+
+function sanitizeDesire(value, legacyPriority) {
+  if (value === undefined || value === null || value === "") {
+    return legacyPriority ? "high" : "medium";
+  }
+  if (!["high", "medium", "wait"].includes(value)) {
+    throw new HttpError(400, "Invalid desire level");
+  }
+  return value;
+}
+
+function sanitizeTags(value) {
+  if (value === undefined || value === null || value === "") return [];
+  if (!Array.isArray(value)) throw new HttpError(400, "Tags must be an array");
+  if (value.length > 8) throw new HttpError(400, "No more than 8 tags are allowed");
+
+  const tags = [];
+  const seen = new Set();
+  for (const rawTag of value) {
+    const tag = cleanPlainText(rawTag, 30);
+    if (!tag) continue;
+    const key = tag.toLocaleLowerCase("ru-RU");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+  }
+  return tags;
 }
 
 function cleanPlainText(value, maxLength) {
@@ -385,6 +426,112 @@ async function saveWishlist(env, ownerId, record) {
     gifts: record.gifts,
     updatedAt: new Date().toISOString()
   }));
+}
+
+function participationKey(userId) {
+  return `participations:${userId}`;
+}
+
+async function readParticipationIndex(env, userId) {
+  const stored = await env.DB.get(participationKey(userId), { type: "json" });
+  return Array.isArray(stored) ? stored : [];
+}
+
+async function syncWishlistParticipation(env, ownerId, viewer, record) {
+  if (ownerId === viewer.id) return;
+
+  const existing = await readParticipationIndex(env, viewer.id);
+  const previous = existing.filter(entry => Number(entry?.ownerId) === ownerId);
+  const next = existing.filter(entry => Number(entry?.ownerId) !== ownerId);
+  const now = new Date().toISOString();
+
+  for (const gift of record.gifts) {
+    const type = gift.is_crowdfund
+      ? (Array.isArray(gift.participants) && gift.participants.some(id => Number(id) === viewer.id) ? "crowdfund" : "")
+      : (Number(gift.booked_by) === viewer.id ? "book" : "");
+    if (!type) continue;
+
+    const oldEntry = previous.find(entry =>
+      Number(entry?.giftId) === Number(gift.id) && entry?.type === type
+    );
+    next.push({
+      ownerId,
+      giftId: Number(gift.id),
+      type,
+      updatedAt: oldEntry?.updatedAt || now
+    });
+  }
+
+  next.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  if (JSON.stringify(existing) !== JSON.stringify(next)) {
+    await env.DB.put(participationKey(viewer.id), JSON.stringify(next));
+  }
+}
+
+async function handleParticipationsGet(env, viewer) {
+  const existing = await readParticipationIndex(env, viewer.id);
+  const records = new Map();
+  const validEntries = [];
+  const items = [];
+
+  for (const entry of existing) {
+    const ownerId = Number(entry?.ownerId);
+    const giftId = Number(entry?.giftId);
+    const type = entry?.type;
+    if (!Number.isSafeInteger(ownerId) || ownerId <= 0
+      || !Number.isSafeInteger(giftId) || giftId <= 0
+      || !["book", "crowdfund"].includes(type)) continue;
+
+    if (!records.has(ownerId)) {
+      records.set(ownerId, await loadWishlist(env, ownerId, viewer));
+    }
+    const record = records.get(ownerId);
+    const gift = record.gifts.find(item => Number(item.id) === giftId);
+    if (!gift) continue;
+
+    const isActive = type === "book"
+      ? !gift.is_crowdfund && Number(gift.booked_by) === viewer.id
+      : gift.is_crowdfund && Array.isArray(gift.participants)
+        && gift.participants.some(id => Number(id) === viewer.id);
+    if (!isActive) continue;
+
+    const normalizedEntry = {
+      ownerId,
+      giftId,
+      type,
+      updatedAt: String(entry.updatedAt || "")
+    };
+    validEntries.push(normalizedEntry);
+    items.push({
+      type,
+      updatedAt: normalizedEntry.updatedAt,
+      owner: {
+        id: ownerId,
+        first_name: record.owner.first_name || "Пользователь"
+      },
+      gift: {
+        id: giftId,
+        title: gift.title,
+        link: gift.link || "",
+        image: gift.image || "",
+        price: gift.price ?? null,
+        category: gift.category || "Разное",
+        comment: gift.comment || "",
+        desire: gift.desire || (gift.priority ? "high" : "medium"),
+        tags: Array.isArray(gift.tags) ? gift.tags : [],
+        priority: Boolean(gift.priority),
+        is_crowdfund: Boolean(gift.is_crowdfund),
+        is_gifted: Boolean(gift.is_gifted),
+        participantsCount: Array.isArray(gift.participants) ? gift.participants.length : 0
+      }
+    });
+  }
+
+  if (JSON.stringify(existing) !== JSON.stringify(validEntries)) {
+    await env.DB.put(participationKey(viewer.id), JSON.stringify(validEntries));
+  }
+  items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  return json({ items });
 }
 
 function serializeWishlist(record, viewerId) {
