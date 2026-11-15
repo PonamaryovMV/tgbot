@@ -85,8 +85,25 @@ function json(data, status = 200) {
   });
 }
 
+async function getBotToken(env) {
+  const binding = env.BOT_TOKEN;
+  if (!binding) throw new HttpError(500, "BOT_TOKEN is not configured");
+
+  let value = binding;
+  if (typeof binding !== "string") {
+    if (typeof binding.get !== "function") {
+      throw new HttpError(500, "BOT_TOKEN binding is invalid");
+    }
+    value = await binding.get();
+  }
+
+  const token = String(value || "").trim();
+  if (!token) throw new HttpError(500, "BOT_TOKEN is not configured");
+  return token;
+}
+
 async function authenticateTelegram(request, env) {
-  if (!env.BOT_TOKEN) throw new HttpError(500, "BOT_TOKEN is not configured");
+  const botToken = await getBotToken(env);
   const initData = request.headers.get("X-Telegram-Init-Data") || "";
   if (!initData) throw new HttpError(401, "Telegram initData is required");
 
@@ -112,7 +129,7 @@ async function authenticateTelegram(request, env) {
 
   const secretKey = await hmacSha256(
     encoder.encode("WebAppData"),
-    encoder.encode(env.BOT_TOKEN)
+    encoder.encode(botToken)
   );
   const calculatedHash = toHex(await hmacSha256(secretKey, encoder.encode(dataCheckString)));
   if (!timingSafeEqual(calculatedHash, receivedHash.toLowerCase())) {
@@ -488,8 +505,9 @@ async function deleteInternalImage(env, imageUrl, ownerId) {
 }
 
 async function handleTelegramWebhook(request, env) {
-  if (!env.BOT_TOKEN || !env.WEBAPP_URL) {
-    throw new HttpError(500, "BOT_TOKEN or WEBAPP_URL is not configured");
+  await getBotToken(env);
+  if (!env.WEBAPP_URL) {
+    throw new HttpError(500, "WEBAPP_URL is not configured");
   }
   if (env.WEBHOOK_SECRET) {
     const receivedSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "";
@@ -545,8 +563,8 @@ async function getBotUsername(env) {
 }
 
 async function callTelegramApi(env, method, payload) {
-  if (!env.BOT_TOKEN) throw new HttpError(500, "BOT_TOKEN is not configured");
-  const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
+  const botToken = await getBotToken(env);
+  const response = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
