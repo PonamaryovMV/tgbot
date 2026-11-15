@@ -1679,6 +1679,224 @@
         color: var(--tg-theme-button-color);
       }
     }
+
+
+    /* Дополнительные рабочие разделы, уровни желания и теги */
+    .workspace-nav {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 4px;
+      margin-bottom: 16px;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-lg);
+      background: var(--surface-elevated);
+    }
+
+    .workspace-nav-btn {
+      min-height: 44px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      color: var(--tg-theme-hint-color);
+      font-size: 14px;
+      font-weight: 700;
+      transition: var(--spring);
+    }
+
+    .workspace-nav-btn.active {
+      color: var(--tg-theme-text-color);
+      background: var(--surface-card);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .workspace-count {
+      display: inline-flex;
+      min-width: 22px;
+      min-height: 22px;
+      margin-left: 6px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--tg-theme-button-color);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .desire-segment {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      padding: 4px;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-md);
+      background: var(--surface-input);
+    }
+
+    .desire-btn {
+      min-width: 0;
+      min-height: 44px;
+      padding: 7px 8px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      color: var(--tg-theme-hint-color);
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.25;
+      transition: var(--spring);
+    }
+
+    .desire-btn.active {
+      color: var(--tg-theme-text-color);
+      border-color: var(--border-highlight);
+      background: var(--surface-card);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .desire-btn[data-desire="high"].active {
+      color: #ff9068;
+      border-color: rgba(255, 144, 104, 0.4);
+    }
+
+    .tag-editor-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .tag-editor-row .btn-glass {
+      padding: 0 12px;
+      white-space: nowrap;
+    }
+
+    .selected-tags,
+    .gift-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .selected-tags:empty,
+    .gift-tags:empty {
+      display: none;
+    }
+
+    .selected-tag {
+      display: inline-flex;
+      min-height: 32px;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border: 1px solid var(--border-focus);
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--tg-theme-text-color);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .selected-tag button {
+      min-width: 24px;
+      min-height: 24px;
+      border-radius: 50%;
+      color: var(--tg-theme-hint-color);
+      font-size: 15px;
+    }
+
+    .gift-tag {
+      display: inline-flex;
+      padding: 4px 9px;
+      border: 1px solid var(--border-hairline);
+      border-radius: 999px;
+      background: var(--surface-input);
+      color: var(--tg-theme-hint-color);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .composer-submit-bottom {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-hairline);
+    }
+
+    .composer-submit-bottom .btn-accent {
+      width: 100%;
+    }
+
+    .pill-desire-medium {
+      color: #f8fafc;
+      background: rgba(59, 130, 246, 0.72);
+      border: 1px solid rgba(147, 197, 253, 0.25);
+    }
+
+    .pill-desire-wait {
+      color: #f8fafc;
+      background: rgba(71, 85, 105, 0.82);
+      border: 1px solid rgba(203, 213, 225, 0.18);
+    }
+
+    .participations-workspace[hidden],
+    #wishlistWorkspace[hidden] {
+      display: none;
+    }
+
+    .participation-card {
+      padding: 18px;
+      gap: 12px;
+    }
+
+    .participation-owner {
+      color: var(--tg-theme-hint-color);
+      font-size: 13px;
+    }
+
+    .participation-type {
+      width: fit-content;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--tg-theme-button-color);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .participation-card .card-title {
+      font-size: 18px;
+    }
+
+    .participation-card .btn-accent {
+      width: 100%;
+      margin-top: auto;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid var(--tg-theme-button-color);
+      outline-offset: 2px;
+    }
+
+    @media (max-width: 380px) {
+      .desire-segment {
+        grid-template-columns: 1fr;
+      }
+
+      .tag-editor-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
   </style>
 </head>
 <body data-theme="dark">
@@ -1730,7 +1948,16 @@
        ОСНОВНОЙ КОНТЕЙНЕР ПРИЛОЖЕНИЯ
        ======================================================================== -->
   <main class="app-shell">
+    <nav class="workspace-nav" aria-label="Разделы приложения">
+      <button type="button" class="workspace-nav-btn active" id="wishlistViewBtn" onclick="showWishlistWorkspace()">
+        Вишлист
+      </button>
+      <button type="button" class="workspace-nav-btn" id="participationsViewBtn" onclick="showParticipations()">
+        Я участвую<span class="workspace-count" id="participationsNavCount">0</span>
+      </button>
+    </nav>
 
+    <div id="wishlistWorkspace">
     <!-- 4.1. BENTO HERO HEADER -->
     <header class="bento-hero">
       <div class="hero-top-row">
@@ -1894,7 +2121,7 @@
 
             <!-- Ссылка на магазин -->
             <div class="field-block">
-              <label class="field-label" for="addLinkInput">Ссылка на магазин (где купить)</label>
+              <label class="field-label" for="addLinkInput">Ссылка на магазин (необязательно)</label>
               <input
                 type="url"
                 id="addLinkInput"
@@ -1923,6 +2150,17 @@
               />
             </div>
 
+            <!-- Необязательные теги -->
+            <div class="field-block span-2">
+              <div class="field-label"><span>Теги</span><span>Необязательно · до 8</span></div>
+              <div class="category-preset-row" id="addTagPresets"></div>
+              <div class="tag-editor-row">
+                <input type="text" id="addCustomTagInput" class="input-modern" placeholder="Свой тег, например «День рождения»" maxlength="30" onkeydown="handleTagKeydown(event, 'add')" />
+                <button type="button" class="btn-glass" onclick="addCustomTag('add')">Добавить тег</button>
+              </div>
+              <div class="selected-tags" id="addSelectedTags" aria-label="Выбранные теги"></div>
+            </div>
+
             <!-- Комментарий -->
             <div class="field-block span-2">
               <label class="field-label" for="addCommentInput">Комментарий (цвет, размер, комплектация)</label>
@@ -1934,20 +2172,18 @@
               ></textarea>
             </div>
 
-            <!-- Переключатели: Очень хочу и Можно скинуться -->
+            <!-- Уровень желания и совместный сбор -->
+            <div class="field-block span-2">
+              <span class="field-label">Насколько хочется</span>
+              <div class="desire-segment" id="addDesireControl">
+                <button type="button" class="desire-btn" data-desire="high" onclick="setDesire('add', 'high')">🔥 Очень хочу</button>
+                <button type="button" class="desire-btn active" data-desire="medium" onclick="setDesire('add', 'medium')">Среднее хочу</button>
+                <button type="button" class="desire-btn" data-desire="wait" onclick="setDesire('add', 'wait')">Пока подождёт</button>
+              </div>
+            </div>
+
             <div class="field-block span-2">
               <div class="bento-switches-grid">
-                <label class="bento-switch-card" for="addPriorityToggle">
-                  <div class="switch-text-wrap">
-                    <span class="switch-title">🔥 Очень хочу</span>
-                    <span class="switch-subtitle">Закрепить в самом верху списка с ярким акцентом</span>
-                  </div>
-                  <div class="ios-switch">
-                    <input type="checkbox" id="addPriorityToggle" />
-                    <span class="ios-slider"></span>
-                  </div>
-                </label>
-
                 <label class="bento-switch-card" for="addCrowdfundToggle">
                   <div class="switch-text-wrap">
                     <span class="switch-title">🤝 Можно скинуться</span>
@@ -1962,6 +2198,9 @@
             </div>
 
           </div>
+        </div>
+        <div class="composer-submit-bottom">
+          <button type="submit" class="btn-accent">Добавить желание</button>
         </div>
       </form>
     </section>
@@ -1987,6 +2226,20 @@
     <!-- 4.5. BENTO-СЕТКА КАРТОЧЕК ПОДАРКОВ -->
     <section class="gifts-bento-grid" id="giftsGrid" aria-live="polite">
       <!-- Скелетоны или карточки рендерятся здесь -->
+    </section>
+    </div>
+
+    <section class="participations-workspace" id="participationsWorkspace" hidden>
+      <header class="bento-hero">
+        <div class="hero-top-row">
+          <div class="hero-title-group">
+            <h1 class="hero-title">🎁 Я участвую</h1>
+            <p class="hero-subtitle">Подарки, которые вы забронировали или для которых присоединились к совместному сбору</p>
+          </div>
+          <button type="button" class="btn-glass" onclick="loadParticipations()">Обновить</button>
+        </div>
+      </header>
+      <div class="gifts-bento-grid" id="participationsGrid" aria-live="polite"></div>
     </section>
 
   </main>
@@ -2074,7 +2327,7 @@
           </div>
 
           <div class="field-block">
-            <label class="field-label" for="editLinkInput">Ссылка на магазин</label>
+            <label class="field-label" for="editLinkInput">Ссылка на магазин (необязательно)</label>
             <input type="url" id="editLinkInput" class="input-modern" placeholder="https://..." />
           </div>
 
@@ -2098,23 +2351,31 @@
           </div>
 
           <div class="field-block span-2">
+            <div class="field-label"><span>Теги</span><span>Необязательно · до 8</span></div>
+            <div class="category-preset-row" id="editTagPresets"></div>
+            <div class="tag-editor-row">
+              <input type="text" id="editCustomTagInput" class="input-modern" placeholder="Свой тег" maxlength="30" onkeydown="handleTagKeydown(event, 'edit')" />
+              <button type="button" class="btn-glass" onclick="addCustomTag('edit')">Добавить тег</button>
+            </div>
+            <div class="selected-tags" id="editSelectedTags" aria-label="Выбранные теги"></div>
+          </div>
+
+          <div class="field-block span-2">
             <label class="field-label" for="editCommentInput">Комментарий</label>
             <textarea id="editCommentInput" class="input-modern textarea-modern" maxlength="300"></textarea>
           </div>
 
           <div class="field-block span-2">
-            <div class="bento-switches-grid">
-              <label class="bento-switch-card" for="editPriorityToggle">
-                <div class="switch-text-wrap">
-                  <span class="switch-title">🔥 Очень хочу</span>
-                  <span class="switch-subtitle">Приоритет в начале списка</span>
-                </div>
-                <div class="ios-switch">
-                  <input type="checkbox" id="editPriorityToggle" />
-                  <span class="ios-slider"></span>
-                </div>
-              </label>
+            <span class="field-label">Насколько хочется</span>
+            <div class="desire-segment" id="editDesireControl">
+              <button type="button" class="desire-btn" data-desire="high" onclick="setDesire('edit', 'high')">🔥 Очень хочу</button>
+              <button type="button" class="desire-btn active" data-desire="medium" onclick="setDesire('edit', 'medium')">Среднее хочу</button>
+              <button type="button" class="desire-btn" data-desire="wait" onclick="setDesire('edit', 'wait')">Пока подождёт</button>
+            </div>
+          </div>
 
+          <div class="field-block span-2">
+            <div class="bento-switches-grid">
               <label class="bento-switch-card" for="editCrowdfundToggle">
                 <div class="switch-text-wrap">
                   <span class="switch-title">🤝 Можно скинуться</span>
@@ -2238,6 +2499,7 @@
       viewerName: isTelegramSession ? telegramViewerName : DEMO_USERS.owner.name,
       botUsername: isTelegramSession ? "" : FALLBACK_BOT_USERNAME,
       activeRoleKey: "owner",
+      activeWorkspace: "wishlist",
       activeTab: "active", // 'active' (is_gifted: false) | 'gifted' (is_gifted: true)
       onlyFreeFilter: false,
       priceFilter: "all", // 'all' | 'under2k' | '2k_5k' | 'over5k'
@@ -2245,6 +2507,11 @@
       isLoading: true,
       loadError: "",
       gifts: [],
+      participations: [],
+      participationsLoading: false,
+      participationsError: "",
+      desireDraft: { add: "medium", edit: "medium" },
+      tagDraft: { add: [], edit: [] },
       photoDraft: {
         add: "",
         edit: ""
@@ -2282,6 +2549,18 @@
       }
     };
 
+
+    const DEFAULT_TAGS = ["Новый год", "День рождения", "8 Марта", "23 Февраля", "Новоселье", "Свадьба"];
+    const DESIRE_META = {
+      high: { label: "🔥 Очень хочу", className: "pill-priority", rank: 0 },
+      medium: { label: "Среднее хочу", className: "pill-desire-medium", rank: 1 },
+      wait: { label: "◷ Пока подождёт", className: "pill-desire-wait", rank: 2 }
+    };
+
+    function getGiftDesire(gift) {
+      return DESIRE_META[gift?.desire] ? gift.desire : (gift?.priority ? "high" : "medium");
+    }
+
     /**
      * Начальный демонстрационный набор подарков (покрывает все сценарии ТЗ)
      */
@@ -2296,6 +2575,8 @@
           category: "Техника",
           comment: "Цвет Platinum Silver (платиновый серебристый) или чёрный матовый",
           priority: true,
+          desire: "high",
+          tags: ["Новый год", "День рождения"],
           is_crowdfund: true,
           booked_by: null,
           participants: [2002, 3003],
@@ -2338,6 +2619,8 @@
           category: "Одежда",
           comment: "Размер L, цвет графит или тёмный шалфей, без логотипов",
           priority: false,
+          desire: "wait",
+          tags: ["Новый год"],
           is_crowdfund: false,
           booked_by: 3003, // Забронировано Димой (Гость 2)
           participants: [],
@@ -2556,6 +2839,7 @@
           });
           applyServerData(await readApiResponse(response));
           renderAll();
+          if (["toggle_book", "toggle_crowdfund"].includes(action)) loadParticipations(true);
           return true;
         } catch (error) {
           showToast(`❌ ${error.message || "Ошибка синхронизации с сервером"}`);
@@ -2591,6 +2875,7 @@
 
       saveLocalGifts();
       renderAll();
+      if (["toggle_book", "toggle_crowdfund"].includes(action)) loadParticipations(true);
       return true;
     }
 
@@ -2774,6 +3059,91 @@
       triggerHaptic("light");
     }
 
+
+    function setDesire(formPrefix, desire) {
+      if (!DESIRE_META[desire]) return;
+      state.desireDraft[formPrefix] = desire;
+      document.querySelectorAll(`#${formPrefix}DesireControl .desire-btn`).forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.desire === desire);
+        btn.setAttribute("aria-pressed", btn.dataset.desire === desire ? "true" : "false");
+      });
+      triggerHaptic("light");
+    }
+
+    function normalizeTag(value) {
+      return String(value || "").trim().replace(/\s+/g, " ").slice(0, 30);
+    }
+
+    function renderTagEditor(formPrefix) {
+      const presets = document.getElementById(`${formPrefix}TagPresets`);
+      const selected = document.getElementById(`${formPrefix}SelectedTags`);
+      if (!presets || !selected) return;
+      const tags = state.tagDraft[formPrefix];
+      const selectedKeys = new Set(tags.map(tag => tag.toLocaleLowerCase("ru-RU")));
+
+      presets.innerHTML = DEFAULT_TAGS.map(tag => {
+        const active = selectedKeys.has(tag.toLocaleLowerCase("ru-RU"));
+        return `<button type="button" class="cat-preset-btn ${active ? "selected" : ""}" data-tag="${escapeHtml(tag)}" aria-pressed="${active}" onclick="toggleTag('${formPrefix}', this.dataset.tag)">${escapeHtml(tag)}</button>`;
+      }).join("");
+
+      selected.innerHTML = tags.map((tag, index) => `
+        <span class="selected-tag">
+          ${escapeHtml(tag)}
+          <button type="button" aria-label="Удалить тег ${escapeHtml(tag)}" onclick="removeTagByIndex('${formPrefix}', ${index})">×</button>
+        </span>
+      `).join("");
+    }
+
+    function removeTagByIndex(formPrefix, index) {
+      if (!Number.isInteger(index)) return;
+      state.tagDraft[formPrefix].splice(index, 1);
+      renderTagEditor(formPrefix);
+      triggerHaptic("light");
+    }
+
+    function toggleTag(formPrefix, rawTag) {
+      const tag = normalizeTag(rawTag);
+      if (!tag) return;
+      const tags = state.tagDraft[formPrefix];
+      const key = tag.toLocaleLowerCase("ru-RU");
+      const index = tags.findIndex(item => item.toLocaleLowerCase("ru-RU") === key);
+      if (index >= 0) tags.splice(index, 1);
+      else {
+        if (tags.length >= 8) {
+          showToast("⚠️ Можно выбрать не больше 8 тегов");
+          return;
+        }
+        tags.push(tag);
+      }
+      renderTagEditor(formPrefix);
+      triggerHaptic("light");
+    }
+
+    function addCustomTag(formPrefix) {
+      const input = document.getElementById(`${formPrefix}CustomTagInput`);
+      const tag = normalizeTag(input.value);
+      if (!tag) return;
+      const tags = state.tagDraft[formPrefix];
+      if (tags.some(item => item.toLocaleLowerCase("ru-RU") === tag.toLocaleLowerCase("ru-RU"))) {
+        showToast("Этот тег уже добавлен");
+      } else if (tags.length >= 8) {
+        showToast("⚠️ Можно выбрать не больше 8 тегов");
+        return;
+      } else {
+        tags.push(tag);
+      }
+      input.value = "";
+      renderTagEditor(formPrefix);
+      input.focus();
+      triggerHaptic("light");
+    }
+
+    function handleTagKeydown(event, formPrefix) {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addCustomTag(formPrefix);
+    }
+
     /**
      * 7. УПРАВЛЕНИЕ ФОРМАМИ ДОБАВЛЕНИЯ И РЕДАКТИРОВАНИЯ
      */
@@ -2810,7 +3180,8 @@
       const rawLink = document.getElementById("addLinkInput").value.trim();
       const category = document.getElementById("addCategoryInput").value.trim() || "Разное";
       const comment = document.getElementById("addCommentInput").value.trim();
-      const priority = document.getElementById("addPriorityToggle").checked;
+      const desire = state.desireDraft.add;
+      const tags = [...state.tagDraft.add];
       const isCrowdfund = document.getElementById("addCrowdfundToggle").checked;
 
       if (rawLink && !isValidHttpUrl(rawLink)) {
@@ -2826,7 +3197,9 @@
         price: rawPrice ? Number(rawPrice) : null,
         category,
         comment,
-        priority,
+        desire,
+        tags,
+        priority: desire === "high",
         is_crowdfund: isCrowdfund,
         booked_by: null,
         participants: [],
@@ -2839,6 +3212,10 @@
         showToast("🎁 Желание добавлено в ваш вишлист!");
         document.getElementById("addGiftForm").reset();
         clearPhoto("add");
+        state.desireDraft.add = "medium";
+        state.tagDraft.add = [];
+        setDesire("add", "medium");
+        renderTagEditor("add");
         syncCategoryChipHighlight("add");
         state.activeTab = "active";
         renderAll();
@@ -2855,7 +3232,10 @@
       document.getElementById("editLinkInput").value = gift.link || "";
       document.getElementById("editCategoryInput").value = gift.category || "";
       document.getElementById("editCommentInput").value = gift.comment || "";
-      document.getElementById("editPriorityToggle").checked = Boolean(gift.priority);
+      state.desireDraft.edit = getGiftDesire(gift);
+      state.tagDraft.edit = Array.isArray(gift.tags) ? [...gift.tags] : [];
+      setDesire("edit", state.desireDraft.edit);
+      renderTagEditor("edit");
       document.getElementById("editCrowdfundToggle").checked = Boolean(gift.is_crowdfund);
 
       state.photoDraft.edit = gift.image || "";
@@ -2882,7 +3262,8 @@
       const rawLink = document.getElementById("editLinkInput").value.trim();
       const category = document.getElementById("editCategoryInput").value.trim() || "Разное";
       const comment = document.getElementById("editCommentInput").value.trim();
-      const priority = document.getElementById("editPriorityToggle").checked;
+      const desire = state.desireDraft.edit;
+      const tags = [...state.tagDraft.edit];
       const isCrowdfund = document.getElementById("editCrowdfundToggle").checked;
 
       if (rawLink && !isValidHttpUrl(rawLink)) {
@@ -2898,7 +3279,9 @@
         image: state.photoDraft.edit || "",
         category,
         comment,
-        priority,
+        desire,
+        tags,
+        priority: desire === "high",
         is_crowdfund: isCrowdfund
       };
 
@@ -3048,6 +3431,7 @@
     }
 
     async function returnToOwnWishlist() {
+      showWishlistWorkspace();
       if (!isTelegramSession) {
         switchDemoRole("owner");
         return;
@@ -3063,6 +3447,162 @@
       const url = new URL(window.location.href);
       url.searchParams.delete("list");
       window.history.replaceState({}, "", url);
+      await fetchGifts();
+    }
+
+
+    function updateWorkspaceNav() {
+      const wishlistActive = state.activeWorkspace === "wishlist";
+      document.getElementById("wishlistWorkspace").hidden = !wishlistActive;
+      document.getElementById("participationsWorkspace").hidden = wishlistActive;
+      document.getElementById("wishlistViewBtn").classList.toggle("active", wishlistActive);
+      document.getElementById("participationsViewBtn").classList.toggle("active", !wishlistActive);
+      document.getElementById("wishlistViewBtn").setAttribute("aria-current", wishlistActive ? "page" : "false");
+      document.getElementById("participationsViewBtn").setAttribute("aria-current", wishlistActive ? "false" : "page");
+      document.getElementById("participationsNavCount").textContent = state.participations.length;
+    }
+
+    function showWishlistWorkspace() {
+      state.activeWorkspace = "wishlist";
+      updateWorkspaceNav();
+      triggerHaptic("light");
+    }
+
+    async function showParticipations() {
+      state.activeWorkspace = "participations";
+      updateWorkspaceNav();
+      triggerHaptic("light");
+      await loadParticipations();
+    }
+
+    function getDemoParticipationItems() {
+      if (state.viewerId === DEMO_USERS.owner.id) return [];
+      return state.gifts.flatMap(gift => {
+        const type = gift.is_crowdfund
+          ? (Array.isArray(gift.participants) && gift.participants.includes(state.viewerId) ? "crowdfund" : "")
+          : (gift.booked_by === state.viewerId ? "book" : "");
+        return type ? [{
+          type,
+          updatedAt: "",
+          owner: { id: DEMO_USERS.owner.id, first_name: DEMO_USERS.owner.name },
+          gift: {
+            ...gift,
+            participantsCount: Array.isArray(gift.participants) ? gift.participants.length : 0
+          }
+        }] : [];
+      });
+    }
+
+    async function loadParticipations(silent = false) {
+      if (!silent) {
+        state.participationsLoading = true;
+        state.participationsError = "";
+        renderParticipations();
+      }
+
+      try {
+        if (isTelegramSession) {
+          if (!API_ORIGIN) throw new Error("Не указан адрес Cloudflare Worker");
+          const response = await fetch(`${API_ORIGIN}/api/participations`, {
+            headers: getAuthHeaders()
+          });
+          const data = await readApiResponse(response);
+          if (!Array.isArray(data.items)) throw new Error("Сервер вернул некорректный список участий");
+          state.participations = data.items;
+        } else {
+          state.participations = getDemoParticipationItems();
+        }
+        state.participationsError = "";
+      } catch (error) {
+        state.participationsError = error.message || "Не удалось загрузить участия";
+      } finally {
+        state.participationsLoading = false;
+        updateWorkspaceNav();
+        if (state.activeWorkspace === "participations" || !silent) renderParticipations();
+      }
+    }
+
+    function renderParticipations() {
+      const grid = document.getElementById("participationsGrid");
+      if (!grid) return;
+
+      if (state.participationsLoading) {
+        grid.innerHTML = Array.from({ length: 3 }, () => `
+          <div class="skeleton-card" aria-hidden="true">
+            <div class="sk-content">
+              <div class="sk-bar sm shimmer-block"></div>
+              <div class="sk-bar lg shimmer-block"></div>
+              <div class="sk-bar shimmer-block"></div>
+              <div class="sk-bar full shimmer-block"></div>
+            </div>
+          </div>
+        `).join("");
+        return;
+      }
+
+      if (state.participationsError) {
+        grid.innerHTML = `
+          <div class="empty-bento">
+            <div class="empty-orb">⚠️</div>
+            <div class="empty-heading">Не удалось загрузить участия</div>
+            <div class="empty-subtext">${escapeHtml(state.participationsError)}</div>
+            <button type="button" class="btn-glass" onclick="loadParticipations()">Повторить</button>
+          </div>
+        `;
+        return;
+      }
+
+      if (state.participations.length === 0) {
+        grid.innerHTML = `
+          <div class="empty-bento">
+            <div class="empty-orb">🎁</div>
+            <div class="empty-heading">Пока нет участий</div>
+            <div class="empty-subtext">Откройте вишлист друга по его ссылке и забронируйте подарок или присоединитесь к совместному сбору.</div>
+            <button type="button" class="btn-glass" onclick="showWishlistWorkspace()">Перейти к вишлисту</button>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = state.participations.map(buildParticipationCardHtml).join("");
+    }
+
+    function buildParticipationCardHtml(item) {
+      const gift = item.gift || {};
+      const ownerId = parsePositiveId(item.owner?.id);
+      const ownerName = escapeHtml(item.owner?.first_name || "Пользователь");
+      const title = escapeHtml(gift.title || "Подарок");
+      const typeLabel = item.type === "crowdfund" ? "🤝 Совместный сбор" : "✓ Вы дарите";
+      const price = formatPrice(gift.price);
+      const tags = Array.isArray(gift.tags) ? gift.tags : [];
+      const tagsHtml = tags.map(tag => `<span class="gift-tag">#${escapeHtml(tag)}</span>`).join("");
+      const statusHtml = gift.is_gifted
+        ? `<span class="participation-type">🎉 Подарок уже вручён</span>`
+        : `<span class="participation-type">${typeLabel}</span>`;
+
+      return `
+        <article class="gift-card participation-card">
+          ${statusHtml}
+          <div class="participation-owner">Вишлист: ${ownerName}</div>
+          <h2 class="card-title">${title}</h2>
+          <div class="card-meta-row">
+            <span class="price-badge ${price ? "" : "muted"}">${price || "Цена не указана"}</span>
+            ${item.type === "crowdfund" ? `<span class="cf-count-text">Участников: ${Number(gift.participantsCount) || 0}</span>` : ""}
+          </div>
+          ${tagsHtml ? `<div class="gift-tags">${tagsHtml}</div>` : ""}
+          <button type="button" class="btn-accent" onclick="openParticipatingWishlist(${ownerId})">Открыть вишлист</button>
+        </article>
+      `;
+    }
+
+    async function openParticipatingWishlist(ownerId) {
+      if (!parsePositiveId(ownerId)) return;
+      state.ownerId = ownerId;
+      state.activeTab = "active";
+      const url = new URL(window.location.href);
+      url.searchParams.set("list", String(ownerId));
+      window.history.replaceState({}, "", url);
+      showWishlistWorkspace();
       await fetchGifts();
     }
 
@@ -3117,6 +3657,7 @@
 
       triggerHaptic("light");
       renderAll();
+      loadParticipations(true);
       showToast(
         roleKey === "owner"
           ? "👑 Режим Владельца: доступно добавление и управление"
@@ -3149,6 +3690,7 @@
       state.gifts = getInitialDemoGifts();
       saveLocalGifts();
       resetAllFilters();
+      loadParticipations(true);
       triggerHaptic("success");
       showToast("🔄 Демо-вишлист восстановлен по умолчанию");
     }
@@ -3252,9 +3794,8 @@
         })
         .sort((a, b) => {
           if (state.activeTab === "active") {
-            if (Boolean(b.priority) !== Boolean(a.priority)) {
-              return b.priority ? 1 : -1;
-            }
+            const desireDifference = DESIRE_META[getGiftDesire(a)].rank - DESIRE_META[getGiftDesire(b)].rank;
+            if (desireDifference !== 0) return desireDifference;
           }
           return b.id - a.id;
         });
@@ -3365,6 +3906,13 @@
       const safeComment = escapeHtml(gift.comment || "");
       const formattedPrice = formatPrice(gift.price);
       const hasValidLink = isValidHttpUrl(gift.link);
+      const desire = getGiftDesire(gift);
+      const desireMeta = DESIRE_META[desire];
+      const desireBadgeHtml = `<span class="glass-pill ${desireMeta.className}">${desireMeta.label}</span>`;
+      const tags = Array.isArray(gift.tags) ? gift.tags : [];
+      const tagsHtml = tags.length
+        ? `<div class="gift-tags">${tags.map(tag => `<span class="gift-tag">#${escapeHtml(tag)}</span>`).join("")}</div>`
+        : "";
 
       // 1. Визуальная шапка 16:10
       let mediaContentHtml = "";
@@ -3510,11 +4058,11 @@
       }
 
       return `
-        <article class="gift-card ${gift.priority && !gift.is_gifted ? "is-priority" : ""} ${gift.is_gifted ? "is-gifted-card" : ""}">
+        <article class="gift-card ${desire === "high" && !gift.is_gifted ? "is-priority" : ""} ${gift.is_gifted ? "is-gifted-card" : ""}">
           <div class="card-media">
             ${mediaContentHtml}
             <div class="media-badges-left">
-              ${gift.priority ? `<span class="glass-pill pill-priority">🔥 Очень хочу</span>` : ""}
+              ${desireBadgeHtml}
               <span class="glass-pill pill-category">${catStyle.emoji} ${safeCategory}</span>
             </div>
             <div class="media-badge-right">
@@ -3541,6 +4089,7 @@
               }
             </div>
 
+            ${tagsHtml}
             ${safeComment ? `<div class="card-note-box">${safeComment}</div>` : ""}
             ${crowdfundWidgetHtml}
           </div>
@@ -3577,10 +4126,15 @@
       const demoDock = document.querySelector(".demo-dock-wrapper");
       if (demoDock) demoDock.style.display = isTelegramSession ? "none" : "";
 
+      setDesire("add", "medium");
+      setDesire("edit", "medium");
+      renderTagEditor("add");
+      renderTagEditor("edit");
+      updateWorkspaceNav();
       if (!isTelegramSession && state.ownerId !== state.viewerId) {
         switchDemoRole("guest1");
       }
-      fetchGifts();
+      fetchGifts().then(() => loadParticipations(true));
       loadBotConfig();
     });
   </script>
