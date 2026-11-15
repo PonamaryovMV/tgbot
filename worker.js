@@ -550,6 +550,7 @@ async function handleTelegramWebhook(request, env) {
 }
 
 async function getBotUsername(env) {
+  await getBotToken(env);
   const cached = await env.DB.get("config:bot", { type: "json" });
   if (cached?.username) return cached.username;
 
