@@ -2,6 +2,7 @@ name = "tgbot"
 main = "worker.js"
 compatibility_date = "2026-11-15"
 workers_dev = true
+keep_vars = true
 
 [vars]
 WEBAPP_URL = "https://ponamaryovmv.github.io/tgbot/"
