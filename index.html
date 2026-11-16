@@ -1871,6 +1871,261 @@
       margin-top: auto;
     }
 
+    /* Подписки, группы и аудитория желаний */
+    .workspace-nav {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .friends-workspace[hidden] {
+      display: none;
+    }
+
+    .social-layout {
+      display: grid;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .social-panel {
+      min-width: 0;
+      padding: 18px;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-xl);
+      background: var(--surface-elevated);
+      box-shadow: var(--specular-inset);
+    }
+
+    .social-panel + .social-panel {
+      margin-top: 0;
+    }
+
+    .social-panel-title {
+      margin: 0 0 4px;
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .social-panel-copy,
+    .field-help {
+      margin: 0 0 14px;
+      color: var(--tg-theme-hint-color);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .social-add-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      margin: 14px 0 16px;
+    }
+
+    .social-add-form .btn-accent,
+    .social-add-form .btn-glass {
+      padding: 0 14px;
+      white-space: nowrap;
+    }
+
+    .selection-help {
+      margin: 0 0 16px;
+      padding: 12px;
+      border: 1px solid var(--border-focus);
+      border-radius: var(--radius-md);
+      background: var(--accent-soft);
+    }
+
+    .selection-help[hidden] {
+      display: none;
+    }
+
+    .selection-help p {
+      margin: 0 0 10px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .social-list {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .social-list:empty {
+      display: none;
+    }
+
+    .social-person-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      min-height: 64px;
+      padding: 12px 0;
+      border-top: 1px solid var(--border-hairline);
+    }
+
+    .social-person-main {
+      min-width: 0;
+    }
+
+    .social-person-name {
+      overflow: hidden;
+      font-size: 14px;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .social-person-meta {
+      overflow: hidden;
+      margin-top: 2px;
+      color: var(--tg-theme-hint-color);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .social-person-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .social-person-actions .btn-glass {
+      min-height: 40px;
+      padding: 0 12px;
+      font-size: 12px;
+    }
+
+    .social-empty {
+      padding: 18px 0 8px;
+      color: var(--tg-theme-hint-color);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .access-group {
+      padding: 16px 0;
+      border-top: 1px solid var(--border-hairline);
+    }
+
+    .access-group:first-child {
+      border-top: 0;
+      padding-top: 4px;
+    }
+
+    .access-group-head {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .access-group-name {
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .access-group-count {
+      color: var(--tg-theme-hint-color);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .audience-editor {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .audience-chip {
+      display: inline-flex;
+      min-height: 42px;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 12px;
+      border: 1px solid var(--border-hairline);
+      border-radius: 999px;
+      background: var(--surface-input);
+      color: var(--tg-theme-hint-color);
+      font-size: 12px;
+      font-weight: 700;
+      transition: var(--spring);
+    }
+
+    .audience-chip.active {
+      border-color: var(--border-focus);
+      background: var(--accent-soft);
+      color: var(--tg-theme-text-color);
+    }
+
+    .audience-chip.active::before {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--tg-theme-button-color);
+      content: "";
+    }
+
+    .audience-chip-count {
+      color: var(--tg-theme-hint-color);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    .audience-summary {
+      margin-top: 8px;
+      color: var(--tg-theme-hint-color);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .social-error {
+      margin-bottom: 14px;
+      padding: 12px;
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      border-radius: var(--radius-md);
+      background: var(--danger-soft);
+      font-size: 13px;
+    }
+
+    @media (min-width: 820px) {
+      .social-layout {
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        gap: 20px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .social-add-form {
+        grid-template-columns: 1fr;
+      }
+
+      .social-person-row {
+        grid-template-columns: 1fr;
+      }
+
+      .social-person-actions .btn-glass {
+        flex: 1;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .workspace-nav-btn {
+        padding: 7px 5px;
+        font-size: 12px;
+      }
+
+      .workspace-count {
+        min-width: 18px;
+        min-height: 18px;
+        margin-left: 3px;
+      }
+    }
+
     button:focus-visible,
     input:focus-visible,
     textarea:focus-visible {
@@ -1955,6 +2210,9 @@
       <button type="button" class="workspace-nav-btn" id="participationsViewBtn" onclick="showParticipations()">
         Я участвую<span class="workspace-count" id="participationsNavCount">0</span>
       </button>
+      <button type="button" class="workspace-nav-btn" id="friendsViewBtn" onclick="showFriends()">
+        Друзья<span class="workspace-count" id="friendsNavCount">0</span>
+      </button>
     </nav>
 
     <div id="wishlistWorkspace">
@@ -1986,6 +2244,11 @@
               <line x1="12" y1="2" x2="12" y2="15"/>
             </svg>
             <span>Поделиться списком</span>
+          </button>
+
+          <!-- Подписка на открытый чужой вишлист -->
+          <button type="button" class="btn-accent" id="subscribeListBtn" style="display: none;" onclick="toggleCurrentWishlistSubscription()">
+            <span id="subscribeListBtnText">Подписаться</span>
           </button>
 
           <!-- Кнопка возврата в свой список для гостя -->
@@ -2183,6 +2446,12 @@
             </div>
 
             <div class="field-block span-2">
+              <div class="field-label"><span>Кто видит желание</span><span>Необязательно</span></div>
+              <div class="audience-editor" id="addAudienceControl"></div>
+              <div class="audience-summary" id="addAudienceSummary"></div>
+            </div>
+
+            <div class="field-block span-2">
               <div class="bento-switches-grid">
                 <label class="bento-switch-card" for="addCrowdfundToggle">
                   <div class="switch-text-wrap">
@@ -2240,6 +2509,42 @@
         </div>
       </header>
       <div class="gifts-bento-grid" id="participationsGrid" aria-live="polite"></div>
+    </section>
+
+    <section class="friends-workspace" id="friendsWorkspace" hidden>
+      <header class="bento-hero">
+        <div class="hero-top-row">
+          <div class="hero-title-group">
+            <h1 class="hero-title">Друзья и доступ</h1>
+            <p class="hero-subtitle">Сохраняйте вишлисты знакомых и выбирайте, каким группам показывать отдельные желания</p>
+          </div>
+          <button type="button" class="btn-glass" onclick="loadSocial()">Обновить</button>
+        </div>
+      </header>
+
+      <div class="social-error" id="socialError" role="alert" hidden></div>
+      <div class="social-layout">
+        <section class="social-panel" aria-labelledby="subscriptionsTitle">
+          <h2 class="social-panel-title" id="subscriptionsTitle">Мои подписки</h2>
+          <p class="social-panel-copy">Введите @username друга. Его общий вишлист будет сохранён здесь, а Telegram ID подставится автоматически.</p>
+          <form class="social-add-form" id="subscribeForm" onsubmit="handleSubscribeSubmit(event)">
+            <input type="text" class="input-modern" id="subscribeUsernameInput" placeholder="@username" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="33" required />
+            <button type="submit" class="btn-accent" id="subscribeSubmitBtn">Подписаться</button>
+          </form>
+          <div class="selection-help" id="selectionHelp" hidden>
+            <p>Пользователь пока неизвестен приложению. Бот отправил сообщение: откройте чат и выберите человека через встроенный интерфейс Telegram.</p>
+            <button type="button" class="btn-glass" id="openBotSelectionBtn" onclick="openBotForSelection()">Открыть чат с ботом</button>
+          </div>
+          <div class="social-empty" id="subscriptionsEmpty">Подписок пока нет. Можно также подписаться кнопкой внутри чужого вишлиста.</div>
+          <div class="social-list" id="subscriptionsList" aria-live="polite"></div>
+        </section>
+
+        <section class="social-panel" aria-labelledby="groupsTitle">
+          <h2 class="social-panel-title" id="groupsTitle">Группы доступа</h2>
+          <p class="social-panel-copy">Общие желания видны всем. Если у желания выбраны группы, его увидят только их участники. При удалении доступа активные скрытые брони автоматически отменяются.</p>
+          <div id="groupsList" aria-live="polite"></div>
+        </section>
+      </div>
     </section>
 
   </main>
@@ -2375,6 +2680,12 @@
           </div>
 
           <div class="field-block span-2">
+            <div class="field-label"><span>Кто видит желание</span><span>По умолчанию — все</span></div>
+            <div class="audience-editor" id="editAudienceControl"></div>
+            <div class="audience-summary" id="editAudienceSummary"></div>
+          </div>
+
+          <div class="field-block span-2">
             <div class="bento-switches-grid">
               <label class="bento-switch-card" for="editCrowdfundToggle">
                 <div class="switch-text-wrap">
@@ -2470,9 +2781,9 @@
      * 3. РОЛЕВАЯ МОДЕЛЬ И СТЕЙТ ПРИЛОЖЕНИЯ
      */
     const DEMO_USERS = {
-      owner: { id: 1001, name: "Максим", label: "Владелец (Максим)", avatar: "🎁", initials: "М" },
-      guest1: { id: 2002, name: "Анна", label: "Гость 1 (Анна)", avatar: "✨", initials: "А" },
-      guest2: { id: 3003, name: "Дима", label: "Гость 2 (Дима)", avatar: "🚀", initials: "Д" }
+      owner: { id: 1001, name: "Максим", username: "maxim", label: "Владелец (Максим)", avatar: "🎁", initials: "М" },
+      guest1: { id: 2002, name: "Анна", username: "anna1", label: "Гость 1 (Анна)", avatar: "✨", initials: "А" },
+      guest2: { id: 3003, name: "Дима", username: "dima1", label: "Гость 2 (Дима)", avatar: "🚀", initials: "Д" }
     };
 
     function parsePositiveId(value) {
@@ -2510,8 +2821,15 @@
       participations: [],
       participationsLoading: false,
       participationsError: "",
+      subscriptions: [],
+      groups: isTelegramSession ? getEmptyGroups() : getDefaultDemoGroups(),
+      isSubscribed: false,
+      socialLoading: false,
+      socialError: "",
+      selectionBotUsername: "",
       desireDraft: { add: "medium", edit: "medium" },
       tagDraft: { add: [], edit: [] },
+      groupDraft: { add: [], edit: [] },
       photoDraft: {
         add: "",
         edit: ""
@@ -2556,6 +2874,26 @@
       medium: { label: "Среднее хочу", className: "pill-desire-medium", rank: 1 },
       wait: { label: "◷ Пока подождёт", className: "pill-desire-wait", rank: 2 }
     };
+
+    function getEmptyGroups() {
+      return [
+        { id: "contacts", name: "Контакты", memberIds: [], members: [] },
+        { id: "family", name: "Семья", memberIds: [], members: [] },
+        { id: "girlfriend", name: "Девушка", memberIds: [], members: [] },
+        { id: "friends", name: "Друзья", memberIds: [], members: [] }
+      ];
+    }
+
+    function getDefaultDemoGroups() {
+      const anna = { id: 2002, first_name: "Анна", username: "anna1" };
+      const dima = { id: 3003, first_name: "Дима", username: "dima1" };
+      return [
+        { id: "contacts", name: "Контакты", memberIds: [2002, 3003], members: [anna, dima] },
+        { id: "family", name: "Семья", memberIds: [], members: [] },
+        { id: "girlfriend", name: "Девушка", memberIds: [2002], members: [anna] },
+        { id: "friends", name: "Друзья", memberIds: [3003], members: [dima] }
+      ];
+    }
 
     function getGiftDesire(gift) {
       return DESIRE_META[gift?.desire] ? gift.desire : (gift?.priority ? "high" : "medium");
@@ -2643,7 +2981,6 @@
         {
           id: 1731672004000,
           title: "Виниловый проигрыватель Audio-Technica AT-LP60XBT",
-          link: "https://example.com/turntable",
           image: "https://images.unsplash.com/photo-1539375665275-f9de415ef9ac?auto=format&fit=crop&w=800&q=80",
           price: 18900,
           category: "Техника",
@@ -2731,6 +3068,59 @@
         : value;
     }
 
+    function isInternalImageUrl(url) {
+      return /^\/api\/img\/[A-Za-z0-9_-]{16,64}$/.test(String(url || ""));
+    }
+
+    const internalImageCache = new Map();
+    const internalImageObjectUrls = new Set();
+
+    async function getInternalImageObjectUrl(url) {
+      if (!isTelegramSession || !isInternalImageUrl(url)) return resolveImageUrl(url);
+      if (internalImageCache.has(url)) return await internalImageCache.get(url);
+      const pending = (async () => {
+        try {
+          const response = await fetch(resolveImageUrl(url), { headers: getAuthHeaders() });
+          if (!response.ok) return "";
+          const objectUrl = URL.createObjectURL(await response.blob());
+          internalImageObjectUrls.add(objectUrl);
+          return objectUrl;
+        } catch (error) {
+          return "";
+        }
+      })();
+      internalImageCache.set(url, pending);
+      const result = await pending;
+      if (!result) internalImageCache.delete(url);
+      return result;
+    }
+
+    async function hydrateInternalImages(container) {
+      if (!container || !isTelegramSession) return;
+      const images = [...container.querySelectorAll("img[data-internal-image]")];
+      await Promise.all(images.map(async img => {
+        const source = img.getAttribute("data-internal-image") || "";
+        const objectUrl = await getInternalImageObjectUrl(source);
+        if (!img.isConnected || img.getAttribute("data-internal-image") !== source) return;
+        img.removeAttribute("data-internal-image");
+        const placeholder = img.nextElementSibling?.classList.contains("card-art-placeholder")
+          ? img.nextElementSibling
+          : null;
+        if (objectUrl) {
+          img.src = objectUrl;
+          img.style.display = "block";
+          if (placeholder) placeholder.style.display = "none";
+        } else {
+          img.style.display = "none";
+          if (placeholder) placeholder.style.display = "flex";
+        }
+      }));
+    }
+
+    window.addEventListener("beforeunload", () => {
+      internalImageObjectUrls.forEach(url => URL.revokeObjectURL(url));
+    });
+
     function applyServerData(data) {
       if (!data || !Array.isArray(data.gifts)) {
         throw new Error("Сервер вернул некорректные данные");
@@ -2739,6 +3129,12 @@
       if (responseOwnerId) state.ownerId = responseOwnerId;
       state.ownerName = String(data.owner?.first_name || "Пользователь").trim() || "Пользователь";
       state.gifts = data.gifts;
+      state.isSubscribed = Boolean(data.is_subscribed);
+      if (responseOwnerId === state.viewerId && Array.isArray(data.groups)) {
+        state.groups = normalizeGroups(data.groups, state.groups);
+        renderAudienceEditor("add");
+        renderAudienceEditor("edit");
+      }
       state.loadError = "";
     }
 
@@ -2759,6 +3155,325 @@
       } catch (error) {
         console.warn("Bot config is unavailable:", error);
       }
+    }
+
+    function normalizeGroups(groups, previousGroups = []) {
+      const definitions = getEmptyGroups();
+      return definitions.map(definition => {
+        const source = Array.isArray(groups)
+          ? groups.find(group => group?.id === definition.id) || {}
+          : {};
+        const previous = previousGroups.find(group => group?.id === definition.id) || {};
+        const sourceMembers = Array.isArray(source.members) ? source.members : null;
+        const memberIds = Array.isArray(source.memberIds)
+          ? source.memberIds.map(parsePositiveId).filter(Boolean)
+          : (sourceMembers || []).map(member => parsePositiveId(member?.id)).filter(Boolean);
+        const previousMembers = Array.isArray(previous.members) ? previous.members : [];
+        const members = sourceMembers || memberIds.map(id => {
+          const profile = previousMembers.find(member => parsePositiveId(member?.id) === id);
+          return profile || { id, first_name: "Пользователь", username: "" };
+        });
+        return {
+          ...definition,
+          name: String(source.name || definition.name),
+          memberIds: [...new Set(memberIds)],
+          members: members.filter(member => memberIds.includes(parsePositiveId(member?.id)))
+        };
+      });
+    }
+
+    function applySocialData(data) {
+      state.subscriptions = (Array.isArray(data.subscriptions) ? data.subscriptions : [])
+        .map(profile => ({
+          id: parsePositiveId(profile?.id),
+          first_name: String(profile?.first_name || "Пользователь"),
+          username: String(profile?.username || "").replace(/^@/, "")
+        }))
+        .filter(profile => profile.id);
+      state.groups = normalizeGroups(data.groups, state.groups);
+      if (state.ownerId !== state.viewerId) {
+        state.isSubscribed = state.subscriptions.some(profile => profile.id === state.ownerId);
+      }
+      state.socialError = "";
+      document.getElementById("selectionHelp").hidden = true;
+      renderAudienceEditor("add");
+      renderAudienceEditor("edit");
+      updateWorkspaceNav();
+    }
+
+    async function loadSocial() {
+      state.socialLoading = true;
+      state.socialError = "";
+      if (state.activeWorkspace === "friends") renderSocial();
+      try {
+        if (isTelegramSession) {
+          if (!API_ORIGIN) throw new Error("Не указан адрес Cloudflare Worker");
+          const response = await fetch(`${API_ORIGIN}/api/social`, { headers: getAuthHeaders() });
+          applySocialData(await readApiResponse(response));
+        }
+      } catch (error) {
+        state.socialError = error.message || "Не удалось загрузить друзей и группы";
+      } finally {
+        state.socialLoading = false;
+        updateWorkspaceNav();
+        if (state.activeWorkspace === "friends") renderSocial();
+      }
+    }
+
+    function findDemoProfileByUsername(username) {
+      const normalized = String(username || "").trim().replace(/^@+/, "").toLowerCase();
+      const user = Object.values(DEMO_USERS).find(item => item.username === normalized);
+      return user ? { id: user.id, first_name: user.name, username: user.username } : null;
+    }
+
+    async function mutateDemoSocial(action, payload) {
+      let profile = null;
+      if (action === "subscribe") {
+        profile = payload.user_id
+          ? { id: DEMO_USERS.owner.id, first_name: DEMO_USERS.owner.name, username: DEMO_USERS.owner.username }
+          : findDemoProfileByUsername(payload.username);
+        if (!profile) throw new Error("В демо доступны @maxim, @anna1 и @dima1");
+        if (profile.id === state.viewerId) throw new Error("Нельзя подписаться на самого себя");
+        if (!state.subscriptions.some(item => item.id === profile.id)) state.subscriptions.unshift(profile);
+      } else if (action === "unsubscribe") {
+        state.subscriptions = state.subscriptions.filter(item => item.id !== Number(payload.user_id));
+      } else if (action === "add_group_member") {
+        profile = findDemoProfileByUsername(payload.username);
+        if (!profile) throw new Error("В демо доступны @maxim, @anna1 и @dima1");
+        const group = state.groups.find(item => item.id === payload.group_id);
+        if (!group) throw new Error("Группа не найдена");
+        if (!group.memberIds.includes(profile.id)) {
+          group.memberIds.push(profile.id);
+          group.members.push(profile);
+        }
+      } else if (action === "remove_group_member") {
+        const group = state.groups.find(item => item.id === payload.group_id);
+        if (group) {
+          group.memberIds = group.memberIds.filter(id => id !== Number(payload.user_id));
+          group.members = group.members.filter(member => member.id !== Number(payload.user_id));
+        }
+        cleanupDemoAudience();
+        saveLocalGifts();
+        state.participations = getDemoParticipationItems();
+      }
+      if (state.ownerId !== state.viewerId) {
+        state.isSubscribed = state.subscriptions.some(profile => profile.id === state.ownerId);
+      }
+      updateWorkspaceNav();
+      renderAudienceEditor("add");
+      renderAudienceEditor("edit");
+      return { status: "ok" };
+    }
+
+    async function socialMutate(action, payload) {
+      if (!isTelegramSession) {
+        try {
+          const result = await mutateDemoSocial(action, payload);
+          if (state.activeWorkspace === "friends") renderSocial();
+          return result;
+        } catch (error) {
+          showToast(`⚠️ ${error.message}`);
+          return { status: "error" };
+        }
+      }
+
+      try {
+        const response = await fetch(`${API_ORIGIN}/api/social`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          body: JSON.stringify({ action, payload })
+        });
+        const data = await readApiResponse(response);
+        if (data.status === "selection_required") {
+          state.selectionBotUsername = String(data.botUsername || state.botUsername || "").replace(/^@/, "");
+          document.getElementById("selectionHelp").hidden = false;
+          showToast("Выберите человека в сообщении от бота");
+          return { status: "selection_required" };
+        }
+        applySocialData(data);
+        if (state.activeWorkspace === "friends") renderSocial();
+        return { status: "ok" };
+      } catch (error) {
+        showToast(`❌ ${error.message || "Не удалось изменить данные"}`);
+        return { status: "error" };
+      }
+    }
+
+    function validateUsernameInput(value) {
+      const username = String(value || "").trim().replace(/^@+/, "");
+      if (!/^[A-Za-z0-9_]{5,32}$/.test(username)) {
+        showToast("⚠️ Введите корректный @username Telegram");
+        return "";
+      }
+      return username;
+    }
+
+    async function handleSubscribeSubmit(event) {
+      event.preventDefault();
+      const input = document.getElementById("subscribeUsernameInput");
+      const button = document.getElementById("subscribeSubmitBtn");
+      const username = validateUsernameInput(input.value);
+      if (!username) return;
+      button.disabled = true;
+      const result = await socialMutate("subscribe", { username });
+      button.disabled = false;
+      if (result.status === "ok") {
+        input.value = "";
+        showToast("✓ Вишлист добавлен в подписки");
+        triggerHaptic("success");
+      }
+    }
+
+    async function handleGroupAddSubmit(event, groupId) {
+      event.preventDefault();
+      const input = document.getElementById(`groupUsername_${groupId}`);
+      const username = validateUsernameInput(input.value);
+      if (!username) return;
+      const result = await socialMutate("add_group_member", { group_id: groupId, username });
+      if (result.status === "ok") {
+        input.value = "";
+        showToast("✓ Пользователь добавлен в группу");
+        triggerHaptic("success");
+      }
+    }
+
+    async function unsubscribeUser(userId) {
+      const result = await socialMutate("unsubscribe", { user_id: userId });
+      if (result.status === "ok") showToast("Подписка удалена");
+    }
+
+    async function removeGroupMember(groupId, userId) {
+      const result = await socialMutate("remove_group_member", { group_id: groupId, user_id: userId });
+      if (result.status === "ok") {
+        showToast("Пользователь удалён из группы; его недоступные брони отменены");
+        if (state.ownerId === state.viewerId) await fetchGifts();
+      }
+    }
+
+    async function toggleCurrentWishlistSubscription() {
+      if (state.ownerId === state.viewerId) return;
+      const wasSubscribed = state.isSubscribed;
+      const button = document.getElementById("subscribeListBtn");
+      button.disabled = true;
+      const result = await socialMutate(
+        wasSubscribed ? "unsubscribe" : "subscribe",
+        { user_id: state.ownerId }
+      );
+      button.disabled = false;
+      if (result.status === "ok") {
+        state.isSubscribed = !wasSubscribed;
+        renderAll();
+        if (state.activeWorkspace === "friends") renderSocial();
+        showToast(wasSubscribed ? "Подписка удалена" : "✓ Вы подписались на этот вишлист");
+        triggerHaptic("success");
+      }
+    }
+
+    async function openBotForSelection() {
+      let username = state.selectionBotUsername || state.botUsername;
+      if (!username && isTelegramSession) {
+        await loadBotConfig();
+        username = state.botUsername;
+      }
+      username = String(username || "").replace(/^@/, "");
+      if (!username) {
+        showToast("⚠️ Не удалось получить адрес бота");
+        return;
+      }
+      const url = `https://t.me/${username}`;
+      if (tg?.openTelegramLink) tg.openTelegramLink(url);
+      else window.open(url, "_blank", "noopener,noreferrer");
+    }
+
+    function renderSocial() {
+      const error = document.getElementById("socialError");
+      error.hidden = !state.socialError;
+      error.textContent = state.socialError;
+      const list = document.getElementById("subscriptionsList");
+      const empty = document.getElementById("subscriptionsEmpty");
+      empty.hidden = state.subscriptions.length > 0;
+      empty.textContent = state.socialLoading
+        ? "Загружаем подписки…"
+        : "Подписок пока нет. Можно также подписаться кнопкой внутри чужого вишлиста.";
+
+      list.innerHTML = state.subscriptions.map(profile => {
+        const username = profile.username ? `@${escapeHtml(profile.username)}` : "ID сохранён в KV";
+        return `
+          <div class="social-person-row">
+            <div class="social-person-main">
+              <div class="social-person-name">${escapeHtml(profile.first_name)}</div>
+              <div class="social-person-meta">${username}</div>
+            </div>
+            <div class="social-person-actions">
+              <button type="button" class="btn-glass" onclick="openParticipatingWishlist(${profile.id})">Открыть</button>
+              <button type="button" class="btn-glass" onclick="unsubscribeUser(${profile.id})">Отписаться</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      document.getElementById("groupsList").innerHTML = state.groups.map(group => {
+        const membersHtml = group.members.map(member => `
+          <div class="social-person-row">
+            <div class="social-person-main">
+              <div class="social-person-name">${escapeHtml(member.first_name || "Пользователь")}</div>
+              <div class="social-person-meta">${member.username ? `@${escapeHtml(member.username)}` : "Telegram ID сохранён"}</div>
+            </div>
+            <div class="social-person-actions">
+              <button type="button" class="btn-glass" onclick="removeGroupMember('${group.id}', ${member.id})">Удалить</button>
+            </div>
+          </div>
+        `).join("");
+        return `
+          <section class="access-group">
+            <div class="access-group-head">
+              <span class="access-group-name">${escapeHtml(group.name)}</span>
+              <span class="access-group-count">${group.memberIds.length} чел.</span>
+            </div>
+            <form class="social-add-form" onsubmit="handleGroupAddSubmit(event, '${group.id}')">
+              <input type="text" class="input-modern" id="groupUsername_${group.id}" placeholder="@username" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="33" required />
+              <button type="submit" class="btn-glass">Добавить</button>
+            </form>
+            ${membersHtml || '<div class="social-empty">В группе пока никого нет.</div>'}
+          </section>
+        `;
+      }).join("");
+    }
+
+    function renderAudienceEditor(formPrefix) {
+      const container = document.getElementById(`${formPrefix}AudienceControl`);
+      const summary = document.getElementById(`${formPrefix}AudienceSummary`);
+      if (!container || !summary || !state.groupDraft) return;
+      const selected = state.groupDraft[formPrefix];
+      const buttons = [{ id: "all", name: "Всем", memberIds: [] }, ...state.groups];
+      container.innerHTML = buttons.map(group => {
+        const active = group.id === "all" ? selected.length === 0 : selected.includes(group.id);
+        const count = group.id === "all" ? "" : `<span class="audience-chip-count">${group.memberIds.length}</span>`;
+        return `<button type="button" class="audience-chip ${active ? "active" : ""}" data-group="${group.id}" aria-pressed="${active}" onclick="toggleGiftAudience('${formPrefix}', this.dataset.group)">${escapeHtml(group.name)}${count}</button>`;
+      }).join("");
+
+      if (selected.length === 0) {
+        summary.textContent = "Желание увидят все, кто откроет ваш вишлист.";
+      } else {
+        const names = state.groups.filter(group => selected.includes(group.id)).map(group => group.name);
+        const totalMembers = new Set(state.groups.filter(group => selected.includes(group.id)).flatMap(group => group.memberIds)).size;
+        summary.textContent = totalMembers
+          ? `Видно только группам: ${names.join(", ")}.`
+          : `Выбраны пустые группы: ${names.join(", ")}. Гости не увидят это желание.`;
+      }
+    }
+
+    function toggleGiftAudience(formPrefix, groupId) {
+      const selected = state.groupDraft[formPrefix];
+      if (groupId === "all") {
+        state.groupDraft[formPrefix] = [];
+      } else if (state.groups.some(group => group.id === groupId)) {
+        state.groupDraft[formPrefix] = selected.includes(groupId)
+          ? selected.filter(id => id !== groupId)
+          : [...selected, groupId];
+      }
+      renderAudienceEditor(formPrefix);
+      triggerHaptic("light");
     }
 
     async function fetchGifts() {
@@ -2802,7 +3517,9 @@
       } else {
         state.gifts = getInitialDemoGifts();
       }
-      state.ownerName = DEMO_USERS.owner.name;
+      const demoOwner = Object.values(DEMO_USERS).find(user => user.id === state.ownerId)
+        || state.subscriptions.find(profile => profile.id === state.ownerId);
+      state.ownerName = demoOwner?.name || demoOwner?.first_name || DEMO_USERS.owner.name;
       state.viewerName = DEMO_USERS[state.activeRoleKey]?.name || DEMO_USERS.owner.name;
       saveLocalGifts();
       state.isLoading = false;
@@ -2847,6 +3564,14 @@
         }
       }
 
+      if (["toggle_book", "toggle_crowdfund"].includes(action)) {
+        const gift = state.gifts.find(item => item.id === payload.id);
+        if (!gift || !canDemoViewerAccessGift(gift, state.viewerId)) {
+          showToast("⚠️ Это желание недоступно для вашей группы");
+          return false;
+        }
+      }
+
       if (action === "add") {
         state.gifts.unshift(payload);
       } else if (action === "update") {
@@ -2873,6 +3598,7 @@
         });
       }
 
+      cleanupDemoAudience();
       saveLocalGifts();
       renderAll();
       if (["toggle_book", "toggle_crowdfund"].includes(action)) loadParticipations(true);
@@ -3018,13 +3744,23 @@
       const box = document.getElementById(`${formPrefix}PhotoPreviewBox`);
       const img = document.getElementById(`${formPrefix}PhotoPreviewImg`);
       const meta = document.getElementById(`${formPrefix}PhotoPreviewMeta`);
+      const useProtectedImage = isTelegramSession && isInternalImageUrl(url);
+
+      img.removeAttribute("data-internal-image");
+      img.removeAttribute("src");
+      img.style.display = useProtectedImage ? "none" : "block";
 
       if (url) {
-        img.src = resolveImageUrl(url);
+        if (useProtectedImage) {
+          img.setAttribute("data-internal-image", url);
+          hydrateInternalImages(box);
+        } else {
+          img.src = resolveImageUrl(url);
+        }
         meta.textContent = metaText || "Фото выбрано";
         box.classList.add("active");
       } else {
-        img.src = "";
+        meta.textContent = "Готово к публикации";
         box.classList.remove("active");
       }
     }
@@ -3199,6 +3935,7 @@
         comment,
         desire,
         tags,
+        group_ids: [...state.groupDraft.add],
         priority: desire === "high",
         is_crowdfund: isCrowdfund,
         booked_by: null,
@@ -3214,8 +3951,10 @@
         clearPhoto("add");
         state.desireDraft.add = "medium";
         state.tagDraft.add = [];
+        state.groupDraft.add = [];
         setDesire("add", "medium");
         renderTagEditor("add");
+        renderAudienceEditor("add");
         syncCategoryChipHighlight("add");
         state.activeTab = "active";
         renderAll();
@@ -3234,8 +3973,10 @@
       document.getElementById("editCommentInput").value = gift.comment || "";
       state.desireDraft.edit = getGiftDesire(gift);
       state.tagDraft.edit = Array.isArray(gift.tags) ? [...gift.tags] : [];
+      state.groupDraft.edit = Array.isArray(gift.group_ids) ? [...gift.group_ids] : [];
       setDesire("edit", state.desireDraft.edit);
       renderTagEditor("edit");
+      renderAudienceEditor("edit");
       document.getElementById("editCrowdfundToggle").checked = Boolean(gift.is_crowdfund);
 
       state.photoDraft.edit = gift.image || "";
@@ -3281,6 +4022,7 @@
         comment,
         desire,
         tags,
+        group_ids: [...state.groupDraft.edit],
         priority: desire === "high",
         is_crowdfund: isCrowdfund
       };
@@ -3433,6 +4175,9 @@
     async function returnToOwnWishlist() {
       showWishlistWorkspace();
       if (!isTelegramSession) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("list");
+        window.history.replaceState({}, "", url);
         switchDemoRole("owner");
         return;
       }
@@ -3452,14 +4197,17 @@
 
 
     function updateWorkspaceNav() {
-      const wishlistActive = state.activeWorkspace === "wishlist";
-      document.getElementById("wishlistWorkspace").hidden = !wishlistActive;
-      document.getElementById("participationsWorkspace").hidden = wishlistActive;
-      document.getElementById("wishlistViewBtn").classList.toggle("active", wishlistActive);
-      document.getElementById("participationsViewBtn").classList.toggle("active", !wishlistActive);
-      document.getElementById("wishlistViewBtn").setAttribute("aria-current", wishlistActive ? "page" : "false");
-      document.getElementById("participationsViewBtn").setAttribute("aria-current", wishlistActive ? "false" : "page");
+      const workspaces = ["wishlist", "participations", "friends"];
+      for (const workspace of workspaces) {
+        const active = state.activeWorkspace === workspace;
+        const sectionId = workspace === "wishlist" ? "wishlistWorkspace" : `${workspace}Workspace`;
+        const buttonId = workspace === "wishlist" ? "wishlistViewBtn" : `${workspace}ViewBtn`;
+        document.getElementById(sectionId).hidden = !active;
+        document.getElementById(buttonId).classList.toggle("active", active);
+        document.getElementById(buttonId).setAttribute("aria-current", active ? "page" : "false");
+      }
       document.getElementById("participationsNavCount").textContent = state.participations.length;
+      document.getElementById("friendsNavCount").textContent = state.subscriptions.length;
     }
 
     function showWishlistWorkspace() {
@@ -3475,9 +4223,39 @@
       await loadParticipations();
     }
 
+    async function showFriends() {
+      state.activeWorkspace = "friends";
+      updateWorkspaceNav();
+      renderSocial();
+      triggerHaptic("light");
+      await loadSocial();
+    }
+
+    function canDemoViewerAccessGift(gift, viewerId) {
+      if (viewerId === DEMO_USERS.owner.id) return true;
+      const groupIds = Array.isArray(gift?.group_ids) ? gift.group_ids : [];
+      if (groupIds.length === 0) return true;
+      return groupIds.some(groupId => {
+        const group = state.groups.find(item => item.id === groupId);
+        return group?.memberIds.includes(viewerId);
+      });
+    }
+
+    function cleanupDemoAudience() {
+      if (isTelegramSession) return;
+      for (const gift of state.gifts) {
+        const groupIds = Array.isArray(gift.group_ids) ? gift.group_ids : [];
+        if (groupIds.length === 0) continue;
+        if (gift.booked_by && !canDemoViewerAccessGift(gift, Number(gift.booked_by))) gift.booked_by = null;
+        if (Array.isArray(gift.participants)) {
+          gift.participants = gift.participants.filter(id => canDemoViewerAccessGift(gift, Number(id)));
+        }
+      }
+    }
+
     function getDemoParticipationItems() {
       if (state.viewerId === DEMO_USERS.owner.id) return [];
-      return state.gifts.flatMap(gift => {
+      return state.gifts.filter(gift => canDemoViewerAccessGift(gift, state.viewerId)).flatMap(gift => {
         const type = gift.is_crowdfund
           ? (Array.isArray(gift.participants) && gift.participants.includes(state.viewerId) ? "crowdfund" : "")
           : (gift.booked_by === state.viewerId ? "book" : "");
@@ -3735,6 +4513,8 @@
       const avatarEmoji = document.getElementById("heroAvatarEmoji");
       const shareBtn = document.getElementById("shareListBtn");
       const backBtn = document.getElementById("backToOwnListBtn");
+      const subscribeBtn = document.getElementById("subscribeListBtn");
+      const subscribeBtnText = document.getElementById("subscribeListBtnText");
       const addSection = document.getElementById("ownerAddSection");
 
       if (isOwner) {
@@ -3743,6 +4523,7 @@
         headerSubtitle.textContent = "Добавляйте желанные подарки и делитесь списком с близкими в Telegram";
         avatarEmoji.textContent = "🎁";
         shareBtn.style.display = "inline-flex";
+        subscribeBtn.style.display = "none";
         backBtn.style.display = "none";
         addSection.style.display = "block";
       } else {
@@ -3751,12 +4532,17 @@
         headerSubtitle.textContent = "Бронируйте подарки в 1 клик или скидывайтесь с друзьями — именинник не узнает заранее";
         avatarEmoji.textContent = currentUser.avatar;
         shareBtn.style.display = "none";
+        subscribeBtn.style.display = "inline-flex";
+        subscribeBtnText.textContent = state.isSubscribed ? "✓ Вы подписаны" : "Подписаться";
         backBtn.style.display = "inline-flex";
         addSection.style.display = "none";
       }
 
-      const activeGifts = state.gifts.filter(g => !g.is_gifted);
-      const giftedGifts = state.gifts.filter(g => g.is_gifted);
+      const visibleGifts = !isTelegramSession && !isOwner
+        ? state.gifts.filter(gift => canDemoViewerAccessGift(gift, state.viewerId))
+        : state.gifts;
+      const activeGifts = visibleGifts.filter(g => !g.is_gifted);
+      const giftedGifts = visibleGifts.filter(g => g.is_gifted);
       const freeGiftsCount = activeGifts.filter(g => g.is_crowdfund || g.booked_by === null).length;
       const totalActiveSum = activeGifts.reduce((acc, g) => acc + (Number(g.price) || 0), 0);
 
@@ -3897,6 +4683,7 @@
       }
 
       grid.innerHTML = items.map(gift => buildGiftCardHtml(gift, isOwner)).join("");
+      hydrateInternalImages(grid);
     }
 
     function buildGiftCardHtml(gift, isOwner) {
@@ -3909,6 +4696,11 @@
       const desire = getGiftDesire(gift);
       const desireMeta = DESIRE_META[desire];
       const desireBadgeHtml = `<span class="glass-pill ${desireMeta.className}">${desireMeta.label}</span>`;
+      const giftGroupIds = Array.isArray(gift.group_ids) ? gift.group_ids : [];
+      const giftGroupNames = state.groups.filter(group => giftGroupIds.includes(group.id)).map(group => group.name);
+      const audienceBadgeHtml = isOwner && giftGroupIds.length
+        ? `<span class="glass-pill pill-status-booked">Для: ${escapeHtml(giftGroupNames.join(", ") || "выбранных")}</span>`
+        : "";
       const tags = Array.isArray(gift.tags) ? gift.tags : [];
       const tagsHtml = tags.length
         ? `<div class="gift-tags">${tags.map(tag => `<span class="gift-tag">#${escapeHtml(tag)}</span>`).join("")}</div>`
@@ -3917,15 +4709,19 @@
       // 1. Визуальная шапка 16:10
       let mediaContentHtml = "";
       if (gift.image) {
-        const safeImg = escapeHtml(resolveImageUrl(gift.image));
+        const useProtectedImage = isTelegramSession && isInternalImageUrl(gift.image);
+        const safeImg = escapeHtml(useProtectedImage ? gift.image : resolveImageUrl(gift.image));
+        const sourceAttribute = useProtectedImage
+          ? `data-internal-image="${safeImg}" style="display: none;"`
+          : `src="${safeImg}"`;
         mediaContentHtml = `
           <img
-            src="${safeImg}"
+            ${sourceAttribute}
             alt="${safeTitle}"
             loading="lazy"
             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
           />
-          <div class="card-art-placeholder" style="display: none; background: ${catStyle.gradient};">
+          <div class="card-art-placeholder" style="display: ${useProtectedImage ? "flex" : "none"}; background: ${catStyle.gradient};">
             <div class="art-icon-orb">${catStyle.emoji}</div>
             <span class="art-cat-caption">${safeCategory}</span>
           </div>
@@ -4063,6 +4859,7 @@
             ${mediaContentHtml}
             <div class="media-badges-left">
               ${desireBadgeHtml}
+              ${audienceBadgeHtml}
               <span class="glass-pill pill-category">${catStyle.emoji} ${safeCategory}</span>
             </div>
             <div class="media-badge-right">
@@ -4130,11 +4927,16 @@
       setDesire("edit", "medium");
       renderTagEditor("add");
       renderTagEditor("edit");
+      renderAudienceEditor("add");
+      renderAudienceEditor("edit");
       updateWorkspaceNav();
       if (!isTelegramSession && state.ownerId !== state.viewerId) {
         switchDemoRole("guest1");
       }
-      fetchGifts().then(() => loadParticipations(true));
+      fetchGifts().then(() => {
+        loadParticipations(true);
+        loadSocial();
+      });
       loadBotConfig();
     });
   </script>
