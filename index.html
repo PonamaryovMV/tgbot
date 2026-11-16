@@ -2598,7 +2598,7 @@
               <div class="upload-progress-wrap" id="editUploadProgress">
                 <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
                   <span id="editUploadStatusText">Сжатие фото...</span>
-                  <span class="tabular-nums" id="editUploadPercentText">0%</span>
+                  <span id="editUploadPercentText">0%</span>
                 </div>
                 <div class="progress-track">
                   <div class="progress-fill" id="editUploadProgressBar"></div>
@@ -2741,7 +2741,6 @@
     // После первого deploy укажите адрес Worker без завершающего слэша.
     const API_BASE_URL = "https://tgbot.ax1ksg94.workers.dev";
     const API_ORIGIN = API_BASE_URL.replace(/\/+$/, "");
-    const FALLBACK_BOT_USERNAME = "personal_wishlist_bot"; // Используется только в браузерном демо
     const STORAGE_KEY = "tg_miniapp_wishlist_2026_v2";
     const MAX_IMAGE_BYTES = 512 * 1024;
 
@@ -2796,7 +2795,9 @@
     const isTelegramSession = Boolean(tg?.initData && telegramUserId);
     const tgUserId = isTelegramSession ? telegramUserId : DEMO_USERS.owner.id;
     const startParam = tg?.initDataUnsafe?.start_param || "";
-    const queryListParam = new URLSearchParams(window.location.search).get("list") || "";
+    const queryParams = new URLSearchParams(window.location.search);
+    const queryListParam = queryParams.get("list") || "";
+    const isBrowserDemo = !isTelegramSession && queryParams.get("demo") === "1";
     const requestedOwnerId = startParam.startsWith("list_")
       ? startParam.slice(5)
       : queryListParam;
@@ -2808,7 +2809,7 @@
       viewerId: tgUserId,
       ownerName: parsedOwnerId === tgUserId && isTelegramSession ? telegramViewerName : "Пользователь",
       viewerName: isTelegramSession ? telegramViewerName : DEMO_USERS.owner.name,
-      botUsername: isTelegramSession ? "" : FALLBACK_BOT_USERNAME,
+      botUsername: "",
       activeRoleKey: "owner",
       activeWorkspace: "wishlist",
       activeTab: "active", // 'active' (is_gifted: false) | 'gifted' (is_gifted: true)
@@ -2981,6 +2982,7 @@
         {
           id: 1731672004000,
           title: "Виниловый проигрыватель Audio-Technica AT-LP60XBT",
+          link: "https://example.com/turntable",
           image: "https://images.unsplash.com/photo-1539375665275-f9de415ef9ac?auto=format&fit=crop&w=800&q=80",
           price: 18900,
           category: "Техника",
@@ -3370,6 +3372,10 @@
     }
 
     async function openBotForSelection() {
+      if (!isTelegramSession) {
+        showToast("Выбор реального пользователя доступен после открытия приложения через @testpmvbot_bot.");
+        return;
+      }
       let username = state.selectionBotUsername || state.botUsername;
       if (!username && isTelegramSession) {
         await loadBotConfig();
@@ -4126,7 +4132,11 @@
 
     async function shareWishlist() {
       triggerHaptic("light");
-      if (!state.botUsername && isTelegramSession) await loadBotConfig();
+      if (!isTelegramSession) {
+        showToast("Это демо-вишлист. Откройте своё приложение через @testpmvbot_bot, чтобы поделиться им.");
+        return;
+      }
+      if (!state.botUsername) await loadBotConfig();
       if (!state.botUsername) {
         showToast("⚠️ Не удалось получить username бота. Проверьте BOT_TOKEN и Worker.");
         return;
@@ -4920,6 +4930,13 @@
      * ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ
      */
     window.addEventListener("DOMContentLoaded", () => {
+      if (!isTelegramSession && !isBrowserDemo) {
+        const sharedOwnerId = parsePositiveId(queryListParam);
+        const startQuery = sharedOwnerId ? `?start=list_${sharedOwnerId}` : "";
+        window.location.replace(`https://t.me/testpmvbot_bot${startQuery}`);
+        return;
+      }
+
       const demoDock = document.querySelector(".demo-dock-wrapper");
       if (demoDock) demoDock.style.display = isTelegramSession ? "none" : "";
 
