@@ -714,6 +714,8 @@ test("Telegram user selection stores IDs and completes social actions", async ()
     const pickerRequest = calls.findLast(call => call.method === "sendMessage");
     const picker = pickerRequest.payload.reply_markup.keyboard[0][0];
     assert.equal(picker.request_users.max_quantity, 1);
+    assert.equal(picker.request_users.request_name, true);
+    assert.equal(picker.request_users.request_username, true);
     const requestId = picker.request_users.request_id;
     assert.ok(env.DB.entries.has(`selection:${requestId}`));
 
@@ -736,6 +738,10 @@ test("Telegram user selection stores IDs and completes social actions", async ()
     assert.equal(Number(env.DB.entries.get("username:olga1").value), 4004);
     assert.equal(JSON.parse(env.DB.entries.get("directory:4004").value).first_name, "Ольга");
     assert.equal(env.DB.entries.has(`selection:${requestId}`), false);
+
+    response = await worker.fetch(requestApi("/api/social", { user: OWNER }), env);
+    data = await json(response);
+    assert.deepEqual(data.subscriptions[0], { id: 4004, first_name: "Ольга", username: "olga1" });
 
     response = await worker.fetch(requestApi("/api/social", {
       method: "POST",
