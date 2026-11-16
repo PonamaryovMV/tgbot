@@ -4366,7 +4366,7 @@
       const ownerId = parsePositiveId(item.owner?.id);
       const ownerName = escapeHtml(item.owner?.first_name || "Пользователь");
       const title = escapeHtml(gift.title || "Подарок");
-      const typeLabel = item.type === "crowdfund" ? "🤝 Совместный сбор" : "✓ Вы дарите";
+      const typeLabel = item.type === "crowdfund" ? "🤝 Совместный сбор" : "🔒 Вы забронировали";
       const price = formatPrice(gift.price);
       const tags = Array.isArray(gift.tags) ? gift.tags : [];
       const tagsHtml = tags.map(tag => `<span class="gift-tag">#${escapeHtml(tag)}</span>`).join("");
@@ -4764,9 +4764,9 @@
       } else if (gift.is_crowdfund) {
         rightBadgeHtml = `<span class="glass-pill pill-status-crowdfund">🤝 Сбор · ${participants.length} чел.</span>`;
       } else if (isBookedByMe && !isOwner) {
-        rightBadgeHtml = `<span class="glass-pill pill-status-mine">✓ Вы дарите</span>`;
+        rightBadgeHtml = `<span class="glass-pill pill-status-mine">🔒 Вы забронировали</span>`;
       } else if (gift.booked_by !== null) {
-        rightBadgeHtml = `<span class="glass-pill pill-status-booked">🔒 Занято</span>`;
+        rightBadgeHtml = `<span class="glass-pill pill-status-booked">🔒 Забронировано</span>`;
       }
 
       // 3. Виджет складчины (с аватарками и расчётом доли в рублях)
@@ -4820,8 +4820,8 @@
             <button type="button" class="action-btn btn-owner-edit" onclick="openEditModal(${gift.id})">
               <span>✏️ Изменить</span>
             </button>
-            <button type="button" class="action-btn btn-owner-archive" onclick="toggleGiftArchive(${gift.id})">
-              <span>${gift.is_gifted ? "↩ Вернуть" : "Подарили ✓"}</span>
+            <button type="button" class="action-btn btn-owner-archive" onclick="toggleGiftArchive(${gift.id})" title="${gift.is_gifted ? "Вернуть в актуальные" : "Отметить, что подарок вручён"}">
+              <span>${gift.is_gifted ? "↩ Вернуть" : "Отметить вручение"}</span>
             </button>
             <button type="button" class="action-btn btn-owner-delete" onclick="requestDeleteGift(${gift.id})" title="Удалить подарок" aria-label="Удалить подарок">
               🗑
@@ -4858,13 +4858,13 @@
         } else if (isBookedByMe) {
           footerHtml = `
             <button type="button" class="action-btn btn-guest-unbook" onclick="toggleBookSingleGift(${gift.id})">
-              ✓ Вы дарите · Отменить
+              Отменить бронь
             </button>
           `;
         } else if (isBookedByOther) {
           footerHtml = `
             <button type="button" class="action-btn btn-guest-locked" disabled>
-              🔒 Занято
+              🔒 Забронировано
             </button>
           `;
         }
