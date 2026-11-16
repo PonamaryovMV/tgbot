@@ -52,11 +52,23 @@ export default async page => {
   await page.locator('[data-role="guest1"]').click();
   await page.locator('.btn-guest-book').first().click();
   await page.waitForFunction(() => state.gifts.some(g => g.booked_by === 2002));
+  const bookedTitle = await page.evaluate(() => state.gifts.find(g => g.booked_by === 2002).title);
+  assert(await page.evaluate(title => state.gifts.find(g => g.title === title).is_gifted === false, bookedTitle), 'Booking must not mark the gift as gifted');
+  const guestBookedCardText = await page.locator('#giftsGrid .gift-card', { hasText: bookedTitle }).textContent();
+  assert(guestBookedCardText.includes('Вы забронировали'), 'Guest booking badge must be explicit');
+  assert(!guestBookedCardText.includes('Подарено') && !guestBookedCardText.includes('уже вручён'), 'Guest booking must not look gifted');
   await page.locator('.btn-guest-crowdfund').first().click();
   await page.waitForFunction(() => state.gifts.some(g => g.is_crowdfund && g.participants.includes(2002)));
   await page.locator('#backToOwnListBtn').click();
   assert(await page.evaluate(() => state.ownerId === 1001 && state.viewerId === 1001), 'Return must restore owner role');
+  const ownerBookedCard = page.locator('#giftsGrid .gift-card', { hasText: bookedTitle });
+  const ownerBookedCardText = await ownerBookedCard.textContent();
+  assert(ownerBookedCardText.includes('Забронировано'), 'Owner must see a reservation status');
+  assert(ownerBookedCardText.includes('Отметить вручение'), 'Gifted action must be clearly separated from reservation status');
+  assert(!ownerBookedCardText.includes('Подарено'), 'Owner card must not show a gifted status after booking');
+  assert(await page.evaluate(title => state.gifts.find(g => g.title === title).is_gifted === false, bookedTitle), 'Owner booking view must keep is_gifted false');
   results.push('legacy booking and crowdfund');
+  results.push('booking and actual gift delivery stay separate for guest and owner');
 
   await page.locator('#friendsViewBtn').click();
   await page.locator('#friendsWorkspace').waitFor({ state: 'visible' });

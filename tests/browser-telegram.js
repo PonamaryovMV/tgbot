@@ -185,8 +185,12 @@ export default async page => {
 
   await page.locator('.btn-guest-book').click();
   await page.waitForFunction(() => state.gifts[0]?.booked_by === 2002);
-  assert((await page.locator('.card-actions-footer').textContent()).includes('Вы дарите'), 'Booked state must be rendered');
-  results.push('API booking mutation');
+  assert(await page.evaluate(() => state.gifts[0]?.is_gifted === false), 'Booking must not mark the gift as gifted');
+  const bookedCardText = await page.locator('#giftsGrid .gift-card').textContent();
+  assert(bookedCardText.includes('Вы забронировали'), 'Booking badge must explicitly describe a reservation');
+  assert(!bookedCardText.includes('Подарено') && !bookedCardText.includes('уже вручён'), 'Booked gift must not look gifted');
+  assert((await page.locator('.card-actions-footer').textContent()).includes('Отменить бронь'), 'Guest must see the cancellation action');
+  results.push('API booking remains a reservation, not a gifted status');
 
   await page.locator('#subscribeListBtn').click();
   await page.waitForFunction(() => state.isSubscribed && state.subscriptions.length === 1);
