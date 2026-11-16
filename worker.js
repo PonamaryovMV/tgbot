@@ -741,7 +741,13 @@ async function requestTelegramUserSelection(env, viewer, action, payload) {
       reply_markup: {
         keyboard: [[{
           text: "Выбрать пользователя",
-          request_users: { request_id: requestId, user_is_bot: false, max_quantity: 1 }
+          request_users: {
+            request_id: requestId,
+            user_is_bot: false,
+            request_name: true,
+            request_username: true,
+            max_quantity: 1
+          }
         }]],
         resize_keyboard: true,
         one_time_keyboard: true
