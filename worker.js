@@ -9,6 +9,13 @@ const MAX_IMAGE_BYTES = 512 * 1024;
 const MAX_UPLOAD_REQUEST_BYTES = 1100 * 1024;
 const MAX_JSON_BYTES = 1024 * 1024;
 const INIT_DATA_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const MAX_SOCIAL_ITEMS = 200;
+const GROUP_DEFINITIONS = Object.freeze([
+  { id: "contacts", name: "Контакты" },
+  { id: "family", name: "Семья" },
+  { id: "girlfriend", name: "Девушка" },
+  { id: "friends", name: "Друзья" }
+]);
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -47,10 +54,19 @@ export default {
         const user = await authenticateTelegram(request, env);
         return await handleParticipationsGet(env, user);
       }
+      if (path === "/api/social" && method === "GET") {
+        const user = await authenticateTelegram(request, env);
+        return await handleSocialGet(env, user);
+      }
+      if (path === "/api/social" && method === "POST") {
+        const user = await authenticateTelegram(request, env);
+        return await handleSocialPost(request, env, user);
+      }
 
       const imageMatch = path.match(/^\/api\/img\/([A-Za-z0-9_-]{16,64})$/);
       if (imageMatch && method === "GET") {
-        return await handleImageRequest(env, imageMatch[1]);
+        const user = await authenticateTelegram(request, env);
+        return await handleImageRequest(env, imageMatch[1], user);
       }
 
       if ((path === "/api/gifts" || path === "/api/data") && method === "GET") {
@@ -151,10 +167,13 @@ async function authenticateTelegram(request, env) {
     throw new HttpError(401, "Telegram user is missing");
   }
 
-  return {
+  const telegramUser = {
     id: userId,
-    first_name: cleanPlainText(user.first_name || "Пользователь", 64) || "Пользователь"
+    first_name: cleanPlainText(user.first_name || "Пользователь", 64) || "Пользователь",
+    username: normalizeUsername(user.username || "", false)
   };
+  await rememberTelegramUser(env, telegramUser);
+  return telegramUser;
 }
 
 async function hmacSha256(keyData, data) {
@@ -184,12 +203,18 @@ function timingSafeEqual(left, right) {
 async function handleGiftsGet(url, env, viewer) {
   const ownerId = parseId(url.searchParams.get("owner_id") || viewer.id, "owner_id");
   const record = await loadWishlist(env, ownerId, viewer);
-  if (ownerId === viewer.id && !record.owner.first_name) {
-    record.owner.first_name = viewer.first_name;
+  const groups = await loadGroups(env, ownerId);
+  let isSubscribed = false;
+
+  if (ownerId === viewer.id) {
+    if (!record.owner.first_name) record.owner.first_name = viewer.first_name;
+    record.owner.username = viewer.username || record.owner.username || "";
   } else {
-    await syncWishlistParticipation(env, ownerId, viewer, record);
+    await syncWishlistParticipation(env, ownerId, viewer, record, groups);
+    const subscriptions = await readSubscriptions(env, viewer.id);
+    isSubscribed = subscriptions.includes(ownerId);
   }
-  return json(serializeWishlist(record, viewer.id));
+  return json(serializeWishlist(record, viewer.id, groups, isSubscribed));
 }
 
 async function handleGiftsPost(request, env, viewer) {
@@ -224,6 +249,8 @@ async function handleGiftsPost(request, env, viewer) {
   }
 
   const record = await loadWishlist(env, ownerId, viewer);
+  const groups = await loadGroups(env, ownerId);
+  const affectedViewerIds = new Set();
   let imageToDelete = "";
 
   if (action === "add") {
@@ -234,7 +261,12 @@ async function handleGiftsPost(request, env, viewer) {
     gift.participants = [];
     gift.is_gifted = false;
     record.gifts.unshift(gift);
-    record.owner = { id: ownerId, first_name: viewer.first_name };
+    record.owner = {
+      ...record.owner,
+      id: ownerId,
+      first_name: viewer.first_name,
+      username: viewer.username || record.owner.username || ""
+    };
   }
 
   if (action === "update") {
@@ -252,7 +284,10 @@ async function handleGiftsPost(request, env, viewer) {
       next.participants = [];
     }
     if (previous.image !== next.image) imageToDelete = previous.image;
+    collectGiftViewerIds(previous).forEach(id => affectedViewerIds.add(id));
     record.gifts[index] = next;
+    cleanupGiftAudience(next, groups, ownerId);
+    collectGiftViewerIds(next).forEach(id => affectedViewerIds.add(id));
   }
 
   if (action === "delete") {
@@ -268,6 +303,7 @@ async function handleGiftsPost(request, env, viewer) {
 
   if (action === "toggle_book") {
     const gift = record.gifts[findGiftIndex(record.gifts, payload.id)];
+    assertGiftVisible(gift, groups, ownerId, viewer.id);
     if (gift.is_gifted || gift.is_crowdfund) throw new HttpError(409, "This gift cannot be booked");
     if (gift.booked_by === null || gift.booked_by === undefined) {
       gift.booked_by = viewer.id;
@@ -280,6 +316,7 @@ async function handleGiftsPost(request, env, viewer) {
 
   if (action === "toggle_crowdfund") {
     const gift = record.gifts[findGiftIndex(record.gifts, payload.id)];
+    assertGiftVisible(gift, groups, ownerId, viewer.id);
     if (gift.is_gifted || !gift.is_crowdfund) throw new HttpError(409, "This gift is not a crowdfund");
     const participants = Array.isArray(gift.participants) ? gift.participants : [];
     const index = participants.indexOf(viewer.id);
@@ -289,15 +326,17 @@ async function handleGiftsPost(request, env, viewer) {
   }
 
   await saveWishlist(env, ownerId, record);
-  if (!isOwner) {
-    await syncWishlistParticipation(env, ownerId, viewer, record);
+  if (!isOwner) affectedViewerIds.add(viewer.id);
+  for (const affectedViewerId of affectedViewerIds) {
+    await syncWishlistParticipation(env, ownerId, { id: affectedViewerId }, record, groups);
   }
   const imageIsStillUsed = imageToDelete
     && record.gifts.some(gift => gift.image === imageToDelete);
   if (imageToDelete && !imageIsStillUsed) {
     await deleteInternalImage(env, imageToDelete, ownerId);
   }
-  return json(serializeWishlist(record, viewer.id));
+  const isSubscribed = !isOwner && (await readSubscriptions(env, viewer.id)).includes(ownerId);
+  return json(serializeWishlist(record, viewer.id, groups, isSubscribed));
 }
 
 function sanitizeGift(payload) {
@@ -310,6 +349,7 @@ function sanitizeGift(payload) {
   const image = sanitizeImage(payload.image || "");
   const desire = sanitizeDesire(payload.desire, payload.priority);
   const tags = sanitizeTags(payload.tags);
+  const groupIds = sanitizeGiftGroupIds(payload.group_ids);
   let price = null;
 
   if (payload.price !== null && payload.price !== undefined && payload.price !== "") {
@@ -329,6 +369,7 @@ function sanitizeGift(payload) {
     comment,
     desire,
     tags,
+    group_ids: groupIds,
     priority: desire === "high",
     is_crowdfund: Boolean(payload.is_crowdfund)
   };
@@ -360,6 +401,19 @@ function sanitizeTags(value) {
     tags.push(tag);
   }
   return tags;
+}
+
+function sanitizeGiftGroupIds(value) {
+  if (value === undefined || value === null || value === "") return [];
+  if (!Array.isArray(value)) throw new HttpError(400, "Gift groups must be an array");
+  const allowed = new Set(GROUP_DEFINITIONS.map(group => group.id));
+  const groupIds = [];
+  for (const rawId of value) {
+    const groupId = String(rawId || "");
+    if (!allowed.has(groupId)) throw new HttpError(400, "Unknown gift group");
+    if (!groupIds.includes(groupId)) groupIds.push(groupId);
+  }
+  return groupIds;
 }
 
 function cleanPlainText(value, maxLength) {
@@ -414,7 +468,8 @@ async function loadWishlist(env, ownerId, viewer) {
   return {
     owner: {
       id: ownerId,
-      first_name: cleanPlainText(stored?.owner?.first_name || ownerName, 64)
+      first_name: cleanPlainText(stored?.owner?.first_name || ownerName, 64),
+      username: normalizeUsername(stored?.owner?.username || "", false)
     },
     gifts: Array.isArray(stored?.gifts) ? stored.gifts : []
   };
@@ -428,6 +483,334 @@ async function saveWishlist(env, ownerId, record) {
   }));
 }
 
+function directoryKey(userId) {
+  return `directory:${userId}`;
+}
+
+function usernameKey(username) {
+  return `username:${username}`;
+}
+
+function subscriptionsKey(userId) {
+  return `subscriptions:${userId}`;
+}
+
+function groupsKey(ownerId) {
+  return `groups:${ownerId}`;
+}
+
+function selectionKey(requestId) {
+  return `selection:${requestId}`;
+}
+
+function normalizeUsername(value, strict = true) {
+  const username = String(value || "").trim().replace(/^@+/, "").toLowerCase();
+  if (!username) return "";
+  if (!/^[a-z0-9_]{5,32}$/.test(username)) {
+    if (strict) throw new HttpError(400, "Invalid Telegram username");
+    return "";
+  }
+  return username;
+}
+
+async function rememberTelegramUser(env, profile) {
+  const userId = parseId(profile?.id, "user id");
+  const username = normalizeUsername(profile?.username || "", false);
+  const firstName = cleanPlainText(profile?.first_name || "Пользователь", 64) || "Пользователь";
+  const key = directoryKey(userId);
+  const previous = await env.DB.get(key, { type: "json" });
+  if (previous && previous.first_name === firstName
+    && normalizeUsername(previous.username || "", false) === username) return;
+
+  await env.DB.put(key, JSON.stringify({
+    id: userId,
+    first_name: firstName,
+    username,
+    updatedAt: new Date().toISOString()
+  }));
+
+  const previousUsername = normalizeUsername(previous?.username || "", false);
+  if (previousUsername && previousUsername !== username) {
+    const oldMapping = await env.DB.get(usernameKey(previousUsername));
+    if (Number(oldMapping) === userId) await env.DB.delete(usernameKey(previousUsername));
+  }
+  if (username) await env.DB.put(usernameKey(username), String(userId));
+}
+
+async function resolveUserByUsername(env, rawUsername) {
+  const username = normalizeUsername(rawUsername);
+  if (!username) throw new HttpError(400, "Telegram username is required");
+  const userId = Number(await env.DB.get(usernameKey(username)));
+  if (!Number.isSafeInteger(userId) || userId <= 0) return null;
+  return await readPublicProfile(env, userId);
+}
+
+async function readPublicProfile(env, userId) {
+  const directory = await env.DB.get(directoryKey(userId), { type: "json" });
+  if (directory) {
+    return {
+      id: userId,
+      first_name: cleanPlainText(directory.first_name || "Пользователь", 64) || "Пользователь",
+      username: normalizeUsername(directory.username || "", false)
+    };
+  }
+
+  const stored = await env.DB.get(`user:${userId}`, { type: "json" });
+  return {
+    id: userId,
+    first_name: cleanPlainText(stored?.owner?.first_name || "Пользователь", 64) || "Пользователь",
+    username: normalizeUsername(stored?.owner?.username || "", false)
+  };
+}
+
+async function readSubscriptions(env, userId) {
+  const stored = await env.DB.get(subscriptionsKey(userId), { type: "json" });
+  if (!Array.isArray(stored)) return [];
+  const ids = [];
+  for (const rawId of stored) {
+    const id = Number(rawId);
+    if (!Number.isSafeInteger(id) || id <= 0 || id === userId || ids.includes(id)) continue;
+    ids.push(id);
+    if (ids.length >= MAX_SOCIAL_ITEMS) break;
+  }
+  return ids;
+}
+
+async function addSubscription(env, viewerId, targetId) {
+  if (viewerId === targetId) throw new HttpError(400, "You cannot subscribe to yourself");
+  const subscriptions = await readSubscriptions(env, viewerId);
+  if (!subscriptions.includes(targetId)) {
+    if (subscriptions.length >= MAX_SOCIAL_ITEMS) {
+      throw new HttpError(409, "Subscriptions limit reached");
+    }
+    subscriptions.unshift(targetId);
+    await env.DB.put(subscriptionsKey(viewerId), JSON.stringify(subscriptions));
+  }
+}
+
+async function loadGroups(env, ownerId) {
+  const stored = await env.DB.get(groupsKey(ownerId), { type: "json" });
+  const storedItems = Array.isArray(stored?.items) ? stored.items : [];
+  return GROUP_DEFINITIONS.map(definition => {
+    const saved = storedItems.find(group => group?.id === definition.id);
+    const memberIds = [];
+    for (const rawId of Array.isArray(saved?.memberIds) ? saved.memberIds : []) {
+      const memberId = Number(rawId);
+      if (!Number.isSafeInteger(memberId) || memberId <= 0
+        || memberId === ownerId || memberIds.includes(memberId)) continue;
+      memberIds.push(memberId);
+      if (memberIds.length >= MAX_SOCIAL_ITEMS) break;
+    }
+    return { ...definition, memberIds };
+  });
+}
+
+async function saveGroups(env, ownerId, groups) {
+  await env.DB.put(groupsKey(ownerId), JSON.stringify({
+    items: groups.map(group => ({ id: group.id, memberIds: group.memberIds })),
+    updatedAt: new Date().toISOString()
+  }));
+}
+
+function getGroup(groups, rawGroupId) {
+  const groupId = String(rawGroupId || "");
+  const group = groups.find(item => item.id === groupId);
+  if (!group) throw new HttpError(400, "Unknown group");
+  return group;
+}
+
+async function buildSocialPayload(env, viewerId) {
+  const subscriptions = await readSubscriptions(env, viewerId);
+  const groups = await loadGroups(env, viewerId);
+  const profiles = new Map();
+  const getProfile = async userId => {
+    if (!profiles.has(userId)) profiles.set(userId, await readPublicProfile(env, userId));
+    return profiles.get(userId);
+  };
+
+  const subscriptionItems = [];
+  for (const ownerId of subscriptions) subscriptionItems.push(await getProfile(ownerId));
+  const groupItems = [];
+  for (const group of groups) {
+    const members = [];
+    for (const memberId of group.memberIds) members.push(await getProfile(memberId));
+    groupItems.push({ id: group.id, name: group.name, members });
+  }
+  return { subscriptions: subscriptionItems, groups: groupItems };
+}
+
+async function readSocialBody(request) {
+  assertContentLength(request, MAX_JSON_BYTES);
+  try {
+    const rawBody = await request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_JSON_BYTES) {
+      throw new HttpError(413, "Request body is too large");
+    }
+    const body = JSON.parse(rawBody);
+    return body && typeof body === "object" ? body : {};
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(400, "Invalid JSON body");
+  }
+}
+
+async function handleSocialGet(env, viewer) {
+  return json(await buildSocialPayload(env, viewer.id));
+}
+
+async function handleSocialPost(request, env, viewer) {
+  const body = await readSocialBody(request);
+  const action = String(body.action || "");
+  const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+
+  if (action === "unsubscribe") {
+    const targetId = parseId(payload.user_id, "user id");
+    const subscriptions = (await readSubscriptions(env, viewer.id)).filter(id => id !== targetId);
+    await env.DB.put(subscriptionsKey(viewer.id), JSON.stringify(subscriptions));
+    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+  }
+
+  if (action === "remove_group_member") {
+    const targetId = parseId(payload.user_id, "user id");
+    const groups = await loadGroups(env, viewer.id);
+    const group = getGroup(groups, payload.group_id);
+    group.memberIds = group.memberIds.filter(id => id !== targetId);
+    await saveGroups(env, viewer.id, groups);
+
+    const record = await loadWishlist(env, viewer.id, viewer);
+    const affectedViewerIds = cleanupRecordAudience(record, groups, viewer.id);
+    if (affectedViewerIds.size) await saveWishlist(env, viewer.id, record);
+    for (const affectedViewerId of affectedViewerIds) {
+      await syncWishlistParticipation(env, viewer.id, { id: affectedViewerId }, record, groups);
+    }
+    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+  }
+
+  if (!["subscribe", "add_group_member"].includes(action)) {
+    throw new HttpError(400, "Unknown social action");
+  }
+
+  let targetId = 0;
+  if (payload.user_id !== undefined && action === "subscribe") {
+    targetId = parseId(payload.user_id, "user id");
+  } else {
+    const profile = await resolveUserByUsername(env, payload.username || "");
+    if (!profile) {
+      return await requestTelegramUserSelection(env, viewer, action, payload);
+    }
+    targetId = profile.id;
+  }
+
+  if (targetId === viewer.id) throw new HttpError(400, "You cannot add yourself");
+  if (action === "subscribe") {
+    await addSubscription(env, viewer.id, targetId);
+  } else {
+    const groups = await loadGroups(env, viewer.id);
+    const group = getGroup(groups, payload.group_id);
+    if (!group.memberIds.includes(targetId)) {
+      if (group.memberIds.length >= MAX_SOCIAL_ITEMS) {
+        throw new HttpError(409, "Group members limit reached");
+      }
+      group.memberIds.push(targetId);
+      await saveGroups(env, viewer.id, groups);
+    }
+  }
+  return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+}
+
+async function requestTelegramUserSelection(env, viewer, action, payload) {
+  const requestId = crypto.getRandomValues(new Uint32Array(1))[0] % 2_000_000_000 + 1;
+  const pending = {
+    requesterId: viewer.id,
+    action,
+    groupId: action === "add_group_member" ? String(payload.group_id || "") : "",
+    requestedUsername: normalizeUsername(payload.username || "", false),
+    createdAt: new Date().toISOString()
+  };
+  await env.DB.put(selectionKey(requestId), JSON.stringify(pending), { expirationTtl: 900 });
+
+  const text = action === "subscribe"
+    ? "Нажмите кнопку ниже и выберите в Telegram человека, на вишлист которого хотите подписаться."
+    : "Нажмите кнопку ниже и выберите в Telegram человека, которого хотите добавить в группу.";
+  try {
+    await callTelegramApi(env, "sendMessage", {
+      chat_id: viewer.id,
+      text,
+      reply_markup: {
+        keyboard: [[{
+          text: "Выбрать пользователя",
+          request_users: { request_id: requestId, user_is_bot: false, max_quantity: 1 }
+        }]],
+        resize_keyboard: true,
+        one_time_keyboard: true
+      }
+    });
+  } catch (error) {
+    await env.DB.delete(selectionKey(requestId));
+    throw error;
+  }
+
+  const botUsername = await getBotUsername(env);
+  return json({ status: "selection_required", requestId, botUsername }, 202);
+}
+
+function canViewerAccessGift(gift, groups, ownerId, viewerId) {
+  if (ownerId === viewerId) return true;
+  const groupIds = Array.isArray(gift?.group_ids) ? gift.group_ids : [];
+  if (groupIds.length === 0) return true;
+  return groupIds.some(groupId => {
+    const group = groups.find(item => item.id === groupId);
+    return group?.memberIds.includes(viewerId);
+  });
+}
+
+function assertGiftVisible(gift, groups, ownerId, viewerId) {
+  if (!canViewerAccessGift(gift, groups, ownerId, viewerId)) {
+    throw new HttpError(404, "Gift not found");
+  }
+}
+
+function collectGiftViewerIds(gift) {
+  const ids = new Set();
+  const bookedBy = Number(gift?.booked_by);
+  if (Number.isSafeInteger(bookedBy) && bookedBy > 0) ids.add(bookedBy);
+  for (const rawId of Array.isArray(gift?.participants) ? gift.participants : []) {
+    const participantId = Number(rawId);
+    if (Number.isSafeInteger(participantId) && participantId > 0) ids.add(participantId);
+  }
+  return ids;
+}
+
+function cleanupGiftAudience(gift, groups, ownerId) {
+  const groupIds = Array.isArray(gift?.group_ids) ? gift.group_ids : [];
+  if (groupIds.length === 0) return;
+  const bookedBy = Number(gift.booked_by);
+  if (Number.isSafeInteger(bookedBy) && bookedBy > 0
+    && !canViewerAccessGift(gift, groups, ownerId, bookedBy)) {
+    gift.booked_by = null;
+  }
+  if (Array.isArray(gift.participants)) {
+    gift.participants = gift.participants.filter(rawId => {
+      const participantId = Number(rawId);
+      return Number.isSafeInteger(participantId) && participantId > 0
+        && canViewerAccessGift(gift, groups, ownerId, participantId);
+    });
+  }
+}
+
+function cleanupRecordAudience(record, groups, ownerId) {
+  const affectedViewerIds = new Set();
+  for (const gift of record.gifts) {
+    const before = collectGiftViewerIds(gift);
+    cleanupGiftAudience(gift, groups, ownerId);
+    const after = collectGiftViewerIds(gift);
+    for (const id of [...before, ...after]) {
+      if (!after.has(id) || !canViewerAccessGift(gift, groups, ownerId, id)) affectedViewerIds.add(id);
+    }
+  }
+  return affectedViewerIds;
+}
+
 function participationKey(userId) {
   return `participations:${userId}`;
 }
@@ -437,8 +820,9 @@ async function readParticipationIndex(env, userId) {
   return Array.isArray(stored) ? stored : [];
 }
 
-async function syncWishlistParticipation(env, ownerId, viewer, record) {
+async function syncWishlistParticipation(env, ownerId, viewer, record, providedGroups = null) {
   if (ownerId === viewer.id) return;
+  const groups = providedGroups || await loadGroups(env, ownerId);
 
   const existing = await readParticipationIndex(env, viewer.id);
   const previous = existing.filter(entry => Number(entry?.ownerId) === ownerId);
@@ -446,6 +830,7 @@ async function syncWishlistParticipation(env, ownerId, viewer, record) {
   const now = new Date().toISOString();
 
   for (const gift of record.gifts) {
+    if (!canViewerAccessGift(gift, groups, ownerId, viewer.id)) continue;
     const type = gift.is_crowdfund
       ? (Array.isArray(gift.participants) && gift.participants.some(id => Number(id) === viewer.id) ? "crowdfund" : "")
       : (Number(gift.booked_by) === viewer.id ? "book" : "");
@@ -471,6 +856,7 @@ async function syncWishlistParticipation(env, ownerId, viewer, record) {
 async function handleParticipationsGet(env, viewer) {
   const existing = await readParticipationIndex(env, viewer.id);
   const records = new Map();
+  const recordGroups = new Map();
   const validEntries = [];
   const items = [];
 
@@ -484,10 +870,12 @@ async function handleParticipationsGet(env, viewer) {
 
     if (!records.has(ownerId)) {
       records.set(ownerId, await loadWishlist(env, ownerId, viewer));
+      recordGroups.set(ownerId, await loadGroups(env, ownerId));
     }
     const record = records.get(ownerId);
+    const groups = recordGroups.get(ownerId);
     const gift = record.gifts.find(item => Number(item.id) === giftId);
-    if (!gift) continue;
+    if (!gift || !canViewerAccessGift(gift, groups, ownerId, viewer.id)) continue;
 
     const isActive = type === "book"
       ? !gift.is_crowdfund && Number(gift.booked_by) === viewer.id
@@ -519,6 +907,7 @@ async function handleParticipationsGet(env, viewer) {
         comment: gift.comment || "",
         desire: gift.desire || (gift.priority ? "high" : "medium"),
         tags: Array.isArray(gift.tags) ? gift.tags : [],
+        group_ids: Array.isArray(gift.group_ids) ? gift.group_ids : [],
         priority: Boolean(gift.priority),
         is_crowdfund: Boolean(gift.is_crowdfund),
         is_gifted: Boolean(gift.is_gifted),
@@ -534,21 +923,35 @@ async function handleParticipationsGet(env, viewer) {
   return json({ items });
 }
 
-function serializeWishlist(record, viewerId) {
-  return {
+function serializeWishlist(record, viewerId, groups = [], isSubscribed = false) {
+  const ownerId = Number(record.owner.id);
+  const result = {
     owner: {
-      id: record.owner.id,
-      first_name: record.owner.first_name || "Пользователь"
+      id: ownerId,
+      first_name: record.owner.first_name || "Пользователь",
+      username: normalizeUsername(record.owner.username || "", false)
     },
-    gifts: record.gifts.map(gift => ({
-      ...gift,
-      booked_by: gift.booked_by === null || gift.booked_by === undefined
-        ? null
-        : gift.booked_by === viewerId ? viewerId : -1,
-      participants: (Array.isArray(gift.participants) ? gift.participants : [])
-        .map(participantId => participantId === viewerId ? viewerId : -1)
-    }))
+    is_subscribed: Boolean(isSubscribed),
+    gifts: record.gifts
+      .filter(gift => canViewerAccessGift(gift, groups, ownerId, viewerId))
+      .map(gift => ({
+        ...gift,
+        group_ids: Array.isArray(gift.group_ids) ? gift.group_ids : [],
+        booked_by: gift.booked_by === null || gift.booked_by === undefined
+          ? null
+          : gift.booked_by === viewerId ? viewerId : -1,
+        participants: (Array.isArray(gift.participants) ? gift.participants : [])
+          .map(participantId => participantId === viewerId ? viewerId : -1)
+      }))
   };
+  if (ownerId === viewerId) {
+    result.groups = groups.map(group => ({
+      id: group.id,
+      name: group.name,
+      memberIds: [...group.memberIds]
+    }));
+  }
+  return result;
 }
 
 function findGiftIndex(gifts, rawId) {
@@ -618,11 +1021,26 @@ function detectImageType(buffer) {
   return "";
 }
 
-async function handleImageRequest(env, imageId) {
+async function handleImageRequest(env, imageId, viewer) {
   const { value, metadata } = await env.DB.getWithMetadata(`img:${imageId}`, {
     type: "arrayBuffer"
   });
   if (!value) return json({ error: "Image not found" }, 404);
+
+  const ownerId = Number(metadata?.ownerId);
+  if (!Number.isSafeInteger(ownerId) || ownerId <= 0) {
+    return json({ error: "Image not found" }, 404);
+  }
+  const record = await loadWishlist(env, ownerId, viewer);
+  const imageUrl = `/api/img/${imageId}`;
+  const linkedGifts = record.gifts.filter(gift => gift.image === imageUrl);
+  if (viewer.id !== ownerId) {
+    const groups = await loadGroups(env, ownerId);
+    const canView = linkedGifts.length > 0 && linkedGifts.some(gift =>
+      canViewerAccessGift(gift, groups, ownerId, viewer.id)
+    );
+    if (!canView) return json({ error: "Image not found" }, 404);
+  }
 
   return new Response(value, {
     status: 200,
@@ -630,7 +1048,8 @@ async function handleImageRequest(env, imageId) {
       ...CORS_HEADERS,
       "Content-Type": metadata?.contentType || "application/octet-stream",
       "Content-Length": String(value.byteLength),
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": "private, max-age=3600",
+      "Vary": "X-Telegram-Init-Data",
       "ETag": `"${imageId}"`,
       "X-Content-Type-Options": "nosniff"
     }
@@ -669,6 +1088,11 @@ async function handleTelegramWebhook(request, env) {
   }
 
   const message = update?.message;
+  const sharedUsers = message?.users_shared || message?.user_shared;
+  if (sharedUsers) {
+    return await handleSharedUserSelection(env, message, sharedUsers);
+  }
+
   const text = String(message?.text || "");
   const startMatch = text.match(/^\/start(?:@\w+)?(?:\s+(list_\d+))?\s*$/);
   if (!message?.chat?.id || !startMatch) {
@@ -693,6 +1117,77 @@ async function handleTelegramWebhook(request, env) {
     }
   });
 
+  return json({ ok: true });
+}
+
+async function handleSharedUserSelection(env, message, shared) {
+  const requestId = Number(shared?.request_id);
+  const requesterId = Number(message?.from?.id);
+  if (!Number.isSafeInteger(requestId) || requestId <= 0
+    || !Number.isSafeInteger(requesterId) || requesterId <= 0) {
+    return json({ ok: true });
+  }
+
+  const key = selectionKey(requestId);
+  const pending = await env.DB.get(key, { type: "json" });
+  if (!pending || Number(pending.requesterId) !== requesterId) {
+    await callTelegramApi(env, "sendMessage", {
+      chat_id: requesterId,
+      text: "Этот запрос выбора уже использован или устарел. Вернитесь в приложение и попробуйте ещё раз.",
+      reply_markup: { remove_keyboard: true }
+    });
+    return json({ ok: true });
+  }
+
+  const sharedProfile = Array.isArray(shared?.users) ? shared.users[0] : shared;
+  const selectedId = Number(sharedProfile?.user_id);
+  if (!Number.isSafeInteger(selectedId) || selectedId <= 0 || selectedId === requesterId) {
+    await env.DB.delete(key);
+    await callTelegramApi(env, "sendMessage", {
+      chat_id: requesterId,
+      text: "Нужно выбрать другого пользователя Telegram, не собственный аккаунт.",
+      reply_markup: { remove_keyboard: true }
+    });
+    return json({ ok: true });
+  }
+
+  const previousProfile = await readPublicProfile(env, selectedId);
+  const selectedProfile = {
+    id: selectedId,
+    first_name: cleanPlainText(sharedProfile?.first_name || previousProfile.first_name, 64) || "Пользователь",
+    username: normalizeUsername(sharedProfile?.username || previousProfile.username || "", false)
+  };
+  await rememberTelegramUser(env, selectedProfile);
+
+  let confirmation = "";
+  if (pending.action === "subscribe") {
+    await addSubscription(env, requesterId, selectedId);
+    confirmation = `Вы подписались на вишлист: ${selectedProfile.first_name}.`;
+  } else if (pending.action === "add_group_member") {
+    const groups = await loadGroups(env, requesterId);
+    const group = getGroup(groups, pending.groupId);
+    if (!group.memberIds.includes(selectedId)) {
+      if (group.memberIds.length >= MAX_SOCIAL_ITEMS) {
+        throw new HttpError(409, "Group members limit reached");
+      }
+      group.memberIds.push(selectedId);
+      await saveGroups(env, requesterId, groups);
+    }
+    confirmation = `${selectedProfile.first_name} добавлен(а) в группу «${group.name}».`;
+  } else {
+    await env.DB.delete(key);
+    throw new HttpError(400, "Unknown selection action");
+  }
+
+  await env.DB.delete(key);
+  const webAppUrl = new URL(env.WEBAPP_URL);
+  await callTelegramApi(env, "sendMessage", {
+    chat_id: requesterId,
+    text: confirmation,
+    reply_markup: {
+      inline_keyboard: [[{ text: "Вернуться в приложение", web_app: { url: webAppUrl.toString() } }]]
+    }
+  });
   return json({ ok: true });
 }
 
