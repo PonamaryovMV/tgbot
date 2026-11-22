@@ -2,6 +2,8 @@
 
 Telegram Mini App для личных вишлистов, бронирования подарков и совместных сборов. Интерфейс работает на GitHub Pages, серверная логика — на Cloudflare Workers, все данные и изображения хранятся в Cloudflare KV.
 
+Подробное описание модульной структуры файлов и потоков данных вынесено в [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
 ## Рабочие ссылки
 
 - Бот: [@testpmvbot_bot](https://t.me/testpmvbot_bot).
@@ -75,7 +77,7 @@ Telegram Mini App / Telegram Bot
               |
               v
         GitHub Pages
-          index.html
+   index.html + styles.css + app-*.js
               |
               | HTTPS + X-Telegram-Init-Data
               v
@@ -94,13 +96,18 @@ Telegram Mini App / Telegram Bot
 
 | Файл | Назначение |
 | --- | --- |
-| `index.html` | Интерфейс Mini App, явное браузерное демо, работа с API и защищённая загрузка изображений |
+| `index.html` | HTML-каркас Mini App, формы, модальные окна и конфиг `API_BASE_URL` |
+| `styles.css` | Дизайн-токены тем, адаптивные Bento-сетки и стили компонентов |
+| `app-state.js` | SDK Telegram, deep links, API-клиент, KV-изображения, сжатие фото и копирование желаний |
+| `app-social.js` | Кастомные группы приватности, подписки, подборки по поводам и гибкий шаринг |
+| `app-render.js` | Формы, переключатели режимов, фильтрация и рендеринг карточек |
 | `worker.js` | Telegram webhook, проверка `initData`, API, права доступа, кастомные группы, поводы, уведомления и работа с KV |
 | `wrangler.toml` | Конфигурация Worker, привязка KV и Secrets Store |
+| `ARCHITECTURE.md` | Подробная карта архитектуры и ответственности каждого файла |
 | `tests/worker.test.mjs` | Backend-тесты с KV в памяти |
 | `tests/browser-telegram.js` | Сценарии Telegram-режима с mock API |
 | `tests/browser-demo.js` | Сценарии демо, социальных функций и адаптивности |
-| `tests/browser-runner.mjs` | Локальный HTTP-сервер и запуск браузерных сценариев |
+| `tests/browser-runner.mjs` | Локальный HTTP-сервер статики и запуск браузерных сценариев |
 
 ### Конфигурация
 
@@ -209,7 +216,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Запускатель поднимает временный локальный HTTP-сервер на свободном порту и открывает актуальный `index.html` в Chromium. Telegram SDK, Worker API и внешние ресурсы заменяются тестовыми заглушками.
+Запускатель поднимает временный локальный HTTP-сервер на свободном порту и открывает актуальный `index.html` с модулями `styles.css` и `app-*.js` в Chromium. Telegram SDK, Worker API и внешние ресурсы заменяются тестовыми заглушками.
 
 ## Ручная проверка в Telegram
 
@@ -227,7 +234,7 @@ npm run test:browser
 
 ## Публикация
 
-- GitHub Pages публикует `index.html`.
+- GitHub Pages публикует `index.html`, `styles.css` и `app-*.js`.
 - Cloudflare Workers Builds собирает Worker из репозитория.
 - После изменения следует дождаться успешных автоматических сборок, проверить живую Pages-версию и выполнить `npm test` до или после публикации.
 - При выпуске изменений приватности дополнительно нужен ручной сценарий с двумя Telegram-аккаунтами.

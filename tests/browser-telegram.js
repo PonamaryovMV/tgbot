@@ -6,36 +6,67 @@ export default async page => {
   const results = [];
   const pageErrors = [];
   const imageAuthHeaders = [];
-  let startParam = 'list_1001';
+  const copiedGiftPayloads = [];
+  let startParam = 'list_1001_occ_bday01';
   let bookedBy = null;
+  let reusableGivers = [];
   let failApi = false;
   const subscriptions = [];
   const groups = [
-    { id: 'contacts', name: 'Контакты', members: [] },
     { id: 'family', name: 'Семья', members: [] },
-    { id: 'girlfriend', name: 'Девушка', members: [] },
-    { id: 'friends', name: 'Друзья', members: [] }
+    { id: 'close', name: 'Близкие', members: [] },
+    { id: 'friends', name: 'Друзья', members: [] },
+    { id: 'colleagues', name: 'Коллеги', members: [] }
   ];
-  const jpeg = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAIAAgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCpRRRX3xxn/9k=';
+  const occasions = [
+    { id: 'occ_bday01', title: 'День рождения' },
+    { id: 'occ_ny2027', title: 'Новый год' }
+  ];
+  const jpeg = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAIAAgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCpRRRX3xxn/9k=';
   page.on('pageerror', error => pageErrors.push(error.message));
 
-  const gift = () => ({
-    id: 1731672009000,
-    title: 'Подарок через боевой API',
-    link: 'https://example.com/',
-    image: '/api/img/0123456789abcdef',
-    price: 5000,
-    category: 'Техника',
-    comment: '',
-    priority: false,
-    desire: 'medium',
-    tags: [],
-    group_ids: [],
-    is_crowdfund: false,
-    booked_by: bookedBy === null ? null : bookedBy === 2002 ? 2002 : -1,
-    participants: [],
-    is_gifted: false
-  });
+  const giftsList = () => ([
+    {
+      id: 1731672009000,
+      title: 'Подарок через боевой API',
+      link: 'https://example.com/',
+      image: '/api/img/0123456789abcdef',
+      price: 5000,
+      category: 'Техника',
+      comment: '',
+      priority: false,
+      desire: 'medium',
+      tags: [],
+      group_ids: [],
+      occasion_ids: ['occ_bday01'],
+      is_crowdfund: false,
+      is_reusable: false,
+      booked_by: bookedBy === null ? null : bookedBy === 2002 ? 2002 : -1,
+      participants: [],
+      reusable_givers: [],
+      is_gifted: false
+    },
+    {
+      id: 1731672009050,
+      title: 'Многоразовый сертификат',
+      link: 'https://example.com/cert',
+      image: '',
+      price: 3000,
+      category: 'Хобби',
+      comment: '',
+      priority: false,
+      desire: 'medium',
+      tags: [],
+      group_ids: [],
+      occasion_ids: ['occ_ny2027'],
+      is_crowdfund: false,
+      is_reusable: true,
+      booked_by: null,
+      participants: [],
+      reusable_givers: reusableGivers.map(id => (id === 2002 ? 2002 : -1)),
+      is_gifted: false
+    }
+  ]);
   const socialData = () => ({ subscriptions, groups });
 
   await page.route('https://fonts.googleapis.com/**', route => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -110,23 +141,48 @@ export default async page => {
         if (group && !group.members.some(member => member.id === 3003)) {
           group.members.push({ id: 3003, first_name: 'Дима', username: 'dima1' });
         }
+      } else if (action === 'create_group') {
+        groups.push({ id: 'grp_test0001', name: payload.name, members: [] });
+      } else if (action === 'rename_group') {
+        const group = groups.find(item => item.id === payload.group_id);
+        if (group) group.name = payload.name;
+      } else if (action === 'delete_group') {
+        const idx = groups.findIndex(item => item.id === payload.group_id);
+        if (idx >= 0) groups.splice(idx, 1);
       }
       return fulfillJson(socialData());
     }
-    if (url.pathname === '/api/data') {
+    if (url.pathname === '/api/data' || url.pathname === '/api/gifts') {
       if (failApi) return fulfillJson({ error: 'Test outage' }, 500);
       if (request.method() === 'POST') {
         const body = request.postDataJSON();
-        if (body.owner_id !== 1001 || body.action !== 'toggle_book') return fulfillJson({ error: 'Unexpected mutation' }, 400);
-        bookedBy = bookedBy === null ? 2002 : null;
+        if (body.action === 'copy_gift') {
+          copiedGiftPayloads.push(body);
+          return fulfillJson({ ok: true, gift: { id: 999999, title: 'Подарок через боевой API' } }, 201);
+        }
+        if (body.owner_id !== 1001 || body.action !== 'toggle_book') {
+          return fulfillJson({ error: 'Unexpected mutation' }, 400);
+        }
+        if (body.payload.id === 1731672009050) {
+          reusableGivers = reusableGivers.includes(2002) ? [] : [2002];
+        } else {
+          bookedBy = bookedBy === null ? 2002 : null;
+        }
       }
       const ownerId = Number(url.searchParams.get('owner_id') || 1001);
       if (ownerId === 2002) {
-        return fulfillJson({ owner: { id: 2002, first_name: 'Анна' }, gifts: [], groups, is_subscribed: false });
+        return fulfillJson({
+          owner: { id: 2002, first_name: 'Анна' },
+          gifts: [],
+          occasions,
+          groups,
+          is_subscribed: false
+        });
       }
       return fulfillJson({
         owner: { id: 1001, first_name: 'Максим', username: 'maxim' },
-        gifts: [gift()],
+        gifts: giftsList(),
+        occasions,
         is_subscribed: subscriptions.some(profile => profile.id === 1001)
       });
     }
@@ -136,6 +192,14 @@ export default async page => {
   await page.goto(`${baseUrl}/`);
   await page.waitForFunction(() => state.isLoading === false);
   assert(await page.evaluate(() => isTelegramSession && state.viewerId === 2002 && state.ownerId === 1001), 'Telegram start_param must open shared list');
+  assert(await page.locator('#occasionBanner').isVisible(), 'Occasion banner must be visible for deep link with occasion');
+  assert((await page.locator('#occasionBannerTitle').textContent()).includes('День рождения'), 'Occasion title must be rendered');
+  assert(await page.locator('#giftsGrid .gift-card').count() === 1, 'Occasion filter must show only matching gift');
+  await page.locator('#showAllWishlistBtn').click();
+  assert(await page.locator('#occasionBanner').isHidden(), 'Banner must hide after resetting occasion filter');
+  assert(await page.locator('#giftsGrid .gift-card').count() === 2, 'All visible gifts must render after clearing occasion');
+  results.push('occasion deep link banner and reset');
+
   assert(await page.locator('.demo-dock-wrapper').isHidden(), 'Demo dock must be hidden in Telegram');
   assert(await page.locator('#ownerAddSection').isHidden(), 'Guest cannot see owner form');
   assert((await page.locator('#headerTitle').textContent()).includes('Максим'), 'Real owner name must be rendered');
@@ -148,6 +212,7 @@ export default async page => {
     applyServerData({
       owner: { id: 1001, first_name: 'Пользователь', username: 'maxim' },
       gifts: state.gifts,
+      occasions: state.occasions,
       is_subscribed: state.isSubscribed
     });
     renderAll();
@@ -183,14 +248,30 @@ export default async page => {
   await page.waitForFunction(() => state.gifts[0]?.id === 1731672009000 && !state.isLoading);
   results.push('protected image failure placeholder');
 
-  await page.locator('.btn-guest-book').click();
+  const firstCard = page.locator('#giftsGrid .gift-card').first();
+  await firstCard.locator('.btn-guest-book').click();
   await page.waitForFunction(() => state.gifts[0]?.booked_by === 2002);
   assert(await page.evaluate(() => state.gifts[0]?.is_gifted === false), 'Booking must not mark the gift as gifted');
-  const bookedCardText = await page.locator('#giftsGrid .gift-card').textContent();
+  const bookedCardText = await firstCard.textContent();
   assert(bookedCardText.includes('Вы забронировали'), 'Booking badge must explicitly describe a reservation');
-  assert(!bookedCardText.includes('Подарено') && !bookedCardText.includes('уже вручён'), 'Booked gift must not look gifted');
-  assert((await page.locator('.card-actions-footer').textContent()).includes('Отменить бронь'), 'Guest must see the cancellation action');
+  assert((await firstCard.locator('.card-actions-footer').textContent()).includes('Отменить бронь'), 'Guest must see the cancellation action');
   results.push('API booking remains a reservation, not a gifted status');
+
+  // Reusable gift mark & cancel
+  const reusableCard = page.locator('#giftsGrid .gift-card', { hasText: 'Многоразовый сертификат' });
+  await reusableCard.locator('.btn-guest-book').click();
+  await page.waitForFunction(() => state.gifts[1]?.reusable_givers?.includes(2002));
+  assert((await reusableCard.textContent()).includes('Вы выбрали этот подарок'), 'Reusable badge must confirm guest selection');
+  await reusableCard.locator('.btn-guest-unbook').click();
+  await page.waitForFunction(() => (state.gifts[1]?.reusable_givers || []).length === 0);
+  results.push('reusable gift selection and cancellation');
+
+  // Copy gift to own wishlist
+  await firstCard.locator('.btn-guest-copy').click();
+  await page.waitForFunction(() => state.copiedGiftIds.has(1731672009000));
+  assert(copiedGiftPayloads.length === 1 && copiedGiftPayloads[0].action === 'copy_gift', 'Copy button must send copy_gift action');
+  assert((await firstCard.locator('.btn-guest-copy').textContent()).includes('В вашем списке'), 'Copy button must update state after copying');
+  results.push('copy gift to own wishlist');
 
   await page.locator('#subscribeListBtn').click();
   await page.waitForFunction(() => state.isSubscribed && state.subscriptions.length === 1);
@@ -230,14 +311,20 @@ export default async page => {
   assert(await page.evaluate(() => state.gifts.length === 0), 'Own empty API response must be used');
   results.push('return to own wishlist');
 
+  // Share modal with full list & occasion link
   await page.locator('#shareListBtn').click();
+  await page.locator('#shareModalBackdrop.open').waitFor();
+  assert((await page.locator('#shareUrlPreview').textContent()).trim() === 'https://t.me/wishlist_test_bot?start=list_2002', 'Default share URL must target full wishlist');
+  await page.locator('#shareOccasionOptions [data-share-occ="occ_bday01"]').click();
+  assert((await page.locator('#shareUrlPreview').textContent()).trim() === 'https://t.me/wishlist_test_bot?start=list_2002_occ_bday01', 'Occasion share URL must include occasion ID');
+  await page.locator('#confirmShareBtn').click();
   await page.waitForFunction(() => {
     const value = window.__openedTelegramLink || '';
     return value.includes('t.me/share/url');
   });
   const shared = await page.evaluate(() => new URL(window.__openedTelegramLink).searchParams.get('url'));
-  assert(shared === 'https://t.me/wishlist_test_bot?start=list_2002', `Unexpected share URL: ${shared}`);
-  results.push('dynamic bot username and share deep link');
+  assert(shared === 'https://t.me/wishlist_test_bot?start=list_2002_occ_bday01', `Unexpected share URL: ${shared}`);
+  results.push('flexible share modal with occasion deep link');
 
   failApi = true;
   await page.evaluate(() => fetchGifts());
@@ -258,4 +345,4 @@ export default async page => {
   assert(pageErrors.length === 0, `Uncaught browser errors: ${pageErrors.join(' | ')}`);
   results.push('no uncaught JavaScript errors');
   return { results, protectedImageRequests: imageAuthHeaders.length };
-}
+};
