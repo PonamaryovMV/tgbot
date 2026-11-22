@@ -1111,36 +1111,38 @@ test("Grouped notification when removing a guest from a group", async () => {
   const env = createEnv();
   telegramCalls.length = 0;
 
-  await worker.fetch(requestApi("/api/social", {
+  assert.equal((await worker.fetch(requestApi("/api/social", { user: GUEST_1 }), env)).status, 200);
+
+  assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: OWNER,
     body: { action: "add_group_member", payload: { group_id: "family", username: "anna1" } }
-  }), env);
+  }), env)).status, 200);
 
   const g1 = (await addGift(env, OWNER, { title: "Подарок А", group_ids: ["family"] })).gifts[0].id;
   const g2 = (await addGift(env, OWNER, { title: "Подарок Б", is_crowdfund: true, group_ids: ["family"] })).gifts[0].id;
   const g3 = (await addGift(env, OWNER, { title: "Подарок В (архив)", group_ids: ["family"] })).gifts[0].id;
 
-  await worker.fetch(requestApi("/api/data", {
+  assert.equal((await worker.fetch(requestApi("/api/data", {
     method: "POST",
     user: GUEST_1,
     body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: g1 } }
-  }), env);
-  await worker.fetch(requestApi("/api/data", {
+  }), env)).status, 200);
+  assert.equal((await worker.fetch(requestApi("/api/data", {
     method: "POST",
     user: GUEST_1,
     body: { owner_id: OWNER.id, action: "toggle_crowdfund", payload: { id: g2 } }
-  }), env);
-  await worker.fetch(requestApi("/api/data", {
+  }), env)).status, 200);
+  assert.equal((await worker.fetch(requestApi("/api/data", {
     method: "POST",
     user: GUEST_1,
     body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: g3 } }
-  }), env);
-  await worker.fetch(requestApi("/api/data", {
+  }), env)).status, 200);
+  assert.equal((await worker.fetch(requestApi("/api/data", {
     method: "POST",
     user: OWNER,
     body: { owner_id: OWNER.id, action: "toggle_gifted", payload: { id: g3 } }
-  }), env);
+  }), env)).status, 200);
 
   telegramCalls.length = 0;
   const response = await worker.fetch(requestApi("/api/social", {
