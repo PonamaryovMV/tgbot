@@ -569,11 +569,11 @@ test("Subscriptions, groups and per-gift audience enforcement", async () => {
   let data = await addGift(env, OWNER, { title: "Общий подарок" });
   const publicId = data.gifts[0].id;
   data = await addGift(env, OWNER, {
-    title: "Только для девушки",
-    group_ids: ["girlfriend"]
+    title: "Только для близких",
+    group_ids: ["close"]
   });
   const privateId = data.gifts[0].id;
-  assert.deepEqual(data.gifts[0].group_ids, ["girlfriend"]);
+  assert.deepEqual(data.gifts[0].group_ids, ["close"]);
   assert.ok(Array.isArray(data.groups));
   assert.equal(data.groups.length, 4);
 
@@ -595,14 +595,14 @@ test("Subscriptions, groups and per-gift audience enforcement", async () => {
     user: OWNER,
     body: {
       action: "add_group_member",
-      payload: { group_id: "girlfriend", username: "@anna1" }
+      payload: { group_id: "close", username: "@anna1" }
     }
   }), env);
   assert.equal(response.status, 200);
   data = await json(response);
-  const girlfriend = data.groups.find(group => group.id === "girlfriend");
-  assert.equal(girlfriend.members[0].id, GUEST_1.id);
-  assert.equal(girlfriend.members[0].username, "anna1");
+  const closeGroup = data.groups.find(group => group.id === "close");
+  assert.equal(closeGroup.members[0].id, GUEST_1.id);
+  assert.equal(closeGroup.members[0].username, "anna1");
 
   response = await worker.fetch(requestApi(`/api/data?owner_id=${OWNER.id}`, { user: GUEST_1 }), env);
   data = await json(response);
@@ -649,7 +649,7 @@ test("Subscriptions, groups and per-gift audience enforcement", async () => {
     user: OWNER,
     body: {
       action: "remove_group_member",
-      payload: { group_id: "girlfriend", user_id: GUEST_1.id }
+      payload: { group_id: "close", user_id: GUEST_1.id }
     }
   }), env);
   assert.equal(response.status, 200);
@@ -675,7 +675,7 @@ test("Subscriptions, groups and per-gift audience enforcement", async () => {
     body: {
       owner_id: OWNER.id,
       action: "update",
-      payload: giftPayload({ id: publicId, title: "Общий подарок", group_ids: ["girlfriend"] })
+      payload: giftPayload({ id: publicId, title: "Общий подарок", group_ids: ["close"] })
     }
   }), env);
   assert.equal(response.status, 200);
@@ -848,7 +848,7 @@ test("KV image upload, validation, ownership, caching and deletion", async () =>
     body: {
       owner_id: OWNER.id,
       action: "update",
-      payload: giftPayload({ id: giftId, image: uploaded.url, group_ids: ["girlfriend"] })
+      payload: giftPayload({ id: giftId, image: uploaded.url, group_ids: ["close"] })
     }
   }), env);
   assert.equal(response.status, 200);
@@ -860,7 +860,7 @@ test("KV image upload, validation, ownership, caching and deletion", async () =>
     user: OWNER,
     body: {
       action: "add_group_member",
-      payload: { group_id: "girlfriend", username: "anna1" }
+      payload: { group_id: "close", username: "anna1" }
     }
   }), env);
   assert.equal(response.status, 200);
@@ -956,7 +956,6 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
   data = await addGift(env, OWNER, { title: "Архивный плед", price: 3000 });
   const archivedId = data.gifts[0].id;
 
-  // Book single gift by GUEST_1, join crowdfund by GUEST_1 & GUEST_2, book archived gift by GUEST_1
   await worker.fetch(requestApi("/api/data", {
     method: "POST",
     user: GUEST_1,
@@ -975,7 +974,6 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
     body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: archivedId } }
   }), env);
 
-  // Archive archivedId (false -> true sends notification; true -> false does not)
   telegramCalls.length = 0;
   let response = await worker.fetch(requestApi("/api/data", {
     method: "POST",
@@ -997,7 +995,6 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
   assert.equal(response.status, 200);
   assert.equal(telegramCalls.length, 0);
 
-  // Mark archivedId as gifted again and delete it -> no notification should be sent
   await worker.fetch(requestApi("/api/data", {
     method: "POST",
     user: OWNER,
@@ -1012,7 +1009,6 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
   assert.equal(response.status, 200);
   assert.equal(telegramCalls.length, 0);
 
-  // Delete active single gift -> notifies GUEST_1 and immediately cleans participations:<GUEST_1>
   telegramCalls.length = 0;
   response = await worker.fetch(requestApi("/api/data", {
     method: "POST",
@@ -1031,11 +1027,10 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
   const guest1PartsAfterDelete = JSON.parse(env.DB.entries.get(`participations:${GUEST_1.id}`).value);
   assert.equal(guest1PartsAfterDelete.some(entry => entry.giftId === singleId), false);
 
-  // Edit crowdfund gift: add GUEST_1 to girlfriend, narrow audience to girlfriend -> GUEST_2 loses access
   await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: OWNER,
-    body: { action: "add_group_member", payload: { group_id: "girlfriend", username: "anna1" } }
+    body: { action: "add_group_member", payload: { group_id: "close", username: "anna1" } }
   }), env);
 
   telegramCalls.length = 0;
@@ -1050,7 +1045,7 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
         title: "Кофемашина",
         is_crowdfund: true,
         price: 30000,
-        group_ids: ["girlfriend"]
+        group_ids: ["close"]
       })
     }
   }), env);
@@ -1058,9 +1053,8 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
   assert.equal(telegramCalls.length, 1);
   assert.equal(telegramCalls[0].payload.chat_id, GUEST_2.id);
   assert.match(telegramCalls[0].payload.text, /Подарок «Кофемашина» в вишлисте Максим \(@maxim\) стал недоступен\. Ваша бронь\/участие отменены\./);
-  assert.doesNotMatch(telegramCalls[0].payload.text, /girlfriend|Девушка|Анна/i);
+  assert.doesNotMatch(telegramCalls[0].payload.text, /close|Близкие|Анна/i);
 
-  // Edit price and comment for remaining participant GUEST_1
   telegramCalls.length = 0;
   response = await worker.fetch(requestApi("/api/data", {
     method: "POST",
@@ -1074,7 +1068,7 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
         is_crowdfund: true,
         price: 35000,
         comment: "Обновлённый комментарий",
-        group_ids: ["girlfriend"]
+        group_ids: ["close"]
       })
     }
   }), env);
@@ -1083,7 +1077,6 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
   assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
   assert.match(telegramCalls[0].payload.text, /Максим \(@maxim\) обновил\(а\) забронированный подарок «Кофемашина» \(изменено: цена, комментарий\)\./);
 
-  // Change format is_crowdfund true -> false -> notifies remaining participant GUEST_1
   telegramCalls.length = 0;
   response = await worker.fetch(requestApi("/api/data", {
     method: "POST",
@@ -1097,7 +1090,7 @@ test("Bot notifications on gift deletion, archive toggle and gift updates", asyn
         is_crowdfund: false,
         price: 35000,
         comment: "Обновлённый комментарий",
-        group_ids: ["girlfriend"]
+        group_ids: ["close"]
       })
     }
   }), env);
@@ -1186,17 +1179,15 @@ test("New gift notifications respect subscribers index, group privacy and cap", 
   assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: OWNER,
-    body: { action: "add_group_member", payload: { group_id: "girlfriend", username: "anna1" } }
+    body: { action: "add_group_member", payload: { group_id: "close", username: "anna1" } }
   }), env)).status, 200);
 
-  // Private gift -> only GUEST_1 receives notification
   telegramCalls.length = 0;
-  await addGift(env, OWNER, { title: "Секретный браслет", price: 7500, group_ids: ["girlfriend"] });
+  await addGift(env, OWNER, { title: "Секретный браслет", price: 7500, group_ids: ["close"] });
   assert.equal(telegramCalls.length, 1);
   assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
   assert.match(telegramCalls[0].payload.text, /У Максим \(@maxim\) появилось новое желание: «Секретный браслет» \(7\s500 ₽\)/);
 
-  // Unsubscribe GUEST_2 -> removed from subscribers:<ownerId>
   assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: GUEST_2,
@@ -1204,7 +1195,6 @@ test("New gift notifications respect subscribers index, group privacy and cap", 
   }), env)).status, 200);
   assert.deepEqual(JSON.parse(env.DB.entries.get(`subscribers:${OWNER.id}`).value), [GUEST_1.id]);
 
-  // Public gift with 25 subscribers -> capped at 20 notifications
   const manySubscribers = Array.from({ length: 25 }, (_, i) => 9000 + i);
   await env.DB.put(`subscribers:${OWNER.id}`, JSON.stringify(manySubscribers));
   telegramCalls.length = 0;
@@ -1216,7 +1206,6 @@ test("Notification preferences via /notifications and callback_query, plus 403 r
   const env = createEnv();
   telegramCalls.length = 0;
 
-  // /notifications command shows current toggles
   let response = await worker.fetch(new Request(`${BASE}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1237,7 +1226,6 @@ test("Notification preferences via /notifications and callback_query, plus 403 r
     "notify:toggle:bookings"
   );
 
-  // Toggle bookings off via callback_query
   telegramCalls.length = 0;
   response = await worker.fetch(new Request(`${BASE}/`, {
     method: "POST",
@@ -1259,8 +1247,6 @@ test("Notification preferences via /notifications and callback_query, plus 403 r
   assert.equal(telegramCalls.some(call => call.method === "editMessageText"), true);
   assert.equal(telegramCalls.some(call => call.method === "answerCallbackQuery"), true);
 
-  // Register OWNER so @maxim is resolvable, subscribe GUEST_1 to OWNER;
-  // book and delete gift -> bookings disabled so 0 booking notifications
   assert.equal((await worker.fetch(requestApi("/api/social", { user: OWNER }), env)).status, 200);
   assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
@@ -1282,13 +1268,11 @@ test("Notification preferences via /notifications and callback_query, plus 403 r
   }), env)).status, 200);
   assert.equal(telegramCalls.length, 0);
 
-  // new_gifts is still enabled -> adding a gift notifies GUEST_1
   telegramCalls.length = 0;
   await addGift(env, OWNER, { title: "Настольная игра" });
   assert.equal(telegramCalls.length, 1);
   assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
 
-  // Toggle new_gifts off as well
   await worker.fetch(new Request(`${BASE}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1305,7 +1289,6 @@ test("Notification preferences via /notifications and callback_query, plus 403 r
   await addGift(env, OWNER, { title: "Ещё один подарок" });
   assert.equal(telegramCalls.length, 0);
 
-  // Simulate Telegram API 403 Forbidden (user blocked the bot) -> HTTP API must still return 200 OK
   assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: GUEST_2,
@@ -1333,6 +1316,448 @@ test("Notification preferences via /notifications and callback_query, plus 403 r
   } finally {
     globalThis.fetch = defaultFetchStub;
   }
+});
+
+test("Custom privacy groups CRUD, limits, legacy compatibility and deleted group selection", async () => {
+  const env = createEnv();
+  const GUEST_3 = { id: 3004, first_name: "Дима", username: "dima1" };
+  telegramCalls.length = 0;
+
+  // Register guests
+  assert.equal((await worker.fetch(requestApi("/api/social", { user: GUEST_1 }), env)).status, 200);
+  assert.equal((await worker.fetch(requestApi("/api/social", { user: GUEST_3 }), env)).status, 200);
+
+  // Default groups for a new user
+  let response = await worker.fetch(requestApi("/api/social", { user: OWNER }), env);
+  assert.equal(response.status, 200);
+  let data = await json(response);
+  assert.deepEqual(
+    data.groups.map(group => [group.id, group.name]),
+    [
+      ["family", "Семья"],
+      ["close", "Близкие"],
+      ["friends", "Друзья"],
+      ["colleagues", "Коллеги"]
+    ]
+  );
+
+  // Create custom group
+  response = await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "create_group", payload: { name: "Универ" } }
+  }), env);
+  assert.equal(response.status, 200);
+  data = await json(response);
+  const customGroup = data.groups.find(group => group.name === "Универ");
+  assert.ok(customGroup);
+  assert.match(customGroup.id, /^grp_[a-f0-9]{8}$/);
+
+  // Case-insensitive duplicate rejected
+  response = await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "create_group", payload: { name: "универ" } }
+  }), env);
+  assert.equal(response.status, 409);
+
+  // Rename custom group
+  response = await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "rename_group", payload: { group_id: customGroup.id, name: "Однокурсники" } }
+  }), env);
+  assert.equal(response.status, 200);
+  data = await json(response);
+  assert.equal(data.groups.find(group => group.id === customGroup.id).name, "Однокурсники");
+
+  // Add GUEST_1 to customGroup, GUEST_3 to friends; create gift restricted to both groups
+  assert.equal((await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "add_group_member", payload: { group_id: customGroup.id, username: "anna1" } }
+  }), env)).status, 200);
+  assert.equal((await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "add_group_member", payload: { group_id: "friends", username: "dima1" } }
+  }), env)).status, 200);
+
+  const giftData = await addGift(env, OWNER, {
+    title: "Книга для двух групп",
+    group_ids: [customGroup.id, "friends"]
+  });
+  const giftId = giftData.gifts[0].id;
+
+  // GUEST_1 books the gift
+  assert.equal((await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: giftId } }
+  }), env)).status, 200);
+  assert.equal(
+    (await json(await worker.fetch(requestApi("/api/participations", { user: GUEST_1 }), env))).items.length,
+    1
+  );
+
+  // Start a Telegram selection for customGroup, then delete customGroup before webhook arrives
+  response = await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "add_group_member", payload: { group_id: customGroup.id, username: "ghost_user" } }
+  }), env);
+  assert.equal(response.status, 202);
+  const selectionRequestId = (await json(response)).requestId;
+
+  // Delete customGroup -> removes customGroup.id from gift.group_ids and cancels GUEST_1's booking
+  response = await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "delete_group", payload: { group_id: customGroup.id } }
+  }), env);
+  assert.equal(response.status, 200);
+  const storedAfterDelete = JSON.parse(env.DB.entries.get(`user:${OWNER.id}`).value);
+  const updatedGift = storedAfterDelete.gifts.find(item => item.id === giftId);
+  assert.deepEqual(updatedGift.group_ids, ["friends"]);
+  assert.equal(updatedGift.booked_by, null);
+  assert.deepEqual(
+    (await json(await worker.fetch(requestApi("/api/participations", { user: GUEST_1 }), env))).items,
+    []
+  );
+
+  // Now finish the pending Telegram selection for the deleted group -> 200 OK with message
+  telegramCalls.length = 0;
+  response = await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        chat: { id: OWNER.id },
+        from: { id: OWNER.id },
+        users_shared: {
+          request_id: selectionRequestId,
+          users: [{ user_id: 5555, first_name: "Иван", username: "ghost_user" }]
+        }
+      }
+    })
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(env.DB.entries.has(`selection:${selectionRequestId}`), false);
+  assert.match(telegramCalls.at(-1).payload.text, /Выбранная группа больше не существует/);
+
+  // Test MAX_GROUPS = 20 limit
+  for (let i = 1; i <= 16; i += 1) {
+    const res = await worker.fetch(requestApi("/api/social", {
+      method: "POST",
+      user: OWNER,
+      body: { action: "create_group", payload: { name: `Группа ${i}` } }
+    }), env);
+    assert.equal(res.status, 200);
+  }
+  response = await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "create_group", payload: { name: "Лишняя группа" } }
+  }), env);
+  assert.equal(response.status, 409);
+
+  // Backward compatibility: legacy KV record without `name` fields
+  const legacyEnv = createEnv();
+  await legacyEnv.DB.put(`groups:${OWNER.id}`, JSON.stringify({
+    items: [
+      { id: "contacts", memberIds: [GUEST_1.id] },
+      { id: "family", memberIds: [] },
+      { id: "girlfriend", memberIds: [GUEST_1.id] },
+      { id: "friends", memberIds: [] }
+    ]
+  }));
+  response = await worker.fetch(requestApi("/api/social", { user: OWNER }), legacyEnv);
+  assert.equal(response.status, 200);
+  const legacySocial = await json(response);
+  assert.deepEqual(
+    legacySocial.groups.map(group => [group.id, group.name]),
+    [
+      ["contacts", "Контакты"],
+      ["family", "Семья"],
+      ["girlfriend", "Девушка"],
+      ["friends", "Друзья"]
+    ]
+  );
+  // Adding a gift with legacy group id works without migration
+  const legacyGiftRes = await addGift(legacyEnv, OWNER, { title: "Старый приватный", group_ids: ["girlfriend"] });
+  assert.deepEqual(legacyGiftRes.gifts[0].group_ids, ["girlfriend"]);
+});
+
+test("Occasions CRUD, private occasion filtering and /start occasion deep links", async () => {
+  const env = createEnv();
+  telegramCalls.length = 0;
+
+  // Create two occasions
+  let response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "save_occasion", payload: { title: "Новый год" } }
+  }), env);
+  assert.equal(response.status, 200);
+  let data = await json(response);
+  assert.equal(data.occasions.length, 1);
+  const nyOcc = data.occasions[0];
+  assert.match(nyOcc.id, /^occ_[a-f0-9]{8}$/);
+  assert.equal(nyOcc.title, "Новый год");
+
+  // Duplicate title rejected (case-insensitive)
+  response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "save_occasion", payload: { title: "новый год" } }
+  }), env);
+  assert.equal(response.status, 409);
+
+  // Rename occasion
+  response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "save_occasion", payload: { id: nyOcc.id, title: "Новый год 2027" } }
+  }), env);
+  assert.equal(response.status, 200);
+  data = await json(response);
+  assert.equal(data.occasions[0].title, "Новый год 2027");
+
+  // Create private occasion
+  response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "save_occasion", payload: { title: "Секретная годовщина" } }
+  }), env);
+  assert.equal(response.status, 200);
+  data = await json(response);
+  const secretOcc = data.occasions.find(item => item.title === "Секретная годовщина");
+
+  // Unknown occasion id rejected when adding gift
+  response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: OWNER,
+    body: {
+      owner_id: OWNER.id,
+      action: "add",
+      payload: giftPayload({ title: "Невалидный повод", occasion_ids: ["occ_missing1"] })
+    }
+  }), env);
+  assert.equal(response.status, 400);
+
+  // Add public gift in nyOcc, private gift (close group) in secretOcc
+  await addGift(env, OWNER, { title: "Гирлянда", occasion_ids: [nyOcc.id] });
+  await addGift(env, OWNER, { title: "Кольцо", group_ids: ["close"], occasion_ids: [secretOcc.id] });
+
+  // Owner sees both occasions
+  response = await worker.fetch(requestApi("/api/gifts", { user: OWNER }), env);
+  assert.equal((await json(response)).occasions.length, 2);
+
+  // GUEST_1 (not in close) sees ONLY nyOcc; secret occasion title must not leak
+  response = await worker.fetch(requestApi(`/api/gifts?owner_id=${OWNER.id}`, { user: GUEST_1 }), env);
+  const guestView = await json(response);
+  assert.deepEqual(guestView.occasions, [{ id: nyOcc.id, title: "Новый год 2027" }]);
+
+  // Delete nyOcc -> removed from record.occasions and gift.occasion_ids
+  response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "delete_occasion", payload: { id: nyOcc.id } }
+  }), env);
+  assert.equal(response.status, 200);
+  data = await json(response);
+  assert.equal(data.occasions.some(item => item.id === nyOcc.id), false);
+  assert.deepEqual(data.gifts.find(item => item.title === "Гирлянда").occasion_ids, []);
+
+  // Webhook deep link /start list_<ownerId>_occ_<occId>
+  telegramCalls.length = 0;
+  response = await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        chat: { id: 888 },
+        text: `/start list_${OWNER.id}_${secretOcc.id}`
+      }
+    })
+  }), env);
+  assert.equal(response.status, 200);
+  const deepUrl = new URL(telegramCalls[0].payload.reply_markup.inline_keyboard[0][0].web_app.url);
+  assert.equal(deepUrl.searchParams.get("list"), String(OWNER.id));
+  assert.equal(deepUrl.searchParams.get("occasion"), secretOcc.id);
+});
+
+test("Reusable gifts allow multiple givers, mask IDs and sync participations", async () => {
+  const env = createEnv();
+
+  // Mutually exclusive with is_crowdfund
+  let response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: {
+      owner_id: OWNER.id,
+      action: "add",
+      payload: giftPayload({ title: "Конфликт", is_crowdfund: true, is_reusable: true })
+    }
+  }), env);
+  assert.equal(response.status, 400);
+
+  let data = await addGift(env, OWNER, { title: "Сертификат в книжный", is_reusable: true });
+  const giftId = data.gifts[0].id;
+  assert.equal(data.gifts[0].is_reusable, true);
+  assert.deepEqual(data.gifts[0].reusable_givers, []);
+
+  // Both GUEST_1 and GUEST_2 can mark the gift independently
+  for (const guest of [GUEST_1, GUEST_2]) {
+    response = await worker.fetch(requestApi("/api/data", {
+      method: "POST",
+      user: guest,
+      body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: giftId } }
+    }), env);
+    assert.equal(response.status, 200);
+    data = await json(response);
+    const givers = data.gifts[0].reusable_givers;
+    assert.ok(givers.includes(guest.id));
+    assert.ok(!givers.some(id => id !== guest.id && id !== -1));
+  }
+
+  // Owner sees only masked IDs [-1, -1]
+  response = await worker.fetch(requestApi("/api/data", { user: OWNER }), env);
+  assert.deepEqual((await json(response)).gifts[0].reusable_givers, [-1, -1]);
+
+  // Participations list shows type "reusable" and does not expose reusable_givers
+  response = await worker.fetch(requestApi("/api/participations", { user: GUEST_1 }), env);
+  const parts = await json(response);
+  assert.equal(parts.items.length, 1);
+  assert.equal(parts.items[0].type, "reusable");
+  assert.equal(parts.items[0].gift.is_reusable, true);
+  assert.equal(parts.items[0].gift.reusableCount, 2);
+  assert.equal("reusable_givers" in parts.items[0].gift, false);
+
+  // GUEST_1 cancels own mark; GUEST_2 remains
+  response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: giftId } }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await json(response)).gifts[0].reusable_givers, [-1]);
+  assert.deepEqual(
+    (await json(await worker.fetch(requestApi("/api/participations", { user: GUEST_1 }), env))).items,
+    []
+  );
+
+  // Switching mode is_reusable -> false resets reusable_givers and clears GUEST_2 participation
+  response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: {
+      owner_id: OWNER.id,
+      action: "update",
+      payload: giftPayload({ id: giftId, title: "Сертификат в книжный", is_reusable: false })
+    }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await json(response)).gifts[0].reusable_givers, []);
+  assert.deepEqual(
+    (await json(await worker.fetch(requestApi("/api/participations", { user: GUEST_2 }), env))).items,
+    []
+  );
+});
+
+test("Copying another user's gift respects privacy and clones KV image independently", async () => {
+  const env = createEnv();
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]);
+
+  // Upload image as OWNER and create occasion + public and private gifts
+  const uploadRes = await uploadImage(env, OWNER, jpeg);
+  assert.equal(uploadRes.status, 201);
+  const sourceImageUrl = (await json(uploadRes)).url;
+  const sourceImageId = sourceImageUrl.split("/").pop();
+
+  const occRes = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "save_occasion", payload: { title: "День рождения" } }
+  }), env);
+  const occId = (await json(occRes)).occasions[0].id;
+
+  const publicGift = (await addGift(env, OWNER, {
+    title: "Механическая клавиатура",
+    image: sourceImageUrl,
+    price: 12000,
+    tags: ["Техника"],
+    occasion_ids: [occId],
+    is_reusable: true
+  })).gifts[0];
+  const privateGift = (await addGift(env, OWNER, {
+    title: "Секретный подарок",
+    group_ids: ["close"]
+  })).gifts[0];
+
+  // GUEST_2 marks the public reusable gift
+  assert.equal((await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: GUEST_2,
+    body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: publicGift.id } }
+  }), env)).status, 200);
+
+  // Owner cannot copy their own gift (400)
+  let response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "copy_gift", payload: { id: publicGift.id } }
+  }), env);
+  assert.equal(response.status, 400);
+
+  // Guest cannot copy a hidden private gift by ID (404)
+  response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "copy_gift", payload: { id: privateGift.id } }
+  }), env);
+  assert.equal(response.status, 404);
+
+  // Guest copies visible public gift (201)
+  response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "copy_gift", payload: { id: publicGift.id } }
+  }), env);
+  assert.equal(response.status, 201);
+  const copied = (await json(response)).gift;
+  assert.notEqual(copied.id, publicGift.id);
+  assert.equal(copied.title, "Механическая клавиатура");
+  assert.equal(copied.price, 12000);
+  assert.equal(copied.is_reusable, true);
+  assert.deepEqual(copied.group_ids, []);
+  assert.deepEqual(copied.occasion_ids, []);
+  assert.equal(copied.booked_by, null);
+  assert.deepEqual(copied.participants, []);
+  assert.deepEqual(copied.reusable_givers, []);
+  assert.equal(copied.is_gifted, false);
+  assert.match(copied.image, /^\/api\/img\/[a-f0-9]{32}$/);
+  assert.notEqual(copied.image, sourceImageUrl);
+
+  // Verify cloned KV image has GUEST_1 as owner and survives deletion of OWNER's gift
+  const clonedImageId = copied.image.split("/").pop();
+  assert.equal(env.DB.entries.get(`img:${clonedImageId}`).metadata.ownerId, String(GUEST_1.id));
+
+  response = await worker.fetch(requestApi("/api/gifts", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "delete", payload: { id: publicGift.id } }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(env.DB.entries.has(`img:${sourceImageId}`), false);
+  assert.equal(env.DB.entries.has(`img:${clonedImageId}`), true);
+
+  // GUEST_1 can still load their cloned image and see the copied gift in their own wishlist
+  const imgRes = await worker.fetch(requestApi(copied.image, { user: GUEST_1 }), env);
+  assert.equal(imgRes.status, 200);
+  const guestWishlist = await json(await worker.fetch(requestApi("/api/gifts", { user: GUEST_1 }), env));
+  assert.equal(guestWishlist.gifts.length, 1);
+  assert.equal(guestWishlist.gifts[0].id, copied.id);
 });
 
 let passed = 0;

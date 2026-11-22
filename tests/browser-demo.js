@@ -57,6 +57,16 @@ export default async page => {
   const guestBookedCardText = await page.locator('#giftsGrid .gift-card', { hasText: bookedTitle }).textContent();
   assert(guestBookedCardText.includes('Вы забронировали'), 'Guest booking badge must be explicit');
   assert(!guestBookedCardText.includes('Подарено') && !guestBookedCardText.includes('уже вручён'), 'Guest booking must not look gifted');
+
+  // Reusable gift mark and copy gift in guest mode
+  const reusableCard = page.locator('#giftsGrid .gift-card', { hasText: 'Сертификат в книжный магазин' });
+  await reusableCard.locator('.btn-guest-book').click();
+  await page.waitForFunction(() => state.gifts.some(g => g.is_reusable && g.reusable_givers.includes(2002)));
+  await reusableCard.locator('.btn-guest-copy').click();
+  await page.waitForFunction(() => state.copiedGiftIds.size === 1);
+  assert((await reusableCard.locator('.btn-guest-copy').textContent()).includes('В вашем списке'), 'Copied gift button must reflect added state');
+  assert(await page.locator('#giftsGrid .gift-card', { hasText: 'Сертификат в книжный магазин' }).count() === 1, 'Copying as guest must not duplicate item into owner demo list');
+
   await page.locator('.btn-guest-crowdfund').first().click();
   await page.waitForFunction(() => state.gifts.some(g => g.is_crowdfund && g.participants.includes(2002)));
   await page.locator('#backToOwnListBtn').click();
@@ -67,8 +77,14 @@ export default async page => {
   assert(ownerBookedCardText.includes('Отметить вручение'), 'Gifted action must be clearly separated from reservation status');
   assert(!ownerBookedCardText.includes('Подарено'), 'Owner card must not show a gifted status after booking');
   assert(await page.evaluate(title => state.gifts.find(g => g.title === title).is_gifted === false, bookedTitle), 'Owner booking view must keep is_gifted false');
-  results.push('legacy booking and crowdfund');
-  results.push('booking and actual gift delivery stay separate for guest and owner');
+  results.push('legacy booking, reusable gift, copy gift and crowdfund');
+
+  // Occasion chips filtering
+  await page.locator('#occasionsBar [data-occasion-filter="occ_bday01"]').click();
+  assert(await page.locator('#occasionBanner').isVisible(), 'Occasion banner must appear when filtering by occasion');
+  await page.locator('#showAllWishlistBtn').click();
+  assert(await page.locator('#occasionBanner').isHidden(), 'Occasion banner must hide when cleared');
+  results.push('occasion filtering and banner reset');
 
   await page.locator('#friendsViewBtn').click();
   await page.locator('#friendsWorkspace').waitFor({ state: 'visible' });
@@ -98,11 +114,28 @@ export default async page => {
   await page.waitForFunction(() => !state.subscriptions.some(profile => profile.id === 2002));
   results.push('unsubscribe');
 
+  // Custom group create, rename, delete
+  await page.locator('#newGroupNameInput').fill('Универ');
+  await page.locator('#createGroupSubmitBtn').click();
+  await page.waitForFunction(() => state.groups.some(g => g.name === 'Универ'));
+  const customGroupBlock = page.locator('#groupsList .access-group', { hasText: 'Универ' });
+  await customGroupBlock.getByRole('button', { name: 'Переименовать' }).click();
+  await page.locator('#renameGroupModalBackdrop.open').waitFor();
+  await page.locator('#renameGroupInput').fill('Однокурсники');
+  await page.locator('#renameGroupForm button[type="submit"]').click();
+  await page.waitForFunction(() => state.groups.some(g => g.name === 'Однокурсники'));
+  const renamedGroupBlock = page.locator('#groupsList .access-group', { hasText: 'Однокурсники' });
+  await renamedGroupBlock.locator('.access-group-head').getByRole('button', { name: 'Удалить' }).click();
+  await page.locator('#deleteGroupModalBackdrop.open').waitFor();
+  await page.locator('#confirmDeleteGroupBtn').click();
+  await page.waitForFunction(() => !state.groups.some(g => g.name === 'Однокурсники'));
+  results.push('custom group create, rename and delete');
+
   const familyGroup = page.locator('#groupsList .access-group', { hasText: 'Семья' });
   await familyGroup.locator('input').fill('@dima1');
   await familyGroup.getByRole('button', { name: 'Добавить' }).click();
   await page.waitForFunction(() => state.groups.find(g => g.id === 'family').memberIds.includes(3003));
-  await familyGroup.getByRole('button', { name: 'Удалить' }).click();
+  await familyGroup.locator('.social-person-row').getByRole('button', { name: 'Удалить' }).click();
   await page.waitForFunction(() => !state.groups.find(g => g.id === 'family').memberIds.includes(3003));
   results.push('group add and remove');
 
@@ -120,49 +153,49 @@ export default async page => {
   await page.waitForFunction(() => state.gifts.some(g => g.title === 'Общее желание — тест'));
   assert(await page.evaluate(() => state.gifts.find(g => g.title === 'Общее желание — тест').group_ids.length === 0), 'Default audience must be public');
 
-  await page.locator('#addTitleInput').fill('Только для девушки — тест');
+  await page.locator('#addTitleInput').fill('Только для близких — тест');
   if (!await page.locator('#addDetailsPanel').evaluate(panel => panel.classList.contains('open'))) {
     await page.locator('#toggleDetailsBtn').click();
   }
-  await page.locator('#addAudienceControl [data-group="girlfriend"]').click();
+  await page.locator('#addAudienceControl [data-group="close"]').click();
   await page.locator('#addGiftForm button[type="submit"]').first().click();
-  await page.waitForFunction(() => state.gifts.some(g => g.title === 'Только для девушки — тест'));
-  const restrictedId = await page.evaluate(() => state.gifts.find(g => g.title === 'Только для девушки — тест').id);
+  await page.waitForFunction(() => state.gifts.some(g => g.title === 'Только для близких — тест'));
+  const restrictedId = await page.evaluate(() => state.gifts.find(g => g.title === 'Только для близких — тест').id);
   assert(await page.evaluate(() => state.groupDraft.add.length === 0), 'Audience draft must reset after add');
   results.push('public and restricted gifts');
 
   await page.locator('[data-role="guest1"]').click();
-  const restrictedForAnna = page.locator('#giftsGrid .gift-card', { hasText: 'Только для девушки — тест' });
-  assert(await restrictedForAnna.count() === 1, 'Girlfriend must see restricted gift');
+  const restrictedForAnna = page.locator('#giftsGrid .gift-card', { hasText: 'Только для близких — тест' });
+  assert(await restrictedForAnna.count() === 1, 'Close group member must see restricted gift');
   await restrictedForAnna.locator('.btn-guest-book').click();
   await page.waitForFunction(id => state.gifts.find(g => g.id === id)?.booked_by === 2002, restrictedId);
   await page.locator('#participationsViewBtn').click();
-  await page.waitForFunction(() => state.participations.some(item => item.gift.id === state.gifts.find(g => g.title === 'Только для девушки — тест')?.id));
-  assert((await page.locator('#participationsGrid').textContent()).includes('Только для девушки — тест'), 'Visible booking must appear in participations');
-  results.push('girlfriend visibility, booking and participation');
+  await page.waitForFunction(() => state.participations.some(item => item.gift.id === state.gifts.find(g => g.title === 'Только для близких — тест')?.id));
+  assert((await page.locator('#participationsGrid').textContent()).includes('Только для близких — тест'), 'Visible booking must appear in participations');
+  results.push('close group visibility, booking and participation');
 
   await page.locator('#wishlistViewBtn').click();
   await page.locator('[data-role="guest2"]').click();
-  assert(await page.locator('#giftsGrid .gift-card', { hasText: 'Только для девушки — тест' }).count() === 0, 'Other guest must not see restricted gift');
+  assert(await page.locator('#giftsGrid .gift-card', { hasText: 'Только для близких — тест' }).count() === 0, 'Other guest must not see restricted gift');
   const hiddenMutationResult = await page.evaluate(id => mutateGifts('toggle_book', { id }), restrictedId);
   assert(hiddenMutationResult === false, 'Hidden gift mutation must be rejected in demo');
   assert(await page.evaluate(id => state.gifts.find(g => g.id === id).booked_by !== 3003, restrictedId), 'Hidden gift must not be booked by other guest');
   results.push('restricted gift hidden and mutation blocked');
 
   await page.locator('[data-role="owner"]').click();
-  const ownerRestricted = page.locator('#giftsGrid .gift-card', { hasText: 'Только для девушки — тест' });
+  const ownerRestricted = page.locator('#giftsGrid .gift-card', { hasText: 'Только для близких — тест' });
   await ownerRestricted.locator('.btn-owner-edit').click();
   await page.locator('#editAudienceControl [data-group="friends"]').click();
   await page.locator('#editGiftForm button[type="submit"]').click();
   await page.waitForFunction(id => {
     const ids = state.gifts.find(g => g.id === id)?.group_ids || [];
-    return ids.includes('girlfriend') && ids.includes('friends');
+    return ids.includes('close') && ids.includes('friends');
   }, restrictedId);
-  const restrictedAfterMulti = page.locator('#giftsGrid .gift-card', { hasText: 'Только для девушки — тест' });
+  const restrictedAfterMulti = page.locator('#giftsGrid .gift-card', { hasText: 'Только для близких — тест' });
   await restrictedAfterMulti.locator('.btn-owner-edit').click();
   await page.locator('#editAudienceControl [data-group="friends"]').click();
   await page.locator('#editGiftForm button[type="submit"]').click();
-  await page.waitForFunction(id => (state.gifts.find(g => g.id === id)?.group_ids || []).join(',') === 'girlfriend', restrictedId);
+  await page.waitForFunction(id => (state.gifts.find(g => g.id === id)?.group_ids || []).join(',') === 'close', restrictedId);
   results.push('edit and multi-group audience');
 
   const publicCard = page.locator('#giftsGrid .gift-card', { hasText: 'Общее желание — тест' });
@@ -179,18 +212,18 @@ export default async page => {
   results.push('all-audience reset');
 
   await page.locator('#friendsViewBtn').click();
-  const girlfriendGroup = page.locator('#groupsList .access-group', { hasText: 'Девушка' });
-  await girlfriendGroup.getByRole('button', { name: 'Удалить' }).click();
+  const closeGroup = page.locator('#groupsList .access-group', { hasText: 'Близкие' });
+  await closeGroup.locator('.social-person-row').getByRole('button', { name: 'Удалить' }).click();
   await page.waitForFunction(id => state.gifts.find(g => g.id === id)?.booked_by === null, restrictedId);
-  assert(await page.evaluate(() => !state.groups.find(g => g.id === 'girlfriend').memberIds.includes(2002)), 'Anna must be removed from girlfriend group');
+  assert(await page.evaluate(() => !state.groups.find(g => g.id === 'close').memberIds.includes(2002)), 'Anna must be removed from close group');
   results.push('group removal cancels inaccessible booking');
 
   await page.locator('#wishlistViewBtn').click();
   await page.locator('[data-role="guest1"]').click();
-  assert(await page.locator('#giftsGrid .gift-card', { hasText: 'Только для девушки — тест' }).count() === 0, 'Removed member must lose gift visibility');
+  assert(await page.locator('#giftsGrid .gift-card', { hasText: 'Только для близких — тест' }).count() === 0, 'Removed member must lose gift visibility');
   await page.locator('#participationsViewBtn').click();
   await page.waitForFunction(() => !state.participationsLoading);
-  assert(await page.evaluate(() => !state.participations.some(item => item.gift.title === 'Только для девушки — тест')), 'Removed member must lose stale participation');
+  assert(await page.evaluate(() => !state.participations.some(item => item.gift.title === 'Только для близких — тест')), 'Removed member must lose stale participation');
   await page.locator('#wishlistViewBtn').click();
   await page.locator('[data-role="owner"]').click();
   results.push('visibility and participation cleanup after removal');
@@ -221,6 +254,8 @@ export default async page => {
     contentType: 'text/html',
     body: '<!doctype html><title>Telegram redirect test</title>'
   }));
+  await page.goto(`${baseUrl}/?list=987654321&occasion=occ_ny2027`);
+  await page.waitForURL('https://t.me/testpmvbot_bot?start=list_987654321_occ_ny2027');
   await page.goto(`${baseUrl}/?list=987654321`);
   await page.waitForURL('https://t.me/testpmvbot_bot?start=list_987654321');
   assert(!(await page.locator('body').textContent()).includes('Анна'), 'Shared browser link must never render demo guest Anna');
@@ -231,4 +266,4 @@ export default async page => {
   assert(pageErrors.length === 0, `Uncaught browser errors: ${pageErrors.join(' | ')}`);
   results.push('no uncaught JavaScript errors');
   return { results, dimensions };
-}
+};
