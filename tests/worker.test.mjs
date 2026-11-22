@@ -1165,26 +1165,29 @@ test("New gift notifications respect subscribers index, group privacy and cap", 
   const env = createEnv();
   telegramCalls.length = 0;
 
-  await worker.fetch(requestApi("/api/social", {
+  assert.equal((await worker.fetch(requestApi("/api/social", { user: OWNER }), env)).status, 200);
+  assert.equal((await worker.fetch(requestApi("/api/social", { user: GUEST_1 }), env)).status, 200);
+
+  assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: GUEST_1,
     body: { action: "subscribe", payload: { username: "maxim" } }
-  }), env);
-  await worker.fetch(requestApi("/api/social", {
+  }), env)).status, 200);
+  assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: GUEST_2,
     body: { action: "subscribe", payload: { username: "maxim" } }
-  }), env);
+  }), env)).status, 200);
   assert.deepEqual(
     new Set(JSON.parse(env.DB.entries.get(`subscribers:${OWNER.id}`).value)),
     new Set([GUEST_1.id, GUEST_2.id])
   );
 
-  await worker.fetch(requestApi("/api/social", {
+  assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: OWNER,
     body: { action: "add_group_member", payload: { group_id: "girlfriend", username: "anna1" } }
-  }), env);
+  }), env)).status, 200);
 
   // Private gift -> only GUEST_1 receives notification
   telegramCalls.length = 0;
@@ -1194,11 +1197,11 @@ test("New gift notifications respect subscribers index, group privacy and cap", 
   assert.match(telegramCalls[0].payload.text, /У Максим \(@maxim\) появилось новое желание: «Секретный браслет» \(7\s500 ₽\)/);
 
   // Unsubscribe GUEST_2 -> removed from subscribers:<ownerId>
-  await worker.fetch(requestApi("/api/social", {
+  assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: GUEST_2,
     body: { action: "unsubscribe", payload: { user_id: OWNER.id } }
-  }), env);
+  }), env)).status, 200);
   assert.deepEqual(JSON.parse(env.DB.entries.get(`subscribers:${OWNER.id}`).value), [GUEST_1.id]);
 
   // Public gift with 25 subscribers -> capped at 20 notifications
@@ -1256,25 +1259,27 @@ test("Notification preferences via /notifications and callback_query, plus 403 r
   assert.equal(telegramCalls.some(call => call.method === "editMessageText"), true);
   assert.equal(telegramCalls.some(call => call.method === "answerCallbackQuery"), true);
 
-  // Subscribe GUEST_1 to OWNER; book and delete gift -> bookings disabled so 0 booking notifications
-  await worker.fetch(requestApi("/api/social", {
+  // Register OWNER so @maxim is resolvable, subscribe GUEST_1 to OWNER;
+  // book and delete gift -> bookings disabled so 0 booking notifications
+  assert.equal((await worker.fetch(requestApi("/api/social", { user: OWNER }), env)).status, 200);
+  assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: GUEST_1,
     body: { action: "subscribe", payload: { username: "maxim" } }
-  }), env);
+  }), env)).status, 200);
   const giftId = (await addGift(env, OWNER, { title: "Книга" })).gifts[0].id;
-  await worker.fetch(requestApi("/api/data", {
+  assert.equal((await worker.fetch(requestApi("/api/data", {
     method: "POST",
     user: GUEST_1,
     body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: giftId } }
-  }), env);
+  }), env)).status, 200);
 
   telegramCalls.length = 0;
-  await worker.fetch(requestApi("/api/data", {
+  assert.equal((await worker.fetch(requestApi("/api/data", {
     method: "POST",
     user: OWNER,
     body: { owner_id: OWNER.id, action: "delete", payload: { id: giftId } }
-  }), env);
+  }), env)).status, 200);
   assert.equal(telegramCalls.length, 0);
 
   // new_gifts is still enabled -> adding a gift notifies GUEST_1
@@ -1301,11 +1306,11 @@ test("Notification preferences via /notifications and callback_query, plus 403 r
   assert.equal(telegramCalls.length, 0);
 
   // Simulate Telegram API 403 Forbidden (user blocked the bot) -> HTTP API must still return 200 OK
-  await worker.fetch(requestApi("/api/social", {
+  assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: GUEST_2,
     body: { action: "subscribe", payload: { username: "maxim" } }
-  }), env);
+  }), env)).status, 200);
 
   globalThis.fetch = async () => new Response(JSON.stringify({
     ok: false,
