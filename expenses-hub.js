@@ -1,7 +1,7 @@
 /**
- * Модуль главного хаба супераппа и профиля СБП (Этап 1).
- * Позволяет переключаться между модулями «Вишлисты» и «Совместные расходы»,
- * а также сохранять единые платёжные реквизиты профиля (СБП, банки, валюта по умолчанию).
+ * Модуль главного меню супераппа и профиля СБП (Этап 1).
+ * В меню два раздела: «Вишлисты» (переводит в интерфейс вишлиста)
+ * и «Совместные расходы» (пока заглушка, не открывает рабочий раздел).
  */
 const SUPERAPP_PROFILE_STORAGE_KEY = "tg_superapp_profile_v1";
 const SUPERAPP_ACTIVE_MODULE_KEY = "tg_superapp_active_module_v1";
@@ -56,24 +56,15 @@ function saveLocalSuperappProfile(profile) {
 
 function getSuperappState() {
   if (!state.superapp) {
-    let savedModule = "wishlist";
-    try {
-      const m = localStorage.getItem(SUPERAPP_ACTIVE_MODULE_KEY);
-      if (m === "wishlist" || m === "expenses") savedModule = m;
-    } catch {}
     state.superapp = {
-      activeModule: savedModule,
+      activeModule: "wishlist",
       profile: loadLocalSuperappProfile(),
-      savingProfile: false,
-      expensesDashboard: {
-        active_events: [],
-        archived_events: [],
-        summary_by_currency: {
-          RUB: { you_owe_minor: 0, owed_to_you_minor: 0, pending_outgoing_minor: 0, pending_incoming_minor: 0 }
-        }
-      }
+      savingProfile: false
     };
   }
+  try {
+    localStorage.setItem(SUPERAPP_ACTIVE_MODULE_KEY, "wishlist");
+  } catch {}
   return state.superapp;
 }
 
@@ -128,39 +119,41 @@ function renderSuperappHub() {
 
   const wishlistCard = document.getElementById("hubModuleWishlistBtn");
   const expensesCard = document.getElementById("hubModuleExpensesBtn");
-  if (wishlistCard) wishlistCard.classList.toggle("active", hub.activeModule === "wishlist");
-  if (expensesCard) expensesCard.classList.toggle("active", hub.activeModule === "expenses");
+  if (wishlistCard) wishlistCard.classList.add("active");
+  if (expensesCard) {
+    expensesCard.classList.remove("active");
+    expensesCard.setAttribute("aria-disabled", "true");
+  }
 
-  const wishlistSection = document.getElementById("wishlistWorkspace");
-  const participationsSection = document.getElementById("participationsWorkspace");
-  const friendsSection = document.getElementById("friendsWorkspace");
-  const workspaceNav = document.querySelector(".workspace-nav");
   const expensesHubSection = document.getElementById("expensesStage1Section");
+  if (expensesHubSection) expensesHubSection.hidden = true;
+  if (typeof updateWorkspaceNav === "function") updateWorkspaceNav();
+}
 
-  if (hub.activeModule === "expenses") {
-    if (wishlistSection) wishlistSection.hidden = true;
-    if (participationsSection) participationsSection.hidden = true;
-    if (friendsSection) friendsSection.hidden = true;
-    if (workspaceNav) workspaceNav.style.display = "none";
-    if (expensesHubSection) expensesHubSection.hidden = false;
-  } else {
-    if (workspaceNav) workspaceNav.style.display = "";
-    if (expensesHubSection) expensesHubSection.hidden = true;
-    if (typeof updateWorkspaceNav === "function") updateWorkspaceNav();
+function focusWishlistMenu() {
+  if (typeof showWishlistWorkspace === "function") {
+    showWishlistWorkspace();
+  }
+  const navEl = document.querySelector(".workspace-nav");
+  if (navEl && typeof navEl.scrollIntoView === "function") {
+    navEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
 
 function selectSuperappModule(moduleName) {
-  if (moduleName !== "wishlist" && moduleName !== "expenses") return;
   const hub = getSuperappState();
-  hub.activeModule = moduleName;
-  try {
-    localStorage.setItem(SUPERAPP_ACTIVE_MODULE_KEY, moduleName);
-  } catch {}
+  hub.activeModule = "wishlist";
   if (typeof triggerHaptic === "function") triggerHaptic("light");
+
+  if (moduleName === "wishlist") {
+    renderSuperappHub();
+    focusWishlistMenu();
+    return;
+  }
+
   renderSuperappHub();
-  if (moduleName === "expenses" && typeof isTelegramSession !== "undefined" && isTelegramSession && typeof API_ORIGIN !== "undefined" && API_ORIGIN) {
-    syncCoreProfileFromServer();
+  if (typeof showToast === "function") {
+    showToast("⏳ Раздел «Совместные расходы» пока в разработке");
   }
 }
 
