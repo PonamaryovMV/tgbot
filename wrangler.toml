@@ -1,17 +1,12 @@
 name = "tgbot"
 main = "worker.js"
-compatibility_date = "2026-11-15"
-workers_dev = true
-keep_vars = true
-
-[vars]
-WEBAPP_URL = "https://ponamaryovmv.github.io/tgbot/"
+compatibility_date = "2026-04-01"
 
 [[kv_namespaces]]
 binding = "DB"
-id = "1406ebcd7f43433a89671b7b010757bc"
+id = "69c8fd0a3c2f4f55a56ab52354f349c3"
 
-[[secrets_store_secrets]]
-binding = "BOT_TOKEN"
-store_id = "3e0d6fc0f2f54b438cb7dc66255dfff1"
-secret_name = "BOT_TOKEN"
+[[d1_databases]]
+binding = "EXPENSES_DB"
+database_name = "tg_expenses"
+database_id = "d3e17054-e5c6-4f3d-b6fb-eee6cae0cb63"
