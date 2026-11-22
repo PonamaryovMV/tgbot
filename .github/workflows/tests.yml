@@ -14,7 +14,7 @@ permissions:
 jobs:
   worker-tests:
     name: Backend Worker Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,7 +40,11 @@ jobs:
             echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo ""
             echo '```text'
-            tail -n 120 worker-test.log
+            if [ -f worker-test.log ]; then
+              tail -n 120 worker-test.log
+            else
+              echo "Лог worker-test.log не создан (ошибка на этапе подготовки окружения)."
+            fi
             echo '```'
           } > "$BODY_FILE"
           gh issue create \
@@ -58,7 +62,7 @@ jobs:
 
   browser-tests:
     name: Browser Playwright Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -69,15 +73,19 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          set -o pipefail
+          npm install 2>&1 | tee -a browser-test.log
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: |
+          set -o pipefail
+          npx playwright install --with-deps chromium 2>&1 | tee -a browser-test.log
 
       - name: Run browser tests
         run: |
           set -o pipefail
-          npm run test:browser 2>&1 | tee browser-test.log
+          npm run test:browser 2>&1 | tee -a browser-test.log
 
       - name: Report failure to Issue
         if: failure()
@@ -90,7 +98,11 @@ jobs:
             echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo ""
             echo '```text'
-            tail -n 120 browser-test.log
+            if [ -f browser-test.log ]; then
+              tail -n 120 browser-test.log
+            else
+              echo "Лог browser-test.log не создан (ошибка на этапе подготовки окружения)."
+            fi
             echo '```'
           } > "$BODY_FILE"
           gh issue create \
