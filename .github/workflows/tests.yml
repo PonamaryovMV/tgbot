@@ -7,6 +7,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   worker-tests:
     name: Backend Worker Tests
@@ -25,17 +29,32 @@ jobs:
           set -o pipefail
           npm run test:worker 2>&1 | tee worker-test.log
 
-      - name: Publish Worker test summary
-        if: always()
+      - name: Report failure to Issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -f worker-test.log ]; then
-            {
-              echo "### Backend Worker Tests"
-              echo '```text'
-              cat worker-test.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          BODY_FILE=$(mktemp)
+          {
+            echo "Коммит: ${{ github.sha }}"
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo '```text'
+            tail -n 120 worker-test.log
+            echo '```'
+          } > "$BODY_FILE"
+          gh issue create \
+            --title "CI Fail: Backend Worker Tests (${GITHUB_SHA::7})" \
+            --body-file "$BODY_FILE"
+
+      - name: Close resolved failure issues
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for num in $(gh issue list --state open --search "CI Fail: Backend Worker Tests in:title" --json number -q '.[].number'); do
+            gh issue close "$num" --comment "Исправлено в коммите ${{ github.sha }}"
+          done
 
   browser-tests:
     name: Browser Playwright Tests
@@ -60,14 +79,29 @@ jobs:
           set -o pipefail
           npm run test:browser 2>&1 | tee browser-test.log
 
-      - name: Publish browser test summary
-        if: always()
+      - name: Report failure to Issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -f browser-test.log ]; then
-            {
-              echo "### Browser Playwright Tests"
-              echo '```text'
-              cat browser-test.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          BODY_FILE=$(mktemp)
+          {
+            echo "Коммит: ${{ github.sha }}"
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo '```text'
+            tail -n 120 browser-test.log
+            echo '```'
+          } > "$BODY_FILE"
+          gh issue create \
+            --title "CI Fail: Browser Playwright Tests (${GITHUB_SHA::7})" \
+            --body-file "$BODY_FILE"
+
+      - name: Close resolved failure issues
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for num in $(gh issue list --state open --search "CI Fail: Browser Playwright Tests in:title" --json number -q '.[].number'); do
+            gh issue close "$num" --comment "Исправлено в коммите ${{ github.sha }}"
+          done
