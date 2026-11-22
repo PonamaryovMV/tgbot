@@ -10,6 +10,8 @@ const MAX_UPLOAD_REQUEST_BYTES = 1100 * 1024;
 const MAX_JSON_BYTES = 1024 * 1024;
 const INIT_DATA_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const MAX_SOCIAL_ITEMS = 200;
+const MAX_NEW_GIFT_NOTIFICATIONS = 20;
+const NOTIFICATION_BATCH_SIZE = 5;
 const GROUP_DEFINITIONS = Object.freeze([
   { id: "contacts", name: "Контакты" },
   { id: "family", name: "Семья" },
@@ -25,7 +27,7 @@ class HttpError extends Error {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
@@ -60,7 +62,7 @@ export default {
       }
       if (path === "/api/social" && method === "POST") {
         const user = await authenticateTelegram(request, env);
-        return await handleSocialPost(request, env, user);
+        return await handleSocialPost(request, env, user, ctx);
       }
 
       const imageMatch = path.match(/^\/api\/img\/([A-Za-z0-9_-]{16,64})$/);
@@ -75,7 +77,7 @@ export default {
       }
       if ((path === "/api/gifts" || path === "/api/data") && method === "POST") {
         const user = await authenticateTelegram(request, env);
-        return await handleGiftsPost(request, env, user);
+        return await handleGiftsPost(request, env, user, ctx);
       }
       if (path === "/api/upload" && method === "POST") {
         const user = await authenticateTelegram(request, env);
@@ -103,6 +105,76 @@ function json(data, status = 200) {
       "X-Content-Type-Options": "nosniff"
     }
   });
+}
+
+function dispatchBackground(ctx, promise) {
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(promise);
+    return Promise.resolve();
+  }
+  return promise;
+}
+
+function notifyPrefsKey(userId) {
+  return `notify_prefs:${userId}`;
+}
+
+async function readNotificationPrefs(env, userId) {
+  const stored = await env.DB.get(notifyPrefsKey(userId), { type: "json" });
+  return {
+    bookings: stored?.bookings !== false,
+    new_gifts: stored?.new_gifts !== false
+  };
+}
+
+function isValidChatId(chatId) {
+  const id = Number(chatId);
+  return Number.isSafeInteger(id) && id > 0;
+}
+
+function buildOwnerLabel(owner) {
+  const name = cleanPlainText(owner?.first_name || "Пользователь", 64) || "Пользователь";
+  const username = normalizeUsername(owner?.username || "", false);
+  return username ? `${name} (@${username})` : name;
+}
+
+function buildWishlistReplyMarkup(env, ownerId) {
+  if (!env.WEBAPP_URL) return undefined;
+  const webAppUrl = new URL(env.WEBAPP_URL);
+  webAppUrl.searchParams.set("list", String(ownerId));
+  return {
+    inline_keyboard: [[{ text: "Открыть вишлист", web_app: { url: webAppUrl.toString() } }]]
+  };
+}
+
+function formatNotificationPrice(price) {
+  if (!Number.isFinite(Number(price)) || Number(price) <= 0) return "";
+  return ` (${new Intl.NumberFormat("ru-RU").format(Math.round(Number(price)))} ₽)`;
+}
+
+async function sendNotificationSafe(env, chatId, text, replyMarkup) {
+  if (!isValidChatId(chatId)) return false;
+  const payload = { chat_id: Number(chatId), text };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
+  try {
+    await callTelegramApi(env, "sendMessage", payload);
+    return true;
+  } catch (error) {
+    console.warn("Failed to send Telegram notification:", error?.stack || error);
+    return false;
+  }
+}
+
+async function sendNotificationsBatch(env, items) {
+  for (let offset = 0; offset < items.length; offset += NOTIFICATION_BATCH_SIZE) {
+    const chunk = items.slice(offset, offset + NOTIFICATION_BATCH_SIZE);
+    await Promise.allSettled(chunk.map(async item => {
+      if (!isValidChatId(item.chatId)) return;
+      const prefs = await readNotificationPrefs(env, item.chatId);
+      if (prefs[item.prefKey] === false) return;
+      await sendNotificationSafe(env, item.chatId, item.text, item.replyMarkup);
+    }));
+  }
 }
 
 async function getBotToken(env) {
@@ -213,11 +285,12 @@ async function handleGiftsGet(url, env, viewer) {
     await syncWishlistParticipation(env, ownerId, viewer, record, groups);
     const subscriptions = await readSubscriptions(env, viewer.id);
     isSubscribed = subscriptions.includes(ownerId);
+    if (isSubscribed) await addSubscriber(env, ownerId, viewer.id);
   }
   return json(serializeWishlist(record, viewer.id, groups, isSubscribed));
 }
 
-async function handleGiftsPost(request, env, viewer) {
+async function handleGiftsPost(request, env, viewer, ctx) {
   assertContentLength(request, MAX_JSON_BYTES);
   let body;
   try {
@@ -251,7 +324,9 @@ async function handleGiftsPost(request, env, viewer) {
   const record = await loadWishlist(env, ownerId, viewer);
   const groups = await loadGroups(env, ownerId);
   const affectedViewerIds = new Set();
+  const notifications = [];
   let imageToDelete = "";
+  let addedGift = null;
 
   if (action === "add") {
     const gift = sanitizeGift(payload);
@@ -267,6 +342,7 @@ async function handleGiftsPost(request, env, viewer) {
       first_name: viewer.first_name,
       username: viewer.username || record.owner.username || ""
     };
+    addedGift = gift;
   }
 
   if (action === "update") {
@@ -288,17 +364,93 @@ async function handleGiftsPost(request, env, viewer) {
     record.gifts[index] = next;
     cleanupGiftAudience(next, groups, ownerId);
     collectGiftViewerIds(next).forEach(id => affectedViewerIds.add(id));
+
+    if (!previous.is_gifted) {
+      const beforeIds = collectGiftViewerIds(previous);
+      const afterIds = collectGiftViewerIds(next);
+      const ownerLabel = buildOwnerLabel(record.owner);
+      const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
+      if (previous.is_crowdfund !== next.is_crowdfund) {
+        for (const viewerId of beforeIds) {
+          notifications.push({
+            chatId: viewerId,
+            prefKey: "bookings",
+            text: `${ownerLabel} изменил(а) формат подарка «${next.title}». `
+              + "Ваша бронь/участие в сборе сброшены — при желании отметьтесь снова.",
+            replyMarkup
+          });
+        }
+      } else {
+        const removedIds = [...beforeIds].filter(viewerId => !afterIds.has(viewerId));
+        for (const viewerId of removedIds) {
+          notifications.push({
+            chatId: viewerId,
+            prefKey: "bookings",
+            text: `Подарок «${previous.title}» в вишлисте ${ownerLabel} стал недоступен. `
+              + "Ваша бронь/участие отменены.",
+            replyMarkup
+          });
+        }
+        const changedFields = [];
+        if (previous.title !== next.title) changedFields.push("название");
+        if (previous.price !== next.price) changedFields.push("цена");
+        if (previous.comment !== next.comment) changedFields.push("комментарий");
+        if (previous.link !== next.link) changedFields.push("ссылка");
+        if (changedFields.length) {
+          for (const viewerId of afterIds) {
+            notifications.push({
+              chatId: viewerId,
+              prefKey: "bookings",
+              text: `${ownerLabel} обновил(а) забронированный подарок «${next.title}» `
+                + `(изменено: ${changedFields.join(", ")}). Проверьте детали перед покупкой.`,
+              replyMarkup
+            });
+          }
+        }
+      }
+    }
   }
 
   if (action === "delete") {
     const index = findGiftIndex(record.gifts, payload.id);
-    imageToDelete = record.gifts[index].image || "";
+    const gift = record.gifts[index];
+    imageToDelete = gift.image || "";
+    collectGiftViewerIds(gift).forEach(id => affectedViewerIds.add(id));
+    if (!gift.is_gifted) {
+      const ownerLabel = buildOwnerLabel(record.owner);
+      const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
+      for (const viewerId of collectGiftViewerIds(gift)) {
+        notifications.push({
+          chatId: viewerId,
+          prefKey: "bookings",
+          text: gift.is_crowdfund
+            ? `${ownerLabel} удалил(а) подарок «${gift.title}». `
+              + "Ваше участие в совместном сборе отменено."
+            : `${ownerLabel} удалил(а) подарок «${gift.title}». Ваша бронь отменена.`,
+          replyMarkup
+        });
+      }
+    }
     record.gifts.splice(index, 1);
   }
 
   if (action === "toggle_gifted") {
     const index = findGiftIndex(record.gifts, payload.id);
-    record.gifts[index].is_gifted = !record.gifts[index].is_gifted;
+    const gift = record.gifts[index];
+    const wasGifted = Boolean(gift.is_gifted);
+    gift.is_gifted = !wasGifted;
+    if (!wasGifted && gift.is_gifted) {
+      const ownerLabel = buildOwnerLabel(record.owner);
+      const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
+      for (const viewerId of collectGiftViewerIds(gift)) {
+        notifications.push({
+          chatId: viewerId,
+          prefKey: "bookings",
+          text: `${ownerLabel} отметил(а) подарок «${gift.title}» как уже подаренный.`,
+          replyMarkup
+        });
+      }
+    }
   }
 
   if (action === "toggle_book") {
@@ -326,6 +478,27 @@ async function handleGiftsPost(request, env, viewer) {
   }
 
   await saveWishlist(env, ownerId, record);
+
+  if (action === "add" && addedGift) {
+    const subscribers = await readSubscribers(env, ownerId);
+    const ownerLabel = buildOwnerLabel(record.owner);
+    const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
+    const priceSuffix = formatNotificationPrice(addedGift.price);
+    let scheduled = 0;
+    for (const subscriberId of subscribers) {
+      if (scheduled >= MAX_NEW_GIFT_NOTIFICATIONS) break;
+      if (subscriberId === ownerId) continue;
+      if (!canViewerAccessGift(addedGift, groups, ownerId, subscriberId)) continue;
+      notifications.push({
+        chatId: subscriberId,
+        prefKey: "new_gifts",
+        text: `У ${ownerLabel} появилось новое желание: «${addedGift.title}»${priceSuffix}`,
+        replyMarkup
+      });
+      scheduled += 1;
+    }
+  }
+
   if (!isOwner) affectedViewerIds.add(viewer.id);
   for (const affectedViewerId of affectedViewerIds) {
     await syncWishlistParticipation(env, ownerId, { id: affectedViewerId }, record, groups);
@@ -334,6 +507,9 @@ async function handleGiftsPost(request, env, viewer) {
     && record.gifts.some(gift => gift.image === imageToDelete);
   if (imageToDelete && !imageIsStillUsed) {
     await deleteInternalImage(env, imageToDelete, ownerId);
+  }
+  if (notifications.length) {
+    await dispatchBackground(ctx, sendNotificationsBatch(env, notifications));
   }
   const isSubscribed = !isOwner && (await readSubscriptions(env, viewer.id)).includes(ownerId);
   return json(serializeWishlist(record, viewer.id, groups, isSubscribed));
@@ -588,6 +764,37 @@ async function addSubscription(env, viewerId, targetId) {
     subscriptions.unshift(targetId);
     await env.DB.put(subscriptionsKey(viewerId), JSON.stringify(subscriptions));
   }
+  await addSubscriber(env, targetId, viewerId);
+}
+
+function subscribersKey(ownerId) {
+  return `subscribers:${ownerId}`;
+}
+
+async function readSubscribers(env, ownerId) {
+  const stored = await env.DB.get(subscribersKey(ownerId), { type: "json" });
+  if (!Array.isArray(stored)) return [];
+  const ids = [];
+  for (const rawId of stored) {
+    const id = Number(rawId);
+    if (!Number.isSafeInteger(id) || id <= 0 || id === ownerId || ids.includes(id)) continue;
+    ids.push(id);
+    if (ids.length >= MAX_SOCIAL_ITEMS) break;
+  }
+  return ids;
+}
+
+async function addSubscriber(env, ownerId, viewerId) {
+  const subscribers = await readSubscribers(env, ownerId);
+  if (subscribers.includes(viewerId)) return;
+  subscribers.unshift(viewerId);
+  if (subscribers.length > MAX_SOCIAL_ITEMS) subscribers.length = MAX_SOCIAL_ITEMS;
+  await env.DB.put(subscribersKey(ownerId), JSON.stringify(subscribers));
+}
+
+async function removeSubscriber(env, ownerId, viewerId) {
+  const subscribers = (await readSubscribers(env, ownerId)).filter(id => id !== viewerId);
+  await env.DB.put(subscribersKey(ownerId), JSON.stringify(subscribers));
 }
 
 async function loadGroups(env, ownerId) {
@@ -660,7 +867,7 @@ async function handleSocialGet(env, viewer) {
   return json(await buildSocialPayload(env, viewer.id));
 }
 
-async function handleSocialPost(request, env, viewer) {
+async function handleSocialPost(request, env, viewer, ctx) {
   const body = await readSocialBody(request);
   const action = String(body.action || "");
   const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
@@ -669,6 +876,7 @@ async function handleSocialPost(request, env, viewer) {
     const targetId = parseId(payload.user_id, "user id");
     const subscriptions = (await readSubscriptions(env, viewer.id)).filter(id => id !== targetId);
     await env.DB.put(subscriptionsKey(viewer.id), JSON.stringify(subscriptions));
+    await removeSubscriber(env, targetId, viewer.id);
     return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
   }
 
@@ -680,10 +888,32 @@ async function handleSocialPost(request, env, viewer) {
     await saveGroups(env, viewer.id, groups);
 
     const record = await loadWishlist(env, viewer.id, viewer);
+    const cancelledGiftTitles = [];
+    for (const gift of record.gifts) {
+      if (gift.is_gifted) continue;
+      if (!collectGiftViewerIds(gift).has(targetId)) continue;
+      if (!canViewerAccessGift(gift, groups, viewer.id, targetId)) {
+        cancelledGiftTitles.push(gift.title);
+      }
+    }
     const affectedViewerIds = cleanupRecordAudience(record, groups, viewer.id);
     if (affectedViewerIds.size) await saveWishlist(env, viewer.id, record);
     for (const affectedViewerId of affectedViewerIds) {
       await syncWishlistParticipation(env, viewer.id, { id: affectedViewerId }, record, groups);
+    }
+    if (cancelledGiftTitles.length) {
+      const ownerLabel = buildOwnerLabel(record.owner);
+      const text = cancelledGiftTitles.length === 1
+        ? `Подарок «${cancelledGiftTitles[0]}» в вишлисте ${ownerLabel} стал недоступен. `
+          + "Ваша бронь/участие отменены."
+        : `В вишлисте ${ownerLabel} стали недоступны несколько подарков, `
+          + `ваши брони/участия отменены: ${cancelledGiftTitles.map(title => `«${title}»`).join(", ")}.`;
+      await dispatchBackground(ctx, sendNotificationsBatch(env, [{
+        chatId: targetId,
+        prefKey: "bookings",
+        text,
+        replyMarkup: buildWishlistReplyMarkup(env, viewer.id)
+      }]));
     }
     return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
   }
@@ -1101,7 +1331,17 @@ async function handleTelegramWebhook(request, env) {
     return await handleSharedUserSelection(env, message, sharedUsers);
   }
 
+  const callbackQuery = update?.callback_query;
+  if (callbackQuery) {
+    return await handleNotificationCallback(env, callbackQuery);
+  }
+
   const text = String(message?.text || "");
+  const notificationsMatch = text.match(/^\/notifications(?:@\w+)?\s*$/);
+  if (notificationsMatch && message?.chat?.id) {
+    return await handleNotificationsCommand(env, message);
+  }
+
   const startMatch = text.match(/^\/start(?:@\w+)?(?:\s+(list_\d+))?\s*$/);
   if (!message?.chat?.id || !startMatch) {
     return json({ ok: true });
@@ -1181,7 +1421,7 @@ async function handleSharedUserSelection(env, message, shared) {
       group.memberIds.push(selectedId);
       await saveGroups(env, requesterId, groups);
     }
-    confirmation = `${selectedProfile.first_name} добавлен(а) в группу «${group.name}».`;
+    confirmation = `${selectedProfile.first_name} добавлен(а) в группу «${group.name}».`,
   } else {
     await env.DB.delete(key);
     throw new HttpError(400, "Unknown selection action");
@@ -1196,6 +1436,79 @@ async function handleSharedUserSelection(env, message, shared) {
       inline_keyboard: [[{ text: "Вернуться в приложение", web_app: { url: webAppUrl.toString() } }]]
     }
   });
+  return json({ ok: true });
+}
+
+function buildNotificationSettingsText(prefs) {
+  const status = value => (value ? "включены" : "выключены");
+  return "Настройки уведомлений:\n"
+    + `• Брони и совместные сборы: ${status(prefs.bookings)}\n`
+    + `• Новые желания друзей: ${status(prefs.new_gifts)}`;
+}
+
+function buildNotificationSettingsMarkup(prefs) {
+  return {
+    inline_keyboard: [
+      [{
+        text: prefs.bookings ? "Брони и сборы: выключить" : "Брони и сборы: включить",
+        callback_data: "notify:toggle:bookings"
+      }],
+      [{
+        text: prefs.new_gifts ? "Новые желания: выключить" : "Новые желания: включить",
+        callback_data: "notify:toggle:new_gifts"
+      }]
+    ]
+  };
+}
+
+async function handleNotificationsCommand(env, message) {
+  const userId = Number(message?.from?.id ?? message?.chat?.id);
+  if (!isValidChatId(userId)) return json({ ok: true });
+  const prefs = await readNotificationPrefs(env, userId);
+  try {
+    await callTelegramApi(env, "sendMessage", {
+      chat_id: Number(userId),
+      text: buildNotificationSettingsText(prefs),
+      reply_markup: buildNotificationSettingsMarkup(prefs)
+    });
+  } catch (error) {
+    console.warn("Failed to send notification settings:", error?.stack || error);
+  }
+  return json({ ok: true });
+}
+
+async function handleNotificationCallback(env, callbackQuery) {
+  try {
+    const data = String(callbackQuery?.data || "");
+    const match = data.match(/^notify:toggle:(bookings|new_gifts)$/);
+    const userId = Number(callbackQuery?.from?.id);
+    if (match && isValidChatId(userId)) {
+      const prefKey = match[1];
+      const prefs = await readNotificationPrefs(env, userId);
+      prefs[prefKey] = !prefs[prefKey];
+      await env.DB.put(notifyPrefsKey(userId), JSON.stringify(prefs));
+
+      const messageId = Number(callbackQuery?.message?.message_id);
+      if (Number.isSafeInteger(messageId) && messageId > 0) {
+        try {
+          await callTelegramApi(env, "editMessageText", {
+            chat_id: Number(userId),
+            message_id: messageId,
+            text: buildNotificationSettingsText(prefs),
+            reply_markup: buildNotificationSettingsMarkup(prefs)
+          });
+        } catch (error) {
+          console.warn("Failed to update notification settings message:", error?.stack || error);
+        }
+      }
+    }
+    const callbackId = callbackQuery?.id;
+    if (callbackId) {
+      await callTelegramApi(env, "answerCallbackQuery", { callback_query_id: callbackId });
+    }
+  } catch (error) {
+    console.warn("Failed to handle notification callback:", error?.stack || error);
+  }
   return json({ ok: true });
 }
 
