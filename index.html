@@ -2,139 +2,152 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎁%3C/text%3E%3C/svg%3E" />
-  <title>Персональный Вишлист — Telegram Mini App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Вишлист — Telegram Mini App</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
-<body data-theme="dark">
-
-  <!-- ВЕРХНЯЯ ДЕМО-СТУДИЯ -->
-  <div class="demo-dock-wrapper" aria-label="Панель тестирования Telegram Mini App">
+<body>
+  <div class="demo-dock-wrapper">
     <div class="demo-dock">
       <div class="demo-dock-left">
         <span class="studio-tag">
           <span class="pulse-dot"></span>
-          TG Mini App Studio
+          Demo Studio
         </span>
-        <div class="pill-Segmented" role="group" aria-label="Выбор роли">
-          <button type="button" class="role-pill-btn active" data-role="owner" onclick="switchDemoRole('owner')">
-            👑 Владелец (Максим)
-          </button>
-          <button type="button" class="role-pill-btn" data-role="guest1" onclick="switchDemoRole('guest1')">
-            👤 Гость 1 (Анна)
-          </button>
-          <button type="button" class="role-pill-btn" data-role="guest2" onclick="switchDemoRole('guest2')">
-            👤 Гость 2 (Дима)
-          </button>
+        <div class="pill-Segmented" role="group" aria-label="Выбор роли в демо">
+          <button type="button" class="role-pill-btn active" data-role="owner" onclick="switchDemoRole('owner')">👑 Владелец</button>
+          <button type="button" class="role-pill-btn" data-role="guest1" onclick="switchDemoRole('guest1')">✨ Гость 1</button>
+          <button type="button" class="role-pill-btn" data-role="guest2" onclick="switchDemoRole('guest2')">🚀 Гость 2</button>
         </div>
       </div>
 
       <div class="demo-dock-right">
-        <button type="button" class="studio-tool-btn active" data-theme-btn="dark" onclick="setThemePreset('dark')">
-          🌑 Obsidian
-        </button>
-        <button type="button" class="studio-tool-btn" data-theme-btn="light" onclick="setThemePreset('light')">
-          ☀️ Light Studio
-        </button>
-        <button type="button" class="studio-tool-btn" data-theme-btn="amethyst" onclick="setThemePreset('amethyst')">
-          🔮 Amethyst
-        </button>
-        <button type="button" class="studio-tool-btn" onclick="previewSkeletons()">
-          ⚡ Скелетоны
-        </button>
-        <button type="button" class="studio-tool-btn" onclick="resetDemoData()">
-          🔄 Сброс
-        </button>
+        <div class="pill-Segmented" role="group" aria-label="Тема оформления">
+          <button type="button" class="studio-tool-btn active" data-theme-btn="dark" onclick="setThemePreset('dark')">🌑 Dark</button>
+          <button type="button" class="studio-tool-btn" data-theme-btn="light" onclick="setThemePreset('light')">☀️ Light</button>
+          <button type="button" class="studio-tool-btn" data-theme-btn="amethyst" onclick="setThemePreset('amethyst')">🔮 Amethyst</button>
+        </div>
+        <button type="button" class="studio-tool-btn" onclick="previewSkeletons()">⏳ Скелетон</button>
+        <button type="button" class="studio-tool-btn" onclick="resetDemoData()">🔄 Сброс</button>
       </div>
     </div>
   </div>
 
-  <!-- ОСНОВНОЙ КОНТЕЙНЕР ПРИЛОЖЕНИЯ -->
-  <main class="app-shell">
+  <div class="app-shell">
+    <header class="bento-hero">
+      <div class="hero-top-row">
+        <div class="hero-identity">
+          <div class="avatar-ring">
+            <div class="avatar-inner" id="heroAvatarEmoji">🎁</div>
+            <div class="avatar-status-badge" title="Онлайн"></div>
+          </div>
+          <div class="hero-title-group">
+            <div class="hero-title-line">
+              <h1 class="hero-title" id="headerTitle">🎁 Мой вишлист</h1>
+              <span class="role-mode-badge" id="roleBadge">👑 Владелец списка</span>
+            </div>
+            <p class="hero-subtitle" id="headerSubtitle">Добавляйте желанные подарки и делитесь списком с близкими в Telegram</p>
+          </div>
+        </div>
+
+        <div class="hero-actions">
+          <button type="button" class="btn-glass" id="backToOwnListBtn" style="display: none;" onclick="returnToOwnWishlist()">
+            ↩ Мой список
+          </button>
+          <button type="button" class="btn-glass" id="subscribeListBtn" style="display: none;" onclick="toggleCurrentWishlistSubscription()">
+            <span id="subscribeListBtnText">Подписаться</span>
+          </button>
+          <button type="button" class="btn-accent" id="shareListBtn" onclick="openShareModal()">
+            <span>📤 Поделиться</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="hero-metrics-grid">
+        <div class="metric-tile">
+          <span class="metric-label">Актуальных желаний</span>
+          <span class="metric-value tabular-nums" id="metricActiveCount">0</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-label">Свободно для участия</span>
+          <span class="metric-value tabular-nums" id="metricFreeCount">0 из 0</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-label">Сумма списка</span>
+          <span class="metric-value tabular-nums" id="metricTotalSum">0 ₽</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="composer-card" id="superappHubCard" aria-label="Главное меню и профиль СБП">
+      <div class="modal-head" style="margin-bottom: 10px;">
+        <h2 class="modal-title" style="font-size: 16px;">🧭 Меню и профиль СБП</h2>
+        <span class="role-mode-badge" id="hubSbpSummaryBadge">Реквизиты СБП не заполнены</span>
+      </div>
+      <div class="bento-switches-grid" style="margin-bottom: 12px;">
+        <button type="button" class="filter-pill active" id="hubModuleWishlistBtn" onclick="selectSuperappModule('wishlist')">
+          🎁 Вишлисты
+        </button>
+        <button type="button" class="filter-pill" id="hubModuleExpensesBtn" onclick="selectSuperappModule('expenses')">
+          🔒 Совместные расходы (скоро)
+        </button>
+      </div>
+      <form id="superappProfileForm" onsubmit="handleSaveSuperappProfile(event)">
+        <div class="form-bento-grid">
+          <div class="field-block">
+            <label class="field-label" for="hubDisplayNameInput"><span>Имя в профиле</span></label>
+            <input type="text" class="input-modern" id="hubDisplayNameInput" maxlength="64" placeholder="Как вас отображать" />
+          </div>
+          <div class="field-block">
+            <label class="field-label" for="hubPaymentPhoneInput"><span>Телефон для СБП</span></label>
+            <input type="tel" class="input-modern" id="hubPaymentPhoneInput" maxlength="32" placeholder="+7 999 123-45-67" />
+          </div>
+          <div class="field-block">
+            <label class="field-label" for="hubPreferredBanksInput"><span>Предпочитаемые банки</span></label>
+            <input type="text" class="input-modern" id="hubPreferredBanksInput" maxlength="160" placeholder="Т-Банк, Сбер" />
+          </div>
+          <div class="field-block">
+            <label class="field-label" for="hubDefaultCurrencySelect"><span>Валюта по умолчанию</span></label>
+            <select class="input-modern" id="hubDefaultCurrencySelect">
+              <option value="RUB">RUB (₽)</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="KZT">KZT (₸)</option>
+              <option value="TRY">TRY (₺)</option>
+            </select>
+          </div>
+        </div>
+        <div class="composer-bar-bottom">
+          <span class="composer-hint">Реквизиты сохраняются для будущих переводов</span>
+          <button type="submit" class="btn-glass" id="saveSuperappProfileBtn">💾 Сохранить профиль</button>
+        </div>
+      </form>
+    </section>
+
     <nav class="workspace-nav" aria-label="Разделы приложения">
-      <button type="button" class="workspace-nav-btn active" id="wishlistViewBtn" onclick="showWishlistWorkspace()">
+      <button type="button" class="workspace-nav-btn active" id="wishlistViewBtn" aria-current="page" onclick="showWishlistWorkspace()">
         Вишлист
       </button>
-      <button type="button" class="workspace-nav-btn" id="participationsViewBtn" onclick="showParticipations()">
+      <button type="button" class="workspace-nav-btn" id="participationsViewBtn" aria-current="false" onclick="showParticipations()">
         Я участвую<span class="workspace-count" id="participationsNavCount">0</span>
       </button>
-      <button type="button" class="workspace-nav-btn" id="friendsViewBtn" onclick="showFriends()">
+      <button type="button" class="workspace-nav-btn" id="friendsViewBtn" aria-current="false" onclick="showFriends()">
         Друзья<span class="workspace-count" id="friendsNavCount">0</span>
       </button>
     </nav>
 
-    <div id="wishlistWorkspace">
-      <!-- BENTO HERO HEADER -->
-      <header class="bento-hero">
-        <div class="hero-top-row">
-          <div class="hero-identity">
-            <div class="avatar-ring">
-              <div class="avatar-inner" id="heroAvatarEmoji">🎁</div>
-              <span class="avatar-status-badge"></span>
-            </div>
-            <div class="hero-title-group">
-              <div class="hero-title-line">
-                <h1 class="hero-title" id="headerTitle">🎁 Мой вишлист</h1>
-                <span class="role-mode-badge" id="roleBadge">Владелец списка</span>
-              </div>
-              <p class="hero-subtitle" id="headerSubtitle">
-                Делитесь списком с друзьями — вы не увидите, кто что забронировал, чтобы сохранить сюрприз
-              </p>
-            </div>
-          </div>
-
-          <div class="hero-actions">
-            <button type="button" class="btn-accent" id="shareListBtn" onclick="openShareModal()">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-                <polyline points="16 6 12 2 8 6"/>
-                <line x1="12" y1="2" x2="12" y2="15"/>
-              </svg>
-              <span>Поделиться списком</span>
-            </button>
-
-            <button type="button" class="btn-accent" id="subscribeListBtn" style="display: none;" onclick="toggleCurrentWishlistSubscription()">
-              <span id="subscribeListBtnText">Подписаться</span>
-            </button>
-
-            <button type="button" class="btn-glass" id="backToOwnListBtn" style="display: none;" onclick="returnToOwnWishlist()">
-              <span>← Мой вишлист</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="hero-metrics-grid">
-          <div class="metric-tile">
-            <span class="metric-label">Актуальных желаний</span>
-            <span class="metric-value" id="metricActiveCount">0</span>
-          </div>
-          <div class="metric-tile">
-            <span class="metric-label">Свободно для брони</span>
-            <span class="metric-value" id="metricFreeCount">0</span>
-          </div>
-          <div class="metric-tile">
-            <span class="metric-label">Сумма вишлиста</span>
-            <span class="metric-value" id="metricTotalSum">0 ₽</span>
-          </div>
-        </div>
-      </header>
-
-      <!-- КОМПОЗЕР ДОБАВЛЕНИЯ ПОДАРКА -->
-      <section class="composer-card" id="ownerAddSection" aria-label="Форма добавления нового подарка">
+    <main id="wishlistWorkspace">
+      <section class="composer-card" id="ownerAddSection" aria-label="Добавление нового желания">
         <form id="addGiftForm" onsubmit="handleAddGiftSubmit(event)">
           <div class="composer-QuickRow">
             <input
               type="text"
-              id="addTitleInput"
               class="input-modern"
-              placeholder="О чём вы мечтаете? (например, Кофемолка Fellow Ode)..."
-              required
+              id="addTitleInput"
+              placeholder="Какой подарок вы хотите? Например, наушники или кофемолку..."
               maxlength="120"
+              required
             />
             <button type="submit" class="btn-accent" id="addSubmitBtn">
               <span>Добавить</span>
@@ -143,98 +156,54 @@
 
           <div class="composer-bar-bottom">
             <button type="button" class="expand-drawer-btn" id="toggleDetailsBtn" onclick="toggleAddDetails()">
-              <span>＋ Детали (фото, цена, повод, доступ...)</span>
-              <span class="expand-chevron">▾</span>
+              <span>⚙️ Детали, фото, теги и режимы</span>
+              <span class="expand-chevron">⌄</span>
             </button>
-            <span class="composer-hint">Быстрое добавление в 1 клик или с полным описанием</span>
+            <span class="composer-hint">Быстрое добавление в 1 клик или настройка деталей</span>
           </div>
 
           <div class="composer-drawer" id="addDetailsPanel">
             <div class="form-bento-grid">
-              <div class="field-block span-2">
-                <div class="field-label">
-                  <span>Фотография товара</span>
-                  <span class="tabular-nums" style="text-transform: none;">HTML5 Canvas автосжатие до 600px (WebP/JPEG 0.75)</span>
-                </div>
-
-                <div class="source-Segment">
-                  <button type="button" class="source-tab-btn active" id="addTabFileBtn" onclick="switchPhotoTab('add', 'file')">
-                    📁 Загрузить с устройства
-                  </button>
-                  <button type="button" class="source-tab-btn" id="addTabUrlBtn" onclick="switchPhotoTab('add', 'url')">
-                    🔗 Прямая ссылка на фото
-                  </button>
-                </div>
-
-                <div id="addPhotoFileWrap">
-                  <label class="dropzone-modern" for="addFileInput">
-                    <div class="dropzone-icon">📷</div>
-                    <span style="font-weight: 700; font-size: 13px;">Выберите фото из галереи или перетащите сюда</span>
-                    <span style="font-size: 12px; color: var(--tg-theme-hint-color);">Автоматическое сжатие и отправка на POST /api/upload</span>
-                  </label>
-                  <input
-                    type="file"
-                    id="addFileInput"
-                    accept="image/*"
-                    style="display: none;"
-                    onchange="handleFileSelect(event, 'add')"
-                  />
-
-                  <div class="upload-progress-wrap" id="addUploadProgress">
-                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
-                      <span id="addUploadStatusText">Сжатие через Canvas...</span>
-                      <span class="tabular-nums" id="addUploadPercentText">0%</span>
-                    </div>
-                    <div class="progress-track">
-                      <div class="progress-fill" id="addUploadProgressBar"></div>
-                    </div>
-                  </div>
-                </div>
-
-                <div id="addPhotoUrlWrap" style="display: none;">
-                  <input
-                    type="url"
-                    id="addImageUrlInput"
-                    class="input-modern"
-                    placeholder="https://images.unsplash.com/photo-..."
-                    oninput="handleImageUrlInput('add')"
-                  />
-                </div>
-
-                <div class="photo-preview-card" id="addPhotoPreviewBox">
-                  <img id="addPhotoPreviewImg" src="" alt="Превью подарка" />
-                  <div class="photo-preview-info">
-                    <div class="photo-preview-title">Изображение прикреплено</div>
-                    <div class="photo-preview-sub" id="addPhotoPreviewMeta">Готово к публикации</div>
-                  </div>
-                  <button type="button" class="btn-remove-photo" onclick="clearPhoto('add')">Удалить</button>
-                </div>
-              </div>
-
               <div class="field-block">
-                <label class="field-label" for="addPriceInput">Примерная цена (₽)</label>
+                <label class="field-label" for="addPriceInput">
+                  <span>Примерная цена (₽)</span>
+                  <span style="text-transform: none; font-weight: 400;">необязательно</span>
+                </label>
                 <input
                   type="number"
-                  id="addPriceInput"
                   class="input-modern tabular-nums"
-                  placeholder="Например: 6500"
+                  id="addPriceInput"
+                  placeholder="Например, 4500"
                   min="0"
+                  max="1000000000"
                   step="1"
                 />
               </div>
 
               <div class="field-block">
-                <label class="field-label" for="addLinkInput">Ссылка на магазин (необязательно)</label>
+                <label class="field-label" for="addLinkInput">
+                  <span>Ссылка на товар или магазин</span>
+                  <span style="text-transform: none; font-weight: 400;">https://...</span>
+                </label>
                 <input
                   type="url"
-                  id="addLinkInput"
                   class="input-modern"
-                  placeholder="https://..."
+                  id="addLinkInput"
+                  placeholder="Укажите URL товара"
                 />
               </div>
 
               <div class="field-block span-2">
-                <label class="field-label" for="addCategoryInput">Категория (выберите чипс или введите свою)</label>
+                <span class="field-label">Уровень желания</span>
+                <div class="desire-segment" id="addDesireControl" role="group" aria-label="Уровень желания">
+                  <button type="button" class="desire-btn" data-desire="high" aria-pressed="false" onclick="setDesire('add', 'high')">🔥 Очень хочу</button>
+                  <button type="button" class="desire-btn active" data-desire="medium" aria-pressed="true" onclick="setDesire('add', 'medium')">Среднее хочу</button>
+                  <button type="button" class="desire-btn" data-desire="wait" aria-pressed="false" onclick="setDesire('add', 'wait')">◷ Пока подождёт</button>
+                </div>
+              </div>
+
+              <div class="field-block span-2">
+                <label class="field-label" for="addCategoryInput">Категория</label>
                 <div class="category-preset-row" id="addCategoryChips">
                   <button type="button" class="cat-preset-btn" data-cat="Техника" onclick="selectPresetCategory('add', 'Техника')">🎧 Техника</button>
                   <button type="button" class="cat-preset-btn" data-cat="Дом" onclick="selectPresetCategory('add', 'Дом')">☕ Дом</button>
@@ -244,187 +213,240 @@
                 </div>
                 <input
                   type="text"
-                  id="addCategoryInput"
                   class="input-modern"
-                  placeholder="Или введите собственную категорию (например, Книги или Спорт)"
+                  id="addCategoryInput"
+                  placeholder="Выберите категорию выше или введите свою"
                   maxlength="40"
-                  oninput="syncCategoryChipHighlight('add')"
                 />
               </div>
 
               <div class="field-block span-2">
-                <div class="field-label"><span>Подборка / повод</span><span>Необязательно</span></div>
-                <div class="audience-editor" id="addOccasionControl"></div>
+                <label class="field-label" for="addCustomTagInput">
+                  <span>Теги</span>
+                  <span style="text-transform: none; font-weight: 400;">до 8 тегов</span>
+                </label>
+                <div class="category-preset-row" id="addTagPresets"></div>
+                <div class="tag-editor-row">
+                  <input
+                    type="text"
+                    class="input-modern"
+                    id="addCustomTagInput"
+                    placeholder="Свой тег, например: для дома или на отпуск"
+                    maxlength="30"
+                    onkeydown="handleTagKeydown(event, 'add')"
+                  />
+                  <button type="button" class="btn-glass" onclick="addCustomTag('add')">Добавить тег</button>
+                </div>
+                <div class="selected-tags" id="addSelectedTags"></div>
+              </div>
+
+              <div class="field-block span-2">
+                <span class="field-label">Подборки по поводам</span>
+                <div class="audience-editor" id="addOccasionControl" role="group" aria-label="Подборки по поводам"></div>
                 <div class="tag-editor-row" style="margin-top: 6px;">
-                  <input type="text" id="addQuickOccasionInput" class="input-modern" placeholder="Новый повод, например «Новоселье»" maxlength="40" />
+                  <input
+                    type="text"
+                    class="input-modern"
+                    id="addQuickOccasionInput"
+                    placeholder="Новый повод, например: День рождения или Новый год"
+                    maxlength="40"
+                  />
                   <button type="button" class="btn-glass" onclick="quickCreateOccasionInForm('add')">Создать повод</button>
                 </div>
               </div>
 
               <div class="field-block span-2">
-                <div class="field-label"><span>Теги</span><span>Необязательно · до 8</span></div>
-                <div class="category-preset-row" id="addTagPresets"></div>
-                <div class="tag-editor-row">
-                  <input type="text" id="addCustomTagInput" class="input-modern" placeholder="Свой тег, например «День рождения»" maxlength="30" onkeydown="handleTagKeydown(event, 'add')" />
-                  <button type="button" class="btn-glass" onclick="addCustomTag('add')">Добавить тег</button>
-                </div>
-                <div class="selected-tags" id="addSelectedTags" aria-label="Выбранные теги"></div>
+                <span class="field-label">Кто видит это желание</span>
+                <div class="audience-editor" id="addAudienceControl" role="group" aria-label="Группы доступа для желания"></div>
+                <div class="audience-summary" id="addAudienceSummary">Желание увидят все, кто откроет ваш вишлист.</div>
               </div>
 
               <div class="field-block span-2">
-                <label class="field-label" for="addCommentInput">Комментарий (цвет, размер, комплектация)</label>
+                <span class="field-label">Фотография подарка</span>
+                <div class="source-Segment">
+                  <button type="button" class="source-tab-btn active" id="addTabFileBtn" onclick="switchPhotoTab('add', 'file')">📁 Загрузить фото</button>
+                  <button type="button" class="source-tab-btn" id="addTabUrlBtn" onclick="switchPhotoTab('add', 'url')">🔗 Вставить ссылку</button>
+                </div>
+
+                <div id="addPhotoFileWrap">
+                  <label class="dropzone-modern" for="addFileInput">
+                    <div class="dropzone-icon">🖼️</div>
+                    <div style="font-size: 13px; font-weight: 700;">Нажмите, чтобы выбрать фото</div>
+                    <div style="font-size: 11px; color: var(--tg-theme-hint-color);">Автосжатие до 600px · WebP/JPEG · до 512 КБ</div>
+                  </label>
+                  <input type="file" id="addFileInput" accept="image/jpeg,image/png,image/webp,image/gif" style="display: none;" onchange="handleFileSelect(event, 'add')" />
+                </div>
+
+                <div id="addPhotoUrlWrap" style="display: none;">
+                  <input
+                    type="url"
+                    class="input-modern"
+                    id="addImageUrlInput"
+                    placeholder="Укажите прямую ссылку на фото"
+                    oninput="handleImageUrlInput('add')"
+                  />
+                </div>
+
+                <div class="upload-progress-wrap" id="addUploadProgress">
+                  <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                    <span id="addUploadStatusText">Подготовка...</span>
+                    <span class="tabular-nums" id="addUploadPercentText">0%</span>
+                  </div>
+                  <div class="progress-track">
+                    <div class="progress-fill" id="addUploadProgressBar"></div>
+                  </div>
+                </div>
+
+                <div class="photo-preview-card" id="addPhotoPreviewBox">
+                  <img id="addPhotoPreviewImg" src="" alt="Предпросмотр фото" />
+                  <div class="photo-preview-info">
+                    <div class="photo-preview-title">Фото прикреплено</div>
+                    <div class="photo-preview-sub" id="addPhotoPreviewMeta">Готово к публикации</div>
+                  </div>
+                  <button type="button" class="btn-remove-photo" onclick="clearPhoto('add')">Удалить</button>
+                </div>
+              </div>
+
+              <div class="field-block span-2">
+                <label class="field-label" for="addCommentInput">Комментарий или уточнение</label>
                 <textarea
-                  id="addCommentInput"
                   class="input-modern textarea-modern"
-                  placeholder="Уточните важные детали: например, цвет чёрный матовый, размер M, европейская вилка"
+                  id="addCommentInput"
+                  placeholder="Цвет, размер, модель или важные пожелания..."
                   maxlength="300"
                 ></textarea>
               </div>
-
-              <div class="field-block span-2">
-                <span class="field-label">Насколько хочется</span>
-                <div class="desire-segment" id="addDesireControl">
-                  <button type="button" class="desire-btn" data-desire="high" onclick="setDesire('add', 'high')">🔥 Очень хочу</button>
-                  <button type="button" class="desire-btn active" data-desire="medium" onclick="setDesire('add', 'medium')">Среднее хочу</button>
-                  <button type="button" class="desire-btn" data-desire="wait" onclick="setDesire('add', 'wait')">Пока подождёт</button>
-                </div>
-              </div>
-
-              <div class="field-block span-2">
-                <div class="field-label"><span>Кто видит желание</span><span>Необязательно</span></div>
-                <div class="audience-editor" id="addAudienceControl"></div>
-                <div class="audience-summary" id="addAudienceSummary"></div>
-              </div>
-
-              <div class="field-block span-2">
-                <div class="bento-switches-grid">
-                  <label class="bento-switch-card" for="addCrowdfundToggle">
-                    <div class="switch-text-wrap">
-                      <span class="switch-title">🤝 Можно скинуться</span>
-                      <span class="switch-subtitle">Несколько гостей смогут разделить цену поровну</span>
-                    </div>
-                    <div class="ios-switch">
-                      <input type="checkbox" id="addCrowdfundToggle" onchange="syncMutualExclusiveToggle('add', 'crowdfund')" />
-                      <span class="ios-slider"></span>
-                    </div>
-                  </label>
-
-                  <label class="bento-switch-card" for="addReusableToggle">
-                    <div class="switch-text-wrap">
-                      <span class="switch-title">♻️ Можно дарить несколько раз</span>
-                      <span class="switch-subtitle">Несколько гостей смогут отметить подарок независимо</span>
-                    </div>
-                    <div class="ios-switch">
-                      <input type="checkbox" id="addReusableToggle" onchange="syncMutualExclusiveToggle('add', 'reusable')" />
-                      <span class="ios-slider"></span>
-                    </div>
-                  </label>
-                </div>
-              </div>
             </div>
-          </div>
-          <div class="composer-submit-bottom">
-            <button type="submit" class="btn-accent">Добавить желание</button>
+
+            <div class="bento-switches-grid" style="margin-top: 14px;">
+              <label class="bento-switch-card" for="addCrowdfundToggle">
+                <div class="switch-text-wrap">
+                  <span class="switch-title">🤝 Можно скинуться</span>
+                  <span class="switch-subtitle">Несколько друзей могут отметить участие</span>
+                </div>
+                <span class="ios-switch">
+                  <input type="checkbox" id="addCrowdfundToggle" onchange="syncMutualExclusiveToggle('add', 'crowdfund')" />
+                  <span class="ios-slider"></span>
+                </span>
+              </label>
+
+              <label class="bento-switch-card" for="addReusableToggle">
+                <div class="switch-text-wrap">
+                  <span class="switch-title">♻️ Можно дарить несколько раз</span>
+                  <span class="switch-subtitle">Несколько гостей могут независимо выбрать подарок</span>
+                </div>
+                <span class="ios-switch">
+                  <input type="checkbox" id="addReusableToggle" onchange="syncMutualExclusiveToggle('add', 'reusable')" />
+                  <span class="ios-slider"></span>
+                </span>
+              </label>
+            </div>
+
+            <div class="composer-submit-bottom">
+              <button type="submit" class="btn-accent">
+                <span>✨ Опубликовать желание в списке</span>
+              </button>
+            </div>
           </div>
         </form>
       </section>
 
-      <!-- ПОДБОРКИ ПО ПОВОДАМ -->
       <section class="occasions-section" id="occasionsSection" aria-label="Подборки по поводам">
+        <div class="occasions-rail" id="occasionsBar"></div>
         <div class="occasion-banner" id="occasionBanner" hidden>
           <div class="occasion-banner-info">
             <span class="occasion-banner-kicker">Подборка по поводу</span>
-            <span class="occasion-banner-title" id="occasionBannerTitle"></span>
+            <div class="occasion-banner-title" id="occasionBannerTitle"></div>
           </div>
           <button type="button" class="btn-glass" id="showAllWishlistBtn" onclick="clearOccasionFilter()">
             Показать весь вишлист
           </button>
         </div>
-        <div class="occasions-rail" id="occasionsBar"></div>
       </section>
 
-      <!-- ВКЛАДКИ И ГОРИЗОНТАЛЬНЫЕ ЧИПСЫ ФИЛЬТРОВ -->
-      <section class="controls-section" aria-label="Навигация и фильтры">
+      <section class="controls-section" aria-label="Вкладки и фильтры желаний">
         <div class="segmented-tabs" role="tablist">
-          <button type="button" class="seg-tab-btn active" id="tabActiveBtn" onclick="switchTab('active')">
+          <button type="button" class="seg-tab-btn active" id="tabActiveBtn" role="tab" aria-selected="true" onclick="switchTab('active')">
             <span>Актуальные</span>
-            <span class="seg-count" id="tabActiveCount">0</span>
+            <span class="seg-count tabular-nums" id="tabActiveCount">0</span>
           </button>
-          <button type="button" class="seg-tab-btn" id="tabGiftedBtn" onclick="switchTab('gifted')">
+          <button type="button" class="seg-tab-btn" id="tabGiftedBtn" role="tab" aria-selected="false" onclick="switchTab('gifted')">
             <span>Уже подарили</span>
-            <span class="seg-count" id="tabGiftedCount">0</span>
+            <span class="seg-count tabular-nums" id="tabGiftedCount">0</span>
           </button>
         </div>
 
-        <div class="filters-rail" id="filtersBar" aria-label="Фильтры по статусу, цене и категориям"></div>
+        <div class="filters-rail" id="filtersBar" role="group" aria-label="Фильтры желаний"></div>
       </section>
 
-      <!-- BENTO-СЕТКА КАРТОЧЕК ПОДАРКОВ -->
       <section class="gifts-bento-grid" id="giftsGrid" aria-live="polite"></section>
-    </div>
+    </main>
 
-    <!-- РАЗДЕЛ «Я УЧАСТВУЮ» -->
-    <section class="participations-workspace" id="participationsWorkspace" hidden>
-      <header class="bento-hero">
-        <div class="hero-top-row">
-          <div class="hero-title-group">
-            <h1 class="hero-title">🎁 Я участвую</h1>
-            <p class="hero-subtitle">Подарки, которые вы забронировали, выбрали или для которых присоединились к совместному сбору</p>
-          </div>
-          <button type="button" class="btn-glass" onclick="loadParticipations()">Обновить</button>
-        </div>
-      </header>
+    <section class="participations-workspace" id="participationsWorkspace" aria-label="Я участвую" hidden>
       <div class="gifts-bento-grid" id="participationsGrid" aria-live="polite"></div>
     </section>
 
-    <!-- РАЗДЕЛ «ДРУЗЬЯ И ДОСТУП» -->
-    <section class="friends-workspace" id="friendsWorkspace" hidden>
-      <header class="bento-hero">
-        <div class="hero-top-row">
-          <div class="hero-title-group">
-            <h1 class="hero-title">Друзья и доступ</h1>
-            <p class="hero-subtitle">Сохраняйте вишлисты знакомых и настраивайте собственные группы приватности</p>
-          </div>
-          <button type="button" class="btn-glass" onclick="loadSocial()">Обновить</button>
-        </div>
-      </header>
-
+    <section class="friends-workspace" id="friendsWorkspace" aria-label="Друзья, подписки и группы доступа" hidden>
       <div class="social-error" id="socialError" role="alert" hidden></div>
       <div class="social-layout">
-        <section class="social-panel" aria-labelledby="subscriptionsTitle">
-          <h2 class="social-panel-title" id="subscriptionsTitle">Мои подписки</h2>
-          <p class="social-panel-copy">Введите @username друга. Его общий вишлист будет сохранён здесь, а Telegram ID подставится автоматически.</p>
+        <section class="social-panel" aria-labelledby="subscriptionsHeading">
+          <h2 class="social-panel-title" id="subscriptionsHeading">Подписки</h2>
+          <p class="social-panel-copy">
+            Сохраняйте вишлисты друзей по <code>@username</code>, чтобы быстро открывать их в одном разделе.
+          </p>
           <form class="social-add-form" id="subscribeForm" onsubmit="handleSubscribeSubmit(event)">
-            <input type="text" class="input-modern" id="subscribeUsernameInput" placeholder="@username" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="33" required />
+            <input
+              type="text"
+              class="input-modern"
+              id="subscribeUsernameInput"
+              placeholder="@username"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              maxlength="33"
+              required
+            />
             <button type="submit" class="btn-accent" id="subscribeSubmitBtn">Подписаться</button>
           </form>
           <div class="selection-help" id="selectionHelp" hidden>
-            <p>Пользователь пока неизвестен приложению. Бот отправил сообщение: откройте чат и выберите человека через встроенный интерфейс Telegram.</p>
-            <button type="button" class="btn-glass" id="openBotSelectionBtn" onclick="openBotForSelection()">Открыть чат с ботом</button>
+            <p>
+              Этот <code>@username</code> ещё не открывал бота или приложение. Откройте чат с ботом и выберите нужного человека через встроенный выбор контакта Telegram.
+            </p>
+            <button type="button" class="btn-glass" id="openBotSelectionBtn" onclick="openBotForSelection()">
+              Открыть бота для выбора
+            </button>
           </div>
-          <div class="social-empty" id="subscriptionsEmpty">Подписок пока нет. Можно также подписаться кнопкой внутри чужого вишлиста.</div>
-          <div class="social-list" id="subscriptionsList" aria-live="polite"></div>
+          <div class="social-list" id="subscriptionsList"></div>
+          <div class="social-empty" id="subscriptionsEmpty"></div>
         </section>
 
-        <section class="social-panel" aria-labelledby="groupsTitle">
-          <h2 class="social-panel-title" id="groupsTitle">Группы доступа</h2>
-          <p class="social-panel-copy">Создавайте свои группы и управляйте составом. Если у желания выбраны группы, его увидят только их участники.</p>
+        <section class="social-panel" aria-labelledby="groupsHeading">
+          <h2 class="social-panel-title" id="groupsHeading">Группы доступа</h2>
+          <p class="social-panel-copy">
+            Создавайте свои группы, переименовывайте или удаляйте их и отмечайте нужные в форме желания. Если групп не выбрать, желание увидят все.
+          </p>
           <form class="social-add-form" id="createGroupForm" onsubmit="handleCreateGroupSubmit(event)">
-            <input type="text" class="input-modern" id="newGroupNameInput" placeholder="Название новой группы (например, Универ)" maxlength="32" required />
-            <button type="submit" class="btn-accent" id="createGroupSubmitBtn">+ Создать группу</button>
+            <input
+              type="text"
+              class="input-modern"
+              id="newGroupNameInput"
+              placeholder="Название новой группы, например: Универ"
+              maxlength="32"
+              required
+            />
+            <button type="submit" class="btn-accent" id="createGroupSubmitBtn">Создать группу</button>
           </form>
-          <div id="groupsList" aria-live="polite"></div>
+          <div class="social-list" id="groupsList"></div>
         </section>
       </div>
     </section>
-  </main>
+  </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ПОДАРКА -->
   <div class="modal-overlay" id="editModalBackdrop" onclick="handleBackdropClick(event, 'editModalBackdrop')">
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="editModalTitle">✏️ Редактировать подарок</h2>
+        <h2 class="modal-title" id="editModalTitle">Редактировать желание</h2>
         <button type="button" class="btn-close-circle" onclick="closeEditModal()" aria-label="Закрыть">✕</button>
       </div>
 
@@ -433,75 +455,27 @@
 
         <div class="form-bento-grid">
           <div class="field-block span-2">
-            <label class="field-label" for="editTitleInput">Название подарка *</label>
-            <input type="text" id="editTitleInput" class="input-modern" required maxlength="120" />
+            <label class="field-label" for="editTitleInput">Название подарка</label>
+            <input type="text" class="input-modern" id="editTitleInput" maxlength="120" required />
+          </div>
+
+          <div class="field-block">
+            <label class="field-label" for="editPriceInput">Цена (₽)</label>
+            <input type="number" class="input-modern tabular-nums" id="editPriceInput" min="0" max="1000000000" step="1" />
+          </div>
+
+          <div class="field-block">
+            <label class="field-label" for="editLinkInput">Ссылка на магазин</label>
+            <input type="url" class="input-modern" id="editLinkInput" />
           </div>
 
           <div class="field-block span-2">
-            <div class="field-label">
-              <span>Фотография товара</span>
-              <span class="tabular-nums">До 600px WebP/JPEG</span>
+            <span class="field-label">Уровень желания</span>
+            <div class="desire-segment" id="editDesireControl" role="group" aria-label="Уровень желания">
+              <button type="button" class="desire-btn" data-desire="high" aria-pressed="false" onclick="setDesire('edit', 'high')">🔥 Очень хочу</button>
+              <button type="button" class="desire-btn" data-desire="medium" aria-pressed="false" onclick="setDesire('edit', 'medium')">Среднее хочу</button>
+              <button type="button" class="desire-btn" data-desire="wait" aria-pressed="false" onclick="setDesire('edit', 'wait')">◷ Пока подождёт</button>
             </div>
-
-            <div class="source-Segment">
-              <button type="button" class="source-tab-btn active" id="editTabFileBtn" onclick="switchPhotoTab('edit', 'file')">
-                📁 Загрузить файл
-              </button>
-              <button type="button" class="source-tab-btn" id="editTabUrlBtn" onclick="switchPhotoTab('edit', 'url')">
-                🔗 Ссылка на фото
-              </button>
-            </div>
-
-            <div id="editPhotoFileWrap">
-              <label class="dropzone-modern" for="editFileInput" style="padding: 14px;">
-                <span style="font-weight: 700; font-size: 13px;">📷 Заменить фото с устройства</span>
-              </label>
-              <input
-                type="file"
-                id="editFileInput"
-                accept="image/*"
-                style="display: none;"
-                onchange="handleFileSelect(event, 'edit')"
-              />
-              <div class="upload-progress-wrap" id="editUploadProgress">
-                <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
-                  <span id="editUploadStatusText">Сжатие фото...</span>
-                  <span id="editUploadPercentText">0%</span>
-                </div>
-                <div class="progress-track">
-                  <div class="progress-fill" id="editUploadProgressBar"></div>
-                </div>
-              </div>
-            </div>
-
-            <div id="editPhotoUrlWrap" style="display: none;">
-              <input
-                type="url"
-                id="editImageUrlInput"
-                class="input-modern"
-                placeholder="https://example.com/photo.jpg"
-                oninput="handleImageUrlInput('edit')"
-              />
-            </div>
-
-            <div class="photo-preview-card" id="editPhotoPreviewBox">
-              <img id="editPhotoPreviewImg" src="" alt="Превью" />
-              <div class="photo-preview-info">
-                <div class="photo-preview-title">Текущее изображение</div>
-                <div class="photo-preview-sub" id="editPhotoPreviewMeta">Готово</div>
-              </div>
-              <button type="button" class="btn-remove-photo" onclick="clearPhoto('edit')">Удалить</button>
-            </div>
-          </div>
-
-          <div class="field-block">
-            <label class="field-label" for="editPriceInput">Примерная цена (₽)</label>
-            <input type="number" id="editPriceInput" class="input-modern tabular-nums" min="0" step="1" />
-          </div>
-
-          <div class="field-block">
-            <label class="field-label" for="editLinkInput">Ссылка на магазин (необязательно)</label>
-            <input type="url" id="editLinkInput" class="input-modern" placeholder="https://..." />
           </div>
 
           <div class="field-block span-2">
@@ -513,99 +487,133 @@
               <button type="button" class="cat-preset-btn" data-cat="Хобби" onclick="selectPresetCategory('edit', 'Хобби')">🎨 Хобби</button>
               <button type="button" class="cat-preset-btn" data-cat="Впечатления" onclick="selectPresetCategory('edit', 'Впечатления')">🎟 Впечатления</button>
             </div>
-            <input
-              type="text"
-              id="editCategoryInput"
-              class="input-modern"
-              placeholder="Своя категория"
-              maxlength="40"
-              oninput="syncCategoryChipHighlight('edit')"
-            />
+            <input type="text" class="input-modern" id="editCategoryInput" maxlength="40" />
           </div>
 
           <div class="field-block span-2">
-            <div class="field-label"><span>Подборка / повод</span><span>Необязательно</span></div>
-            <div class="audience-editor" id="editOccasionControl"></div>
+            <label class="field-label" for="editCustomTagInput">
+              <span>Теги</span>
+              <span style="text-transform: none; font-weight: 400;">до 8 тегов</span>
+            </label>
+            <div class="category-preset-row" id="editTagPresets"></div>
+            <div class="tag-editor-row">
+              <input
+                type="text"
+                class="input-modern"
+                id="editCustomTagInput"
+                placeholder="Свой тег"
+                maxlength="30"
+                onkeydown="handleTagKeydown(event, 'edit')"
+              />
+              <button type="button" class="btn-glass" onclick="addCustomTag('edit')">Добавить тег</button>
+            </div>
+            <div class="selected-tags" id="editSelectedTags"></div>
+          </div>
+
+          <div class="field-block span-2">
+            <span class="field-label">Подборки по поводам</span>
+            <div class="audience-editor" id="editOccasionControl" role="group" aria-label="Подборки по поводам"></div>
             <div class="tag-editor-row" style="margin-top: 6px;">
-              <input type="text" id="editQuickOccasionInput" class="input-modern" placeholder="Новый повод" maxlength="40" />
+              <input
+                type="text"
+                class="input-modern"
+                id="editQuickOccasionInput"
+                placeholder="Новый повод"
+                maxlength="40"
+              />
               <button type="button" class="btn-glass" onclick="quickCreateOccasionInForm('edit')">Создать повод</button>
             </div>
           </div>
 
           <div class="field-block span-2">
-            <div class="field-label"><span>Теги</span><span>Необязательно · до 8</span></div>
-            <div class="category-preset-row" id="editTagPresets"></div>
-            <div class="tag-editor-row">
-              <input type="text" id="editCustomTagInput" class="input-modern" placeholder="Свой тег" maxlength="30" onkeydown="handleTagKeydown(event, 'edit')" />
-              <button type="button" class="btn-glass" onclick="addCustomTag('edit')">Добавить тег</button>
+            <span class="field-label">Кто видит это желание</span>
+            <div class="audience-editor" id="editAudienceControl" role="group" aria-label="Группы доступа для желания"></div>
+            <div class="audience-summary" id="editAudienceSummary">Желание увидят все, кто откроет ваш вишлист.</div>
+          </div>
+
+          <div class="field-block span-2">
+            <span class="field-label">Фотография</span>
+            <div class="source-Segment">
+              <button type="button" class="source-tab-btn active" id="editTabFileBtn" onclick="switchPhotoTab('edit', 'file')">📁 Загрузить фото</button>
+              <button type="button" class="source-tab-btn" id="editTabUrlBtn" onclick="switchPhotoTab('edit', 'url')">🔗 Вставить ссылку</button>
             </div>
-            <div class="selected-tags" id="editSelectedTags" aria-label="Выбранные теги"></div>
+
+            <div id="editPhotoFileWrap">
+              <label class="dropzone-modern" for="editFileInput">
+                <div style="font-size: 13px; font-weight: 700;">Выбрать новое фото</div>
+                <div style="font-size: 11px; color: var(--tg-theme-hint-color);">Автосжатие до 600px · WebP/JPEG · до 512 КБ</div>
+              </label>
+              <input type="file" id="editFileInput" accept="image/jpeg,image/png,image/webp,image/gif" style="display: none;" onchange="handleFileSelect(event, 'edit')" />
+            </div>
+
+            <div id="editPhotoUrlWrap" style="display: none;">
+              <input type="url" class="input-modern" id="editImageUrlInput" placeholder="Укажите ссылку на фото" oninput="handleImageUrlInput('edit')" />
+            </div>
+
+            <div class="upload-progress-wrap" id="editUploadProgress">
+              <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                <span id="editUploadStatusText">Подготовка...</span>
+                <span class="tabular-nums" id="editUploadPercentText">0%</span>
+              </div>
+              <div class="progress-track">
+                <div class="progress-fill" id="editUploadProgressBar"></div>
+              </div>
+            </div>
+
+            <div class="photo-preview-card" id="editPhotoPreviewBox">
+              <img id="editPhotoPreviewImg" src="" alt="Предпросмотр" />
+              <div class="photo-preview-info">
+                <div class="photo-preview-title">Текущее фото</div>
+                <div class="photo-preview-sub" id="editPhotoPreviewMeta"></div>
+              </div>
+              <button type="button" class="btn-remove-photo" onclick="clearPhoto('edit')">Убрать</button>
+            </div>
           </div>
 
           <div class="field-block span-2">
             <label class="field-label" for="editCommentInput">Комментарий</label>
-            <textarea id="editCommentInput" class="input-modern textarea-modern" maxlength="300"></textarea>
-          </div>
-
-          <div class="field-block span-2">
-            <span class="field-label">Насколько хочется</span>
-            <div class="desire-segment" id="editDesireControl">
-              <button type="button" class="desire-btn" data-desire="high" onclick="setDesire('edit', 'high')">🔥 Очень хочу</button>
-              <button type="button" class="desire-btn active" data-desire="medium" onclick="setDesire('edit', 'medium')">Среднее хочу</button>
-              <button type="button" class="desire-btn" data-desire="wait" onclick="setDesire('edit', 'wait')">Пока подождёт</button>
-            </div>
-          </div>
-
-          <div class="field-block span-2">
-            <div class="field-label"><span>Кто видит желание</span><span>По умолчанию — все</span></div>
-            <div class="audience-editor" id="editAudienceControl"></div>
-            <div class="audience-summary" id="editAudienceSummary"></div>
-          </div>
-
-          <div class="field-block span-2">
-            <div class="bento-switches-grid">
-              <label class="bento-switch-card" for="editCrowdfundToggle">
-                <div class="switch-text-wrap">
-                  <span class="switch-title">🤝 Можно скинуться</span>
-                  <span class="switch-subtitle">Совместный сбор</span>
-                </div>
-                <div class="ios-switch">
-                  <input type="checkbox" id="editCrowdfundToggle" onchange="syncMutualExclusiveToggle('edit', 'crowdfund')" />
-                  <span class="ios-slider"></span>
-                </div>
-              </label>
-
-              <label class="bento-switch-card" for="editReusableToggle">
-                <div class="switch-text-wrap">
-                  <span class="switch-title">♻️ Можно дарить несколько раз</span>
-                  <span class="switch-subtitle">Многоразовый подарок</span>
-                </div>
-                <div class="ios-switch">
-                  <input type="checkbox" id="editReusableToggle" onchange="syncMutualExclusiveToggle('edit', 'reusable')" />
-                  <span class="ios-slider"></span>
-                </div>
-              </label>
-            </div>
+            <textarea class="input-modern textarea-modern" id="editCommentInput" maxlength="300"></textarea>
           </div>
         </div>
 
-        <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <div class="bento-switches-grid" style="margin-top: 14px;">
+          <label class="bento-switch-card" for="editCrowdfundToggle">
+            <div class="switch-text-wrap">
+              <span class="switch-title">🤝 Можно скинуться</span>
+              <span class="switch-subtitle">Совместный подарок с друзьями</span>
+            </div>
+            <span class="ios-switch">
+              <input type="checkbox" id="editCrowdfundToggle" onchange="syncMutualExclusiveToggle('edit', 'crowdfund')" />
+              <span class="ios-slider"></span>
+            </span>
+          </label>
+
+          <label class="bento-switch-card" for="editReusableToggle">
+            <div class="switch-text-wrap">
+              <span class="switch-title">♻️ Можно дарить несколько раз</span>
+              <span class="switch-subtitle">Независимая отметка несколькими гостями</span>
+            </div>
+            <span class="ios-switch">
+              <input type="checkbox" id="editReusableToggle" onchange="syncMutualExclusiveToggle('edit', 'reusable')" />
+              <span class="ios-slider"></span>
+            </span>
+          </label>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 18px;">
           <button type="button" class="btn-glass" style="flex: 1;" onclick="closeEditModal()">Отмена</button>
-          <button type="submit" class="btn-accent" style="flex: 2;">Сохранить изменения</button>
+          <button type="submit" class="btn-accent" style="flex: 2;">Сохранить</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ ПОДАРКА -->
   <div class="modal-overlay" id="deleteConfirmBackdrop" onclick="handleBackdropClick(event, 'deleteConfirmBackdrop')">
     <div class="confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="deleteDialogTitle">
-      <div class="empty-orb" style="margin: 0 auto 12px; background: var(--danger-soft); border-color: rgba(244,63,94,0.3);">🗑</div>
-      <h3 id="deleteDialogTitle" style="font-family: var(--font-display); font-size: 18px; font-weight: 800; margin-bottom: 6px;">
-        Удалить подарок?
-      </h3>
-      <p id="deleteDialogText" style="font-size: 13px; color: var(--tg-theme-hint-color); margin-bottom: 20px;">
-        Это желание будет удалено из вашего вишлиста без возможности восстановления.
+      <div style="font-size: 38px; margin-bottom: 10px;">🗑</div>
+      <h2 class="modal-title" id="deleteDialogTitle" style="margin-bottom: 8px;">Удалить желание?</h2>
+      <p id="deleteDialogText" style="font-size: 13px; color: var(--tg-theme-hint-color); margin-bottom: 20px; line-height: 1.5;">
+        Это действие нельзя отменить.
       </p>
       <div style="display: flex; gap: 10px;">
         <button type="button" class="btn-glass" style="flex: 1;" onclick="closeDeleteConfirm()">Отмена</button>
@@ -614,19 +622,15 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО ПЕРЕИМЕНОВАНИЯ ГРУППЫ -->
   <div class="modal-overlay" id="renameGroupModalBackdrop" onclick="handleBackdropClick(event, 'renameGroupModalBackdrop')">
     <div class="confirm-box" role="dialog" aria-modal="true" aria-labelledby="renameGroupTitle" style="text-align: left;">
-      <div class="modal-head">
-        <h3 class="modal-title" id="renameGroupTitle">✏️ Переименовать группу</h3>
-        <button type="button" class="btn-close-circle" onclick="closeRenameGroupModal()" aria-label="Закрыть">✕</button>
-      </div>
+      <h2 class="modal-title" id="renameGroupTitle" style="margin-bottom: 8px;">Переименовать группу</h2>
       <form id="renameGroupForm" onsubmit="handleRenameGroupSubmit(event)">
-        <div class="field-block">
+        <div class="field-block" style="margin-bottom: 16px;">
           <label class="field-label" for="renameGroupInput">Новое название</label>
-          <input type="text" id="renameGroupInput" class="input-modern" maxlength="32" required />
+          <input type="text" class="input-modern" id="renameGroupInput" maxlength="32" required />
         </div>
-        <div style="display: flex; gap: 10px; margin-top: 16px;">
+        <div style="display: flex; gap: 10px;">
           <button type="button" class="btn-glass" style="flex: 1;" onclick="closeRenameGroupModal()">Отмена</button>
           <button type="submit" class="btn-accent" style="flex: 1;">Сохранить</button>
         </div>
@@ -634,14 +638,13 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ ГРУППЫ -->
   <div class="modal-overlay" id="deleteGroupModalBackdrop" onclick="handleBackdropClick(event, 'deleteGroupModalBackdrop')">
-    <div class="confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="deleteGroupDialogTitle">
-      <div class="empty-orb" style="margin: 0 auto 12px; background: var(--danger-soft); border-color: rgba(244,63,94,0.3);">🗑</div>
-      <h3 id="deleteGroupDialogTitle" style="font-family: var(--font-display); font-size: 18px; font-weight: 800; margin-bottom: 6px;">
-        Удалить группу?
-      </h3>
-      <p id="deleteGroupDialogText" style="font-size: 13px; color: var(--tg-theme-hint-color); margin-bottom: 20px;"></p>
+    <div class="confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="deleteGroupTitle">
+      <div style="font-size: 38px; margin-bottom: 10px;">⚠️</div>
+      <h2 class="modal-title" id="deleteGroupTitle" style="margin-bottom: 8px;">Удалить группу?</h2>
+      <p id="deleteGroupDialogText" style="font-size: 13px; color: var(--tg-theme-hint-color); margin-bottom: 20px; line-height: 1.5;">
+        Группа будет удалена.
+      </p>
       <div style="display: flex; gap: 10px;">
         <button type="button" class="btn-glass" style="flex: 1;" onclick="closeDeleteGroupModal()">Отмена</button>
         <button type="button" class="btn-destructive" id="confirmDeleteGroupBtn" onclick="confirmDeleteGroup()">Удалить</button>
@@ -649,50 +652,55 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО УПРАВЛЕНИЯ ПОВОДАМИ -->
   <div class="modal-overlay" id="occasionModalBackdrop" onclick="handleBackdropClick(event, 'occasionModalBackdrop')">
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="occasionModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="occasionModalTitle">🎯 Подборки по поводам</h2>
+        <h2 class="modal-title" id="occasionModalTitle">Подборки по поводам</h2>
         <button type="button" class="btn-close-circle" onclick="closeOccasionManagerModal()" aria-label="Закрыть">✕</button>
       </div>
-      <p class="social-panel-copy">Создавайте подборки (например, «День рождения» или «Новый год»), чтобы делиться ссылкой на конкретный повод.</p>
       <form class="social-add-form" id="createOccasionModalForm" onsubmit="handleCreateOccasionModalSubmit(event)">
-        <input type="text" class="input-modern" id="newOccasionTitleInput" placeholder="Название повода" maxlength="40" required />
+        <input
+          type="text"
+          class="input-modern"
+          id="newOccasionTitleInput"
+          placeholder="Название повода, например: День рождения"
+          maxlength="40"
+          required
+        />
         <button type="submit" class="btn-accent">Добавить</button>
       </form>
       <div class="social-list" id="occasionManagerList"></div>
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО ГИБКОГО ШАРИНГА -->
   <div class="modal-overlay" id="shareModalBackdrop" onclick="handleBackdropClick(event, 'shareModalBackdrop')">
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="shareModalTitle">🔗 Поделиться вишлистом</h2>
+        <h2 class="modal-title" id="shareModalTitle">Поделиться вишлистом</h2>
         <button type="button" class="btn-close-circle" onclick="closeShareModal()" aria-label="Закрыть">✕</button>
       </div>
-      <p class="social-panel-copy">Выберите, чем именно хотите поделиться: всем списком целиком или подборкой под конкретный повод.</p>
-      <div class="audience-editor" id="shareOccasionOptions"></div>
+      <p class="social-panel-copy">
+        Выберите, отправить ссылку на весь вишлист или только на конкретную подборку по поводу.
+      </p>
+      <div class="audience-editor" id="shareOccasionOptions" role="group" aria-label="Что отправить по ссылке"></div>
       <div class="share-preview-box" id="shareUrlPreview"></div>
-      <div style="display: flex; gap: 10px; margin-top: 16px;">
-        <button type="button" class="btn-glass" id="copyShareUrlBtn" style="flex: 1;" onclick="copyShareLinkOnly()">Скопировать</button>
-        <button type="button" class="btn-accent" id="confirmShareBtn" style="flex: 2;" onclick="confirmShareWishlist()">Отправить в Telegram</button>
+      <div style="display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap;">
+        <button type="button" class="btn-glass" style="flex: 1;" onclick="copyShareLinkOnly()">📋 Скопировать ссылку</button>
+        <button type="button" class="btn-accent" id="confirmShareBtn" style="flex: 1.4;" onclick="confirmShareWishlist()">📤 Отправить в Telegram</button>
       </div>
     </div>
   </div>
 
-  <!-- КОНТЕЙНЕР TOAST-УВЕДОМЛЕНИЙ -->
-  <div class="toast-stack" id="toastContainer"></div>
+  <div class="toast-stack" id="toastContainer" aria-live="polite"></div>
 
   <script>
-    // После первого deploy укажите адрес Worker без завершающего слэша.
     const API_BASE_URL = "https://tgbot.ax1ksg94.workers.dev";
   </script>
-  <script src="./app-state.js"></script>
-  <script src="./app-social.js"></script>
-  <script src="./app-render.js"></script>
+  <script src="app-state.js"></script>
+  <script src="app-social.js"></script>
+  <script src="app-render.js"></script>
+  <script src="expenses-hub.js"></script>
 </body>
 </html>
