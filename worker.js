@@ -10,14 +10,24 @@ const MAX_UPLOAD_REQUEST_BYTES = 1100 * 1024;
 const MAX_JSON_BYTES = 1024 * 1024;
 const INIT_DATA_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const MAX_SOCIAL_ITEMS = 200;
+const MAX_GROUPS = 20;
+const MAX_OCCASIONS = 20;
 const MAX_NEW_GIFT_NOTIFICATIONS = 20;
 const NOTIFICATION_BATCH_SIZE = 5;
-const GROUP_DEFINITIONS = Object.freeze([
-  { id: "contacts", name: "Контакты" },
+
+const DEFAULT_GROUPS = Object.freeze([
   { id: "family", name: "Семья" },
-  { id: "girlfriend", name: "Девушка" },
-  { id: "friends", name: "Друзья" }
+  { id: "close", name: "Близкие" },
+  { id: "friends", name: "Друзья" },
+  { id: "colleagues", name: "Коллеги" }
 ]);
+
+const LEGACY_GROUP_NAMES = Object.freeze({
+  contacts: "Контакты",
+  family: "Семья",
+  girlfriend: "Девушка",
+  friends: "Друзья"
+});
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -105,6 +115,16 @@ function json(data, status = 200) {
       "X-Content-Type-Options": "nosniff"
     }
   });
+}
+
+function createShortId(prefix, existingIds = []) {
+  const taken = new Set(existingIds);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const bytes = crypto.getRandomValues(new Uint8Array(4));
+    const candidate = `${prefix}_${toHex(bytes)}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
 }
 
 function dispatchBackground(ctx, promise) {
@@ -300,6 +320,63 @@ async function handleGiftsGet(url, env, viewer) {
   return json(serializeWishlist(record, viewer.id, groups, isSubscribed));
 }
 
+async function handleCopyGift(env, ownerId, viewer, payload) {
+  const sourceRecord = await loadWishlist(env, ownerId, viewer);
+  const sourceGroups = await loadGroups(env, ownerId);
+  const sourceGift = sourceRecord.gifts[findGiftIndex(sourceRecord.gifts, payload.id)];
+  assertGiftVisible(sourceGift, sourceGroups, ownerId, viewer.id);
+
+  let copiedImage = "";
+  const sourceImage = String(sourceGift.image || "");
+  if (sourceImage) {
+    const sourceImageId = getInternalImageId(sourceImage);
+    if (sourceImageId) {
+      copiedImage = await cloneInternalImage(env, sourceImageId, viewer.id);
+    } else {
+      try {
+        copiedImage = sanitizeHttpUrl(sourceImage, "image");
+      } catch {
+        copiedImage = "";
+      }
+    }
+  }
+
+  const desire = sanitizeDesire(sourceGift.desire, sourceGift.priority);
+  const isCrowdfund = Boolean(sourceGift.is_crowdfund);
+  const isReusable = !isCrowdfund && Boolean(sourceGift.is_reusable);
+  const copiedGift = {
+    id: createGiftId(),
+    title: cleanPlainText(sourceGift.title, 120) || "Подарок",
+    link: sourceGift.link || "",
+    image: copiedImage,
+    price: sourceGift.price ?? null,
+    category: cleanPlainText(sourceGift.category || "Разное", 40) || "Разное",
+    comment: cleanPlainText(sourceGift.comment || "", 300),
+    desire,
+    tags: Array.isArray(sourceGift.tags) ? [...sourceGift.tags] : [],
+    group_ids: [],
+    occasion_ids: [],
+    priority: desire === "high",
+    is_crowdfund: isCrowdfund,
+    is_reusable: isReusable,
+    booked_by: null,
+    participants: [],
+    reusable_givers: [],
+    is_gifted: false
+  };
+
+  const viewerRecord = await loadWishlist(env, viewer.id, viewer);
+  viewerRecord.gifts.unshift(copiedGift);
+  viewerRecord.owner = {
+    ...viewerRecord.owner,
+    id: viewer.id,
+    first_name: viewer.first_name,
+    username: viewer.username || viewerRecord.owner.username || ""
+  };
+  await saveWishlist(env, viewer.id, viewerRecord);
+  return json({ ok: true, gift: copiedGift }, 201);
+}
+
 async function handleGiftsPost(request, env, viewer, ctx) {
   assertContentLength(request, MAX_JSON_BYTES);
   let body;
@@ -318,7 +395,20 @@ async function handleGiftsPost(request, env, viewer, ctx) {
   const action = String(body?.action || "");
   const payload = body?.payload && typeof body.payload === "object" ? body.payload : {};
   const isOwner = viewer.id === ownerId;
-  const ownerActions = new Set(["add", "update", "delete", "toggle_gifted"]);
+
+  if (action === "copy_gift") {
+    if (isOwner) throw new HttpError(400, "You cannot copy your own gift");
+    return await handleCopyGift(env, ownerId, viewer, payload);
+  }
+
+  const ownerActions = new Set([
+    "add",
+    "update",
+    "delete",
+    "toggle_gifted",
+    "save_occasion",
+    "delete_occasion"
+  ]);
   const guestActions = new Set(["toggle_book", "toggle_crowdfund"]);
 
   if (ownerActions.has(action) && !isOwner) {
@@ -338,12 +428,47 @@ async function handleGiftsPost(request, env, viewer, ctx) {
   let imageToDelete = "";
   let addedGift = null;
 
+  if (action === "save_occasion") {
+    const rawId = String(payload.id || "").trim();
+    const title = sanitizeOccasionTitle(payload.title, record.occasions, rawId);
+    if (rawId) {
+      const existing = record.occasions.find(item => item.id === rawId);
+      if (!existing) throw new HttpError(404, "Occasion not found");
+      existing.title = title;
+    } else {
+      if (record.occasions.length >= MAX_OCCASIONS) {
+        throw new HttpError(409, "Occasions limit reached");
+      }
+      const id = createShortId("occ", record.occasions.map(item => item.id));
+      record.occasions.push({ id, title });
+    }
+    record.owner = {
+      ...record.owner,
+      id: ownerId,
+      first_name: viewer.first_name,
+      username: viewer.username || record.owner.username || ""
+    };
+  }
+
+  if (action === "delete_occasion") {
+    const id = String(payload.id || "").trim();
+    const index = record.occasions.findIndex(item => item.id === id);
+    if (index < 0) throw new HttpError(404, "Occasion not found");
+    record.occasions.splice(index, 1);
+    for (const gift of record.gifts) {
+      if (Array.isArray(gift.occasion_ids)) {
+        gift.occasion_ids = gift.occasion_ids.filter(occId => occId !== id);
+      }
+    }
+  }
+
   if (action === "add") {
-    const gift = sanitizeGift(payload);
+    const gift = sanitizeGift(payload, groups, record.occasions);
     await assertInternalImageOwnership(env, gift.image, viewer.id);
     gift.id = createGiftId();
     gift.booked_by = null;
     gift.participants = [];
+    gift.reusable_givers = [];
     gift.is_gifted = false;
     record.gifts.unshift(gift);
     record.owner = {
@@ -358,16 +483,20 @@ async function handleGiftsPost(request, env, viewer, ctx) {
   if (action === "update") {
     const index = findGiftIndex(record.gifts, payload.id);
     const previous = record.gifts[index];
-    const next = sanitizeGift(payload);
+    const next = sanitizeGift(payload, groups, record.occasions);
     await assertInternalImageOwnership(env, next.image, viewer.id);
     next.id = previous.id;
     next.is_gifted = Boolean(previous.is_gifted);
     next.booked_by = previous.booked_by ?? null;
-    next.participants = Array.isArray(previous.participants) ? previous.participants : [];
+    next.participants = Array.isArray(previous.participants) ? [...previous.participants] : [];
+    next.reusable_givers = Array.isArray(previous.reusable_givers) ? [...previous.reusable_givers] : [];
 
-    if (previous.is_crowdfund !== next.is_crowdfund) {
+    const modeChanged = Boolean(previous.is_crowdfund) !== Boolean(next.is_crowdfund)
+      || Boolean(previous.is_reusable) !== Boolean(next.is_reusable);
+    if (modeChanged) {
       next.booked_by = null;
       next.participants = [];
+      next.reusable_givers = [];
     }
     if (previous.image !== next.image) imageToDelete = previous.image;
     collectGiftViewerIds(previous).forEach(id => affectedViewerIds.add(id));
@@ -380,7 +509,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
       const afterIds = collectGiftViewerIds(next);
       const ownerLabel = buildOwnerLabel(record.owner);
       const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
-      if (previous.is_crowdfund !== next.is_crowdfund) {
+      if (modeChanged) {
         for (const viewerId of beforeIds) {
           if (viewerId === ownerId) continue;
           notifications.push({
@@ -471,7 +600,13 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     const gift = record.gifts[findGiftIndex(record.gifts, payload.id)];
     assertGiftVisible(gift, groups, ownerId, viewer.id);
     if (gift.is_gifted || gift.is_crowdfund) throw new HttpError(409, "This gift cannot be booked");
-    if (gift.booked_by === null || gift.booked_by === undefined) {
+    if (gift.is_reusable) {
+      const givers = Array.isArray(gift.reusable_givers) ? gift.reusable_givers : [];
+      const idx = givers.indexOf(viewer.id);
+      if (idx >= 0) givers.splice(idx, 1);
+      else givers.push(viewer.id);
+      gift.reusable_givers = givers;
+    } else if (gift.booked_by === null || gift.booked_by === undefined) {
       gift.booked_by = viewer.id;
     } else if (gift.booked_by === viewer.id) {
       gift.booked_by = null;
@@ -529,7 +664,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
   return json(serializeWishlist(record, viewer.id, groups, isSubscribed));
 }
 
-function sanitizeGift(payload) {
+function sanitizeGift(payload, groups = [], occasions = []) {
   const title = cleanPlainText(payload.title, 120);
   if (!title) throw new HttpError(400, "Gift title is required");
 
@@ -539,9 +674,15 @@ function sanitizeGift(payload) {
   const image = sanitizeImage(payload.image || "");
   const desire = sanitizeDesire(payload.desire, payload.priority);
   const tags = sanitizeTags(payload.tags);
-  const groupIds = sanitizeGiftGroupIds(payload.group_ids);
-  let price = null;
+  const groupIds = sanitizeGiftGroupIds(payload.group_ids, groups);
+  const occasionIds = sanitizeGiftOccasionIds(payload.occasion_ids, occasions);
+  const isCrowdfund = Boolean(payload.is_crowdfund);
+  const isReusable = Boolean(payload.is_reusable);
+  if (isCrowdfund && isReusable) {
+    throw new HttpError(400, "Gift cannot be both crowdfund and reusable");
+  }
 
+  let price = null;
   if (payload.price !== null && payload.price !== undefined && payload.price !== "") {
     const numericPrice = Number(payload.price);
     if (!Number.isFinite(numericPrice) || numericPrice < 0 || numericPrice > 1_000_000_000) {
@@ -560,8 +701,10 @@ function sanitizeGift(payload) {
     desire,
     tags,
     group_ids: groupIds,
+    occasion_ids: occasionIds,
     priority: desire === "high",
-    is_crowdfund: Boolean(payload.is_crowdfund)
+    is_crowdfund: isCrowdfund,
+    is_reusable: isReusable
   };
 }
 
@@ -593,10 +736,10 @@ function sanitizeTags(value) {
   return tags;
 }
 
-function sanitizeGiftGroupIds(value) {
+function sanitizeGiftGroupIds(value, groups = []) {
   if (value === undefined || value === null || value === "") return [];
   if (!Array.isArray(value)) throw new HttpError(400, "Gift groups must be an array");
-  const allowed = new Set(GROUP_DEFINITIONS.map(group => group.id));
+  const allowed = new Set(groups.map(group => group.id));
   const groupIds = [];
   for (const rawId of value) {
     const groupId = String(rawId || "");
@@ -604,6 +747,41 @@ function sanitizeGiftGroupIds(value) {
     if (!groupIds.includes(groupId)) groupIds.push(groupId);
   }
   return groupIds;
+}
+
+function sanitizeGiftOccasionIds(value, occasions = []) {
+  if (value === undefined || value === null || value === "") return [];
+  if (!Array.isArray(value)) throw new HttpError(400, "Gift occasions must be an array");
+  const allowed = new Set(occasions.map(item => item.id));
+  const occasionIds = [];
+  for (const rawId of value) {
+    const occId = String(rawId || "");
+    if (!allowed.has(occId)) throw new HttpError(400, "Unknown gift occasion");
+    if (!occasionIds.includes(occId)) occasionIds.push(occId);
+  }
+  return occasionIds;
+}
+
+function sanitizeGroupName(rawName, existingGroups = [], excludeGroupId = "") {
+  const name = cleanPlainText(rawName, 32);
+  if (!name) throw new HttpError(400, "Group name is required");
+  const key = name.toLocaleLowerCase("ru-RU");
+  const duplicate = existingGroups.some(group =>
+    group.id !== excludeGroupId && group.name.toLocaleLowerCase("ru-RU") === key
+  );
+  if (duplicate) throw new HttpError(409, "Group with this name already exists");
+  return name;
+}
+
+function sanitizeOccasionTitle(rawTitle, existingOccasions = [], excludeOccasionId = "") {
+  const title = cleanPlainText(rawTitle, 40);
+  if (!title) throw new HttpError(400, "Occasion title is required");
+  const key = title.toLocaleLowerCase("ru-RU");
+  const duplicate = existingOccasions.some(item =>
+    item.id !== excludeOccasionId && item.title.toLocaleLowerCase("ru-RU") === key
+  );
+  if (duplicate) throw new HttpError(409, "Occasion with this title already exists");
+  return title;
 }
 
 function cleanPlainText(value, maxLength) {
@@ -652,17 +830,44 @@ async function assertInternalImageOwnership(env, imageUrl, userId) {
   }
 }
 
+async function cloneInternalImage(env, sourceImageId, newOwnerId) {
+  const { value, metadata } = await env.DB.getWithMetadata(`img:${sourceImageId}`, {
+    type: "arrayBuffer"
+  });
+  if (!value) return "";
+  const newImageId = crypto.randomUUID().replaceAll("-", "");
+  await env.DB.put(`img:${newImageId}`, value, {
+    metadata: {
+      contentType: metadata?.contentType || "image/jpeg",
+      ownerId: String(newOwnerId),
+      createdAt: new Date().toISOString()
+    }
+  });
+  return `/api/img/${newImageId}`;
+}
+
 async function loadWishlist(env, ownerId, viewer) {
   const stored = await env.DB.get(`user:${ownerId}`, { type: "json" });
   const directory = await env.DB.get(directoryKey(ownerId), { type: "json" });
   const isOwner = ownerId === viewer.id;
   const ownerProfile = directory || stored?.owner || {};
+  const occasions = [];
+  const seenOccasionIds = new Set();
+  for (const rawOcc of Array.isArray(stored?.occasions) ? stored.occasions : []) {
+    const id = String(rawOcc?.id || "").trim();
+    const title = typeof rawOcc?.title === "string" ? rawOcc.title.trim().slice(0, 40) : "";
+    if (!/^occ_[A-Za-z0-9_-]{1,32}$/.test(id) || !title || seenOccasionIds.has(id)) continue;
+    seenOccasionIds.add(id);
+    occasions.push({ id, title });
+    if (occasions.length >= MAX_OCCASIONS) break;
+  }
   return {
     owner: {
       id: ownerId,
       first_name: cleanPlainText(isOwner ? viewer.first_name : ownerProfile.first_name || "", 64),
       username: normalizeUsername(isOwner ? viewer.username : ownerProfile.username || "", false)
     },
+    occasions,
     gifts: Array.isArray(stored?.gifts) ? stored.gifts : []
   };
 }
@@ -670,6 +875,7 @@ async function loadWishlist(env, ownerId, viewer) {
 async function saveWishlist(env, ownerId, record) {
   await env.DB.put(`user:${ownerId}`, JSON.stringify({
     owner: record.owner,
+    occasions: Array.isArray(record.occasions) ? record.occasions : [],
     gifts: record.gifts,
     updatedAt: new Date().toISOString()
   }));
@@ -814,9 +1020,19 @@ async function removeSubscriber(env, ownerId, viewerId) {
 
 async function loadGroups(env, ownerId) {
   const stored = await env.DB.get(groupsKey(ownerId), { type: "json" });
-  const storedItems = Array.isArray(stored?.items) ? stored.items : [];
-  return GROUP_DEFINITIONS.map(definition => {
-    const saved = storedItems.find(group => group?.id === definition.id);
+  if (!stored || !Array.isArray(stored.items)) {
+    return DEFAULT_GROUPS.map(definition => ({ ...definition, memberIds: [] }));
+  }
+
+  const groups = [];
+  const seenIds = new Set();
+  for (const saved of stored.items) {
+    const id = String(saved?.id || "").trim();
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(id) || seenIds.has(id)) continue;
+    seenIds.add(id);
+
+    const rawName = typeof saved?.name === "string" ? saved.name.trim().slice(0, 32) : "";
+    const name = rawName || LEGACY_GROUP_NAMES[id] || id;
     const memberIds = [];
     for (const rawId of Array.isArray(saved?.memberIds) ? saved.memberIds : []) {
       const memberId = Number(rawId);
@@ -825,13 +1041,19 @@ async function loadGroups(env, ownerId) {
       memberIds.push(memberId);
       if (memberIds.length >= MAX_SOCIAL_ITEMS) break;
     }
-    return { ...definition, memberIds };
-  });
+    groups.push({ id, name, memberIds });
+    if (groups.length >= MAX_GROUPS) break;
+  }
+  return groups;
 }
 
 async function saveGroups(env, ownerId, groups) {
   await env.DB.put(groupsKey(ownerId), JSON.stringify({
-    items: groups.map(group => ({ id: group.id, memberIds: group.memberIds })),
+    items: groups.map(group => ({
+      id: group.id,
+      name: group.name,
+      memberIds: group.memberIds
+    })),
     updatedAt: new Date().toISOString()
   }));
 }
@@ -887,6 +1109,50 @@ async function handleSocialPost(request, env, viewer, ctx) {
   const action = String(body.action || "");
   const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
 
+  if (action === "create_group") {
+    const groups = await loadGroups(env, viewer.id);
+    if (groups.length >= MAX_GROUPS) {
+      throw new HttpError(409, "Groups limit reached");
+    }
+    const name = sanitizeGroupName(payload.name, groups);
+    const id = createShortId("grp", groups.map(group => group.id));
+    groups.push({ id, name, memberIds: [] });
+    await saveGroups(env, viewer.id, groups);
+    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+  }
+
+  if (action === "rename_group") {
+    const groups = await loadGroups(env, viewer.id);
+    const group = getGroup(groups, payload.group_id);
+    group.name = sanitizeGroupName(payload.name, groups, group.id);
+    await saveGroups(env, viewer.id, groups);
+    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+  }
+
+  if (action === "delete_group") {
+    const groups = await loadGroups(env, viewer.id);
+    const group = getGroup(groups, payload.group_id);
+    const nextGroups = groups.filter(item => item.id !== group.id);
+    await saveGroups(env, viewer.id, nextGroups);
+
+    const record = await loadWishlist(env, viewer.id, viewer);
+    let wishlistChanged = false;
+    for (const gift of record.gifts) {
+      if (Array.isArray(gift.group_ids) && gift.group_ids.includes(group.id)) {
+        gift.group_ids = gift.group_ids.filter(id => id !== group.id);
+        wishlistChanged = true;
+      }
+    }
+    const affectedViewerIds = cleanupRecordAudience(record, nextGroups, viewer.id);
+    if (wishlistChanged || affectedViewerIds.size) {
+      await saveWishlist(env, viewer.id, record);
+    }
+    for (const affectedViewerId of affectedViewerIds) {
+      await syncWishlistParticipation(env, viewer.id, { id: affectedViewerId }, record, nextGroups);
+    }
+    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+  }
+
   if (action === "unsubscribe") {
     const targetId = parseId(payload.user_id, "user id");
     const subscriptions = (await readSubscriptions(env, viewer.id)).filter(id => id !== targetId);
@@ -941,6 +1207,10 @@ async function handleSocialPost(request, env, viewer, ctx) {
   if (payload.user_id !== undefined && action === "subscribe") {
     targetId = parseId(payload.user_id, "user id");
   } else {
+    if (action === "add_group_member") {
+      const groups = await loadGroups(env, viewer.id);
+      getGroup(groups, payload.group_id);
+    }
     const profile = await resolveUserByUsername(env, payload.username || "");
     if (!profile) {
       return await requestTelegramUserSelection(env, viewer, action, payload);
@@ -1034,6 +1304,10 @@ function collectGiftViewerIds(gift) {
     const participantId = Number(rawId);
     if (Number.isSafeInteger(participantId) && participantId > 0) ids.add(participantId);
   }
+  for (const rawId of Array.isArray(gift?.reusable_givers) ? gift.reusable_givers : []) {
+    const giverId = Number(rawId);
+    if (Number.isSafeInteger(giverId) && giverId > 0) ids.add(giverId);
+  }
   return ids;
 }
 
@@ -1050,6 +1324,13 @@ function cleanupGiftAudience(gift, groups, ownerId) {
       const participantId = Number(rawId);
       return Number.isSafeInteger(participantId) && participantId > 0
         && canViewerAccessGift(gift, groups, ownerId, participantId);
+    });
+  }
+  if (Array.isArray(gift.reusable_givers)) {
+    gift.reusable_givers = gift.reusable_givers.filter(rawId => {
+      const giverId = Number(rawId);
+      return Number.isSafeInteger(giverId) && giverId > 0
+        && canViewerAccessGift(gift, groups, ownerId, giverId);
     });
   }
 }
@@ -1087,9 +1368,18 @@ async function syncWishlistParticipation(env, ownerId, viewer, record, providedG
 
   for (const gift of record.gifts) {
     if (!canViewerAccessGift(gift, groups, ownerId, viewer.id)) continue;
-    const type = gift.is_crowdfund
-      ? (Array.isArray(gift.participants) && gift.participants.some(id => Number(id) === viewer.id) ? "crowdfund" : "")
-      : (Number(gift.booked_by) === viewer.id ? "book" : "");
+    let type = "";
+    if (gift.is_crowdfund) {
+      if (Array.isArray(gift.participants) && gift.participants.some(id => Number(id) === viewer.id)) {
+        type = "crowdfund";
+      }
+    } else if (gift.is_reusable) {
+      if (Array.isArray(gift.reusable_givers) && gift.reusable_givers.some(id => Number(id) === viewer.id)) {
+        type = "reusable";
+      }
+    } else if (Number(gift.booked_by) === viewer.id) {
+      type = "book";
+    }
     if (!type) continue;
 
     const oldEntry = previous.find(entry =>
@@ -1122,7 +1412,7 @@ async function handleParticipationsGet(env, viewer) {
     const type = entry?.type;
     if (!Number.isSafeInteger(ownerId) || ownerId <= 0
       || !Number.isSafeInteger(giftId) || giftId <= 0
-      || !["book", "crowdfund"].includes(type)) continue;
+      || !["book", "crowdfund", "reusable"].includes(type)) continue;
 
     if (!records.has(ownerId)) {
       records.set(ownerId, await loadWishlist(env, ownerId, viewer));
@@ -1133,10 +1423,16 @@ async function handleParticipationsGet(env, viewer) {
     const gift = record.gifts.find(item => Number(item.id) === giftId);
     if (!gift || !canViewerAccessGift(gift, groups, ownerId, viewer.id)) continue;
 
-    const isActive = type === "book"
-      ? !gift.is_crowdfund && Number(gift.booked_by) === viewer.id
-      : gift.is_crowdfund && Array.isArray(gift.participants)
+    let isActive = false;
+    if (type === "book") {
+      isActive = !gift.is_crowdfund && !gift.is_reusable && Number(gift.booked_by) === viewer.id;
+    } else if (type === "crowdfund") {
+      isActive = Boolean(gift.is_crowdfund) && Array.isArray(gift.participants)
         && gift.participants.some(id => Number(id) === viewer.id);
+    } else if (type === "reusable") {
+      isActive = Boolean(gift.is_reusable) && Array.isArray(gift.reusable_givers)
+        && gift.reusable_givers.some(id => Number(id) === viewer.id);
+    }
     if (!isActive) continue;
 
     const normalizedEntry = {
@@ -1164,10 +1460,13 @@ async function handleParticipationsGet(env, viewer) {
         desire: gift.desire || (gift.priority ? "high" : "medium"),
         tags: Array.isArray(gift.tags) ? gift.tags : [],
         group_ids: Array.isArray(gift.group_ids) ? gift.group_ids : [],
+        occasion_ids: Array.isArray(gift.occasion_ids) ? gift.occasion_ids : [],
         priority: Boolean(gift.priority),
         is_crowdfund: Boolean(gift.is_crowdfund),
+        is_reusable: Boolean(gift.is_reusable),
         is_gifted: Boolean(gift.is_gifted),
-        participantsCount: Array.isArray(gift.participants) ? gift.participants.length : 0
+        participantsCount: Array.isArray(gift.participants) ? gift.participants.length : 0,
+        reusableCount: Array.isArray(gift.reusable_givers) ? gift.reusable_givers.length : 0
       }
     });
   }
@@ -1181,6 +1480,23 @@ async function handleParticipationsGet(env, viewer) {
 
 function serializeWishlist(record, viewerId, groups = [], isSubscribed = false) {
   const ownerId = Number(record.owner.id);
+  const visibleGifts = record.gifts.filter(gift => canViewerAccessGift(gift, groups, ownerId, viewerId));
+  const allOccasions = Array.isArray(record.occasions) ? record.occasions : [];
+  let visibleOccasions;
+  if (ownerId === viewerId) {
+    visibleOccasions = allOccasions.map(item => ({ id: item.id, title: item.title }));
+  } else {
+    const usedIds = new Set();
+    for (const gift of visibleGifts) {
+      if (Array.isArray(gift.occasion_ids)) {
+        for (const occId of gift.occasion_ids) usedIds.add(occId);
+      }
+    }
+    visibleOccasions = allOccasions
+      .filter(item => usedIds.has(item.id))
+      .map(item => ({ id: item.id, title: item.title }));
+  }
+
   const result = {
     owner: {
       id: ownerId,
@@ -1188,17 +1504,20 @@ function serializeWishlist(record, viewerId, groups = [], isSubscribed = false) 
       username: normalizeUsername(record.owner.username || "", false)
     },
     is_subscribed: Boolean(isSubscribed),
-    gifts: record.gifts
-      .filter(gift => canViewerAccessGift(gift, groups, ownerId, viewerId))
-      .map(gift => ({
-        ...gift,
-        group_ids: Array.isArray(gift.group_ids) ? gift.group_ids : [],
-        booked_by: gift.booked_by === null || gift.booked_by === undefined
-          ? null
-          : gift.booked_by === viewerId ? viewerId : -1,
-        participants: (Array.isArray(gift.participants) ? gift.participants : [])
-          .map(participantId => participantId === viewerId ? viewerId : -1)
-      }))
+    occasions: visibleOccasions,
+    gifts: visibleGifts.map(gift => ({
+      ...gift,
+      group_ids: Array.isArray(gift.group_ids) ? gift.group_ids : [],
+      occasion_ids: Array.isArray(gift.occasion_ids) ? gift.occasion_ids : [],
+      is_reusable: Boolean(gift.is_reusable),
+      booked_by: gift.booked_by === null || gift.booked_by === undefined
+        ? null
+        : gift.booked_by === viewerId ? viewerId : -1,
+      participants: (Array.isArray(gift.participants) ? gift.participants : [])
+        .map(participantId => participantId === viewerId ? viewerId : -1),
+      reusable_givers: (Array.isArray(gift.reusable_givers) ? gift.reusable_givers : [])
+        .map(giverId => giverId === viewerId ? viewerId : -1)
+    }))
   };
   if (ownerId === viewerId) {
     result.groups = groups.map(group => ({
@@ -1357,7 +1676,7 @@ async function handleTelegramWebhook(request, env) {
     return await handleNotificationsCommand(env, message);
   }
 
-  const startMatch = text.match(/^\/start(?:@\w+)?(?:\s+(list_\d+))?\s*$/);
+  const startMatch = text.match(/^\/start(?:@\w+)?(?:\s+list_(\d+)(?:_(occ_[A-Za-z0-9_-]{1,32}))?)?\s*$/);
   if (!message?.chat?.id || !startMatch) {
     return json({ ok: true });
   }
@@ -1368,7 +1687,10 @@ async function handleTelegramWebhook(request, env) {
 
   const webAppUrl = new URL(env.WEBAPP_URL);
   if (startMatch[1]) {
-    webAppUrl.searchParams.set("list", startMatch[1].replace("list_", ""));
+    webAppUrl.searchParams.set("list", startMatch[1]);
+  }
+  if (startMatch[2]) {
+    webAppUrl.searchParams.set("occasion", startMatch[2].replace(/^occ_occ_/, "occ_"));
   }
 
   await callTelegramApi(env, "sendMessage", {
@@ -1435,7 +1757,16 @@ async function handleSharedUserSelection(env, message, shared) {
     confirmation = `Вы подписались на вишлист: ${selectedProfile.first_name}.`;
   } else if (pending.action === "add_group_member") {
     const groups = await loadGroups(env, requesterId);
-    const group = getGroup(groups, pending.groupId);
+    const group = groups.find(item => item.id === String(pending.groupId || ""));
+    if (!group) {
+      await env.DB.delete(key);
+      await callTelegramApi(env, "sendMessage", {
+        chat_id: requesterId,
+        text: "Выбранная группа больше не существует.",
+        reply_markup: { remove_keyboard: true }
+      });
+      return json({ ok: true });
+    }
     if (!group.memberIds.includes(selectedId)) {
       if (group.memberIds.length >= MAX_SOCIAL_ITEMS) {
         throw new HttpError(409, "Group members limit reached");
