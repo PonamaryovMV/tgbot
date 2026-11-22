@@ -1320,11 +1320,12 @@ test("Notification preferences via /notifications and callback_query, plus 403 r
 
 test("Custom privacy groups CRUD, limits, legacy compatibility and deleted group selection", async () => {
   const env = createEnv();
+  const GUEST_3 = { id: 3004, first_name: "Дима", username: "dima1" };
   telegramCalls.length = 0;
 
   // Register guests
   assert.equal((await worker.fetch(requestApi("/api/social", { user: GUEST_1 }), env)).status, 200);
-  assert.equal((await worker.fetch(requestApi("/api/social", { user: GUEST_2 }), env)).status, 200);
+  assert.equal((await worker.fetch(requestApi("/api/social", { user: GUEST_3 }), env)).status, 200);
 
   // Default groups for a new user
   let response = await worker.fetch(requestApi("/api/social", { user: OWNER }), env);
@@ -1370,7 +1371,7 @@ test("Custom privacy groups CRUD, limits, legacy compatibility and deleted group
   data = await json(response);
   assert.equal(data.groups.find(group => group.id === customGroup.id).name, "Однокурсники");
 
-  // Add GUEST_1 to customGroup, GUEST_2 to friends; create gift restricted to both groups
+  // Add GUEST_1 to customGroup, GUEST_3 to friends; create gift restricted to both groups
   assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: OWNER,
@@ -1379,7 +1380,7 @@ test("Custom privacy groups CRUD, limits, legacy compatibility and deleted group
   assert.equal((await worker.fetch(requestApi("/api/social", {
     method: "POST",
     user: OWNER,
-    body: { action: "add_group_member", payload: { group_id: "friends", username: "dima" } }
+    body: { action: "add_group_member", payload: { group_id: "friends", username: "dima1" } }
   }), env)).status, 200);
 
   const giftData = await addGift(env, OWNER, {
