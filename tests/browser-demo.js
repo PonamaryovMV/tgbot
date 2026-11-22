@@ -65,6 +65,7 @@ export default async page => {
   await reusableCard.locator('.btn-guest-copy').click();
   await page.waitForFunction(() => state.copiedGiftIds.size === 1);
   assert((await reusableCard.locator('.btn-guest-copy').textContent()).includes('В вашем списке'), 'Copied gift button must reflect added state');
+  assert(await page.locator('#giftsGrid .gift-card', { hasText: 'Сертификат в книжный магазин' }).count() === 1, 'Copying as guest must not duplicate item into owner demo list');
 
   await page.locator('.btn-guest-crowdfund').first().click();
   await page.waitForFunction(() => state.gifts.some(g => g.is_crowdfund && g.participants.includes(2002)));

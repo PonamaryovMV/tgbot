@@ -248,7 +248,7 @@ export default async page => {
   await page.waitForFunction(() => state.gifts[0]?.id === 1731672009000 && !state.isLoading);
   results.push('protected image failure placeholder');
 
-  const firstCard = page.locator('#giftsGrid .gift-card').first();
+  const firstCard = page.locator('#giftsGrid .gift-card', { hasText: 'Подарок через боевой API' });
   await firstCard.locator('.btn-guest-book').click();
   await page.waitForFunction(() => state.gifts[0]?.booked_by === 2002);
   assert(await page.evaluate(() => state.gifts[0]?.is_gifted === false), 'Booking must not mark the gift as gifted');

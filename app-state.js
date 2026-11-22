@@ -703,17 +703,6 @@ async function copyGiftToOwnWishlist(giftId) {
       if (!sourceGift || !canDemoViewerAccessGift(sourceGift, state.viewerId)) {
         throw new Error("Подарок недоступен");
       }
-      state.gifts.unshift({
-        ...sourceGift,
-        id: Date.now(),
-        group_ids: [],
-        occasion_ids: [],
-        booked_by: null,
-        participants: [],
-        reusable_givers: [],
-        is_gifted: false
-      });
-      saveLocalGifts();
     }
 
     state.copiedGiftIds.add(giftId);
