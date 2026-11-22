@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { extname, normalize } from "node:path";
+import { normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import runTelegramScenario from "./browser-telegram.js";
@@ -16,7 +16,8 @@ const STATIC_FILES = new Map([
   ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
   ["/app-state.js", { file: "app-state.js", type: "application/javascript; charset=utf-8" }],
   ["/app-social.js", { file: "app-social.js", type: "application/javascript; charset=utf-8" }],
-  ["/app-render.js", { file: "app-render.js", type: "application/javascript; charset=utf-8" }]
+  ["/app-render.js", { file: "app-render.js", type: "application/javascript; charset=utf-8" }],
+  ["/expenses-hub.js", { file: "expenses-hub.js", type: "application/javascript; charset=utf-8" }]
 ]);
 
 const server = createServer(async (request, response) => {
@@ -40,54 +41,33 @@ const server = createServer(async (request, response) => {
   } catch (error) {
     response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Test server error");
-    console.error(error);
   }
 });
 
-await new Promise((resolve, reject) => {
-  server.once("error", reject);
-  server.listen(0, "127.0.0.1", resolve);
-});
-
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const address = server.address();
-if (!address || typeof address === "string") throw new Error("Test server did not start");
-process.env.TEST_BASE_URL = `http://127.0.0.1:${address.port}`;
+const baseUrl = `http://127.0.0.1:${address.port}`;
 
-let browser;
-let failed = false;
+const browser = await chromium.launch({ headless: true });
+
 try {
-  browser = await chromium.launch({ headless: true });
-  const suites = [
-    ["Telegram production mock", runTelegramScenario],
-    ["Browser demo", runDemoScenario]
-  ];
-  let passed = 0;
+  const telegramContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const telegramPage = await telegramContext.newPage();
+  const telegramSummary = await runTelegramScenario(telegramPage, baseUrl);
+  await telegramContext.close();
 
-  for (const [name, scenario] of suites) {
-    const context = await browser.newContext();
-    try {
-      const page = await context.newPage();
-      const result = await scenario(page);
-      for (const item of result.results) console.log(`PASS ${name}: ${item}`);
-      passed += 1;
-    } catch (error) {
-      failed = true;
-      console.error(`FAIL ${name}`);
-      console.error(error);
-    } finally {
-      await context.close();
-    }
-  }
+  const demoContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const demoPage = await demoContext.newPage();
+  const demoSummary = await runDemoScenario(demoPage, baseUrl);
+  await demoContext.close();
 
-  console.log(`\n${passed}/${suites.length} browser suites passed.`);
-  console.log(`Test server: ${process.env.TEST_BASE_URL}; project: ${projectRoot}`);
-} catch (error) {
-  failed = true;
-  console.error(error);
-  console.error("Если Chromium не установлен, выполните: npx playwright install chromium");
+  console.log(JSON.stringify({
+    ok: true,
+    projectRoot,
+    telegram: telegramSummary,
+    demo: demoSummary
+  }, null, 2));
 } finally {
-  if (browser) await browser.close();
-  await new Promise(resolve => server.close(resolve));
+  await browser.close();
+  server.close();
 }
-
-if (failed) process.exitCode = 1;
