@@ -9,6 +9,28 @@ const GUEST_1 = { id: 2002, first_name: "Анна", username: "anna1" };
 const GUEST_2 = { id: 3003, first_name: "Дима", username: "dima" };
 const BASE = "https://worker.test";
 
+const telegramCalls = [];
+function defaultFetchStub(url, options = {}) {
+  const parsed = new URL(String(url));
+  if (parsed.hostname !== "api.telegram.org") {
+    throw new Error(`Blocked unexpected network request in tests: ${parsed.href}`);
+  }
+  const method = parsed.pathname.split("/").pop();
+  const payload = options.body ? JSON.parse(options.body) : {};
+  telegramCalls.push({ method, payload });
+  if (method === "getMe") {
+    return Promise.resolve(new Response(JSON.stringify({ ok: true, result: { username: "wishlist_test_bot" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    }));
+  }
+  return Promise.resolve(new Response(JSON.stringify({ ok: true, result: { message_id: telegramCalls.length } }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  }));
+}
+globalThis.fetch = defaultFetchStub;
+
 class MemoryKV {
   constructor() {
     this.entries = new Map();
@@ -679,117 +701,94 @@ test("Subscriptions, groups and per-gift audience enforcement", async () => {
 
 test("Telegram user selection stores IDs and completes social actions", async () => {
   const env = createEnv();
-  const originalFetch = globalThis.fetch;
-  const calls = [];
-  globalThis.fetch = async (url, options = {}) => {
-    const method = new URL(url).pathname.split("/").pop();
-    const payload = options.body ? JSON.parse(options.body) : {};
-    calls.push({ method, payload });
-    if (method === "getMe") {
-      return new Response(JSON.stringify({ ok: true, result: { username: "wishlist_test_bot" } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-    if (method === "sendMessage") {
-      return new Response(JSON.stringify({ ok: true, result: { message_id: calls.length } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-    throw new Error(`Unexpected Telegram method: ${method}`);
-  };
+  telegramCalls.length = 0;
 
-  try {
-    let response = await worker.fetch(requestApi("/api/social", {
-      method: "POST",
-      user: OWNER,
-      body: { action: "subscribe", payload: { username: "olga1" } }
-    }), env);
-    assert.equal(response.status, 202);
-    let data = await json(response);
-    assert.equal(data.status, "selection_required");
-    assert.equal(data.botUsername, "wishlist_test_bot");
+  let response = await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "subscribe", payload: { username: "olga1" } }
+  }), env);
+  assert.equal(response.status, 202);
+  let data = await json(response);
+  assert.equal(data.status, "selection_required");
+  assert.equal(data.botUsername, "wishlist_test_bot");
 
-    const pickerRequest = calls.findLast(call => call.method === "sendMessage");
-    const picker = pickerRequest.payload.reply_markup.keyboard[0][0];
-    assert.equal(picker.request_users.max_quantity, 1);
-    assert.equal(picker.request_users.request_name, true);
-    assert.equal(picker.request_users.request_username, true);
-    const requestId = picker.request_users.request_id;
-    assert.ok(env.DB.entries.has(`selection:${requestId}`));
+  const pickerRequest = telegramCalls.findLast(call => call.method === "sendMessage");
+  const picker = pickerRequest.payload.reply_markup.keyboard[0][0];
+  assert.equal(picker.request_users.max_quantity, 1);
+  assert.equal(picker.request_users.request_name, true);
+  assert.equal(picker.request_users.request_username, true);
+  const requestId = picker.request_users.request_id;
+  assert.ok(env.DB.entries.has(`selection:${requestId}`));
 
-    response = await worker.fetch(new Request(`${BASE}/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: {
-          chat: { id: OWNER.id },
-          from: { id: OWNER.id },
-          users_shared: {
-            request_id: requestId,
-            users: [{ user_id: 4004, first_name: "Ольга", username: "olga1" }]
-          }
+  response = await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        chat: { id: OWNER.id },
+        from: { id: OWNER.id },
+        users_shared: {
+          request_id: requestId,
+          users: [{ user_id: 4004, first_name: "Ольга", username: "olga1" }]
         }
-      })
-    }), env);
-    assert.equal(response.status, 200);
-    assert.deepEqual(JSON.parse(env.DB.entries.get(`subscriptions:${OWNER.id}`).value), [4004]);
-    assert.equal(Number(env.DB.entries.get("username:olga1").value), 4004);
-    assert.equal(JSON.parse(env.DB.entries.get("directory:4004").value).first_name, "Ольга");
-    assert.equal(env.DB.entries.has(`selection:${requestId}`), false);
-
-    response = await worker.fetch(requestApi("/api/social", { user: OWNER }), env);
-    data = await json(response);
-    assert.deepEqual(data.subscriptions[0], { id: 4004, first_name: "Ольга", username: "olga1" });
-
-    response = await worker.fetch(requestApi("/api/social", {
-      method: "POST",
-      user: OWNER,
-      body: {
-        action: "add_group_member",
-        payload: { group_id: "family", username: "new_person" }
       }
-    }), env);
-    assert.equal(response.status, 202);
-    const groupPickerRequest = calls.findLast(call => call.method === "sendMessage");
-    const groupRequestId = groupPickerRequest.payload.reply_markup.keyboard[0][0].request_users.request_id;
+    })
+  }), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(env.DB.entries.get(`subscriptions:${OWNER.id}`).value), [4004]);
+  assert.equal(Number(env.DB.entries.get("username:olga1").value), 4004);
+  assert.equal(JSON.parse(env.DB.entries.get("directory:4004").value).first_name, "Ольга");
+  assert.equal(env.DB.entries.has(`selection:${requestId}`), false);
 
-    response = await worker.fetch(new Request(`${BASE}/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: {
-          chat: { id: OWNER.id },
-          from: { id: OWNER.id },
-          user_shared: { request_id: groupRequestId, user_id: 4004 }
-        }
-      })
-    }), env);
-    assert.equal(response.status, 200);
-    const storedGroups = JSON.parse(env.DB.entries.get(`groups:${OWNER.id}`).value);
-    assert.deepEqual(storedGroups.items.find(group => group.id === "family").memberIds, [4004]);
-    assert.equal(JSON.parse(env.DB.entries.get("directory:4004").value).username, "olga1");
+  response = await worker.fetch(requestApi("/api/social", { user: OWNER }), env);
+  data = await json(response);
+  assert.deepEqual(data.subscriptions[0], { id: 4004, first_name: "Ольга", username: "olga1" });
 
-    response = await worker.fetch(new Request(`${BASE}/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: {
-          chat: { id: OWNER.id },
-          from: { id: OWNER.id },
-          users_shared: {
-            request_id: requestId,
-            users: [{ user_id: 5005, first_name: "Другой" }]
-          }
+  response = await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: {
+      action: "add_group_member",
+      payload: { group_id: "family", username: "new_person" }
+    }
+  }), env);
+  assert.equal(response.status, 202);
+  const groupPickerRequest = telegramCalls.findLast(call => call.method === "sendMessage");
+  const groupRequestId = groupPickerRequest.payload.reply_markup.keyboard[0][0].request_users.request_id;
+
+  response = await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        chat: { id: OWNER.id },
+        from: { id: OWNER.id },
+        user_shared: { request_id: groupRequestId, user_id: 4004 }
+      }
+    })
+  }), env);
+  assert.equal(response.status, 200);
+  const storedGroups = JSON.parse(env.DB.entries.get(`groups:${OWNER.id}`).value);
+  assert.deepEqual(storedGroups.items.find(group => group.id === "family").memberIds, [4004]);
+  assert.equal(JSON.parse(env.DB.entries.get("directory:4004").value).username, "olga1");
+
+  response = await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        chat: { id: OWNER.id },
+        from: { id: OWNER.id },
+        users_shared: {
+          request_id: requestId,
+          users: [{ user_id: 5005, first_name: "Другой" }]
         }
-      })
-    }), env);
-    assert.equal(response.status, 200);
-    assert.deepEqual(JSON.parse(env.DB.entries.get(`subscriptions:${OWNER.id}`).value), [4004]);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      }
+    })
+  }), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(env.DB.entries.get(`subscriptions:${OWNER.id}`).value), [4004]);
 });
 
 async function uploadImage(env, user, bytes, mime = "image/jpeg") {
@@ -895,79 +894,437 @@ test("KV image upload, validation, ownership, caching and deletion", async () =>
 test("Telegram bot config cache and /start webhook deep link", async () => {
   const env = createEnv();
   env.WEBHOOK_SECRET = "test-webhook-secret";
-  const originalFetch = globalThis.fetch;
-  const calls = [];
+  telegramCalls.length = 0;
 
-  globalThis.fetch = async (url, options = {}) => {
-    const parsed = new URL(url);
-    const method = parsed.pathname.split("/").pop();
-    const payload = options.body ? JSON.parse(options.body) : {};
-    calls.push({ method, payload });
-    if (method === "getMe") {
-      return new Response(JSON.stringify({ ok: true, result: { username: "wishlist_test_bot" } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      });
+  let response = await worker.fetch(new Request(`${BASE}/api/config`), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await json(response), { botUsername: "wishlist_test_bot" });
+
+  response = await worker.fetch(new Request(`${BASE}/api/config`), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.filter(call => call.method === "getMe").length, 1);
+
+  const botToken = env.BOT_TOKEN;
+  delete env.BOT_TOKEN;
+  response = await worker.fetch(new Request(`${BASE}/api/config`), env);
+  assert.equal(response.status, 500);
+  assert.deepEqual(await json(response), { error: "BOT_TOKEN is not configured" });
+  env.BOT_TOKEN = botToken;
+
+  const update = {
+    message: {
+      chat: { id: 777 },
+      text: "/start list_1001"
     }
-    if (method === "sendMessage") {
-      return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-    throw new Error(`Unexpected Telegram method: ${method}`);
   };
+  response = await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Telegram-Bot-Api-Secret-Token": "test-webhook-secret"
+    },
+    body: JSON.stringify(update)
+  }), env);
+  assert.equal(response.status, 200);
+
+  const send = telegramCalls.find(call => call.method === "sendMessage");
+  assert.equal(send.payload.chat_id, 777);
+  const button = send.payload.reply_markup.inline_keyboard[0][0];
+  assert.equal(button.text, "Открыть вишлист");
+  const webAppUrl = new URL(button.web_app.url);
+  assert.equal(webAppUrl.searchParams.get("list"), "1001");
+
+  response = await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Telegram-Bot-Api-Secret-Token": "wrong"
+    },
+    body: JSON.stringify(update)
+  }), env);
+  assert.equal(response.status, 401);
+});
+
+test("Bot notifications on gift deletion, archive toggle and gift updates", async () => {
+  const env = createEnv();
+  telegramCalls.length = 0;
+
+  let data = await addGift(env, OWNER, { title: "Наушники *Pro* [2026]", price: 15000 });
+  const singleId = data.gifts[0].id;
+  data = await addGift(env, OWNER, { title: "Кофемашина", is_crowdfund: true, price: 30000 });
+  const crowdId = data.gifts[0].id;
+  data = await addGift(env, OWNER, { title: "Архивный плед", price: 3000 });
+  const archivedId = data.gifts[0].id;
+
+  // Book single gift by GUEST_1, join crowdfund by GUEST_1 & GUEST_2, book archived gift by GUEST_1
+  await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: singleId } }
+  }), env);
+  for (const guest of [GUEST_1, GUEST_2]) {
+    await worker.fetch(requestApi("/api/data", {
+      method: "POST",
+      user: guest,
+      body: { owner_id: OWNER.id, action: "toggle_crowdfund", payload: { id: crowdId } }
+    }), env);
+  }
+  await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: archivedId } }
+  }), env);
+
+  // Archive archivedId (false -> true sends notification; true -> false does not)
+  telegramCalls.length = 0;
+  let response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "toggle_gifted", payload: { id: archivedId } }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.length, 1);
+  assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
+  assert.equal("parse_mode" in telegramCalls[0].payload, false);
+  assert.match(telegramCalls[0].payload.text, /Максим \(@maxim\) отметил\(а\) подарок «Архивный плед» как уже подаренный\./);
+
+  telegramCalls.length = 0;
+  response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "toggle_gifted", payload: { id: archivedId } }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.length, 0);
+
+  // Mark archivedId as gifted again and delete it -> no notification should be sent
+  await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "toggle_gifted", payload: { id: archivedId } }
+  }), env);
+  telegramCalls.length = 0;
+  response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "delete", payload: { id: archivedId } }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.length, 0);
+
+  // Delete active single gift -> notifies GUEST_1 and immediately cleans participations:<GUEST_1>
+  telegramCalls.length = 0;
+  response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "delete", payload: { id: singleId } }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.length, 1);
+  assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
+  assert.equal("parse_mode" in telegramCalls[0].payload, false);
+  assert.match(telegramCalls[0].payload.text, /Максим \(@maxim\) удалил\(а\) подарок «Наушники \*Pro\* \[2026\]»\. Ваша бронь отменена\./);
+  assert.equal(
+    new URL(telegramCalls[0].payload.reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get("list"),
+    String(OWNER.id)
+  );
+  const guest1PartsAfterDelete = JSON.parse(env.DB.entries.get(`participations:${GUEST_1.id}`).value);
+  assert.equal(guest1PartsAfterDelete.some(entry => entry.giftId === singleId), false);
+
+  // Edit crowdfund gift: add GUEST_1 to girlfriend, narrow audience to girlfriend -> GUEST_2 loses access
+  await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "add_group_member", payload: { group_id: "girlfriend", username: "anna1" } }
+  }), env);
+
+  telegramCalls.length = 0;
+  response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: {
+      owner_id: OWNER.id,
+      action: "update",
+      payload: giftPayload({
+        id: crowdId,
+        title: "Кофемашина",
+        is_crowdfund: true,
+        price: 30000,
+        group_ids: ["girlfriend"]
+      })
+    }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.length, 1);
+  assert.equal(telegramCalls[0].payload.chat_id, GUEST_2.id);
+  assert.match(telegramCalls[0].payload.text, /Подарок «Кофемашина» в вишлисте Максим \(@maxim\) стал недоступен\. Ваша бронь\/участие отменены\./);
+  assert.doesNotMatch(telegramCalls[0].payload.text, /girlfriend|Девушка|Анна/i);
+
+  // Edit price and comment for remaining participant GUEST_1
+  telegramCalls.length = 0;
+  response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: {
+      owner_id: OWNER.id,
+      action: "update",
+      payload: giftPayload({
+        id: crowdId,
+        title: "Кофемашина",
+        is_crowdfund: true,
+        price: 35000,
+        comment: "Обновлённый комментарий",
+        group_ids: ["girlfriend"]
+      })
+    }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.length, 1);
+  assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
+  assert.match(telegramCalls[0].payload.text, /Максим \(@maxim\) обновил\(а\) забронированный подарок «Кофемашина» \(изменено: цена, комментарий\)\./);
+
+  // Change format is_crowdfund true -> false -> notifies remaining participant GUEST_1
+  telegramCalls.length = 0;
+  response = await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: {
+      owner_id: OWNER.id,
+      action: "update",
+      payload: giftPayload({
+        id: crowdId,
+        title: "Кофемашина",
+        is_crowdfund: false,
+        price: 35000,
+        comment: "Обновлённый комментарий",
+        group_ids: ["girlfriend"]
+      })
+    }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.length, 1);
+  assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
+  assert.match(telegramCalls[0].payload.text, /Максим \(@maxim\) изменил\(а\) формат подарка «Кофемашина»\. Ваша бронь\/участие в сборе сброшены/);
+});
+
+test("Grouped notification when removing a guest from a group", async () => {
+  const env = createEnv();
+  telegramCalls.length = 0;
+
+  await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "add_group_member", payload: { group_id: "family", username: "anna1" } }
+  }), env);
+
+  const g1 = (await addGift(env, OWNER, { title: "Подарок А", group_ids: ["family"] })).gifts[0].id;
+  const g2 = (await addGift(env, OWNER, { title: "Подарок Б", is_crowdfund: true, group_ids: ["family"] })).gifts[0].id;
+  const g3 = (await addGift(env, OWNER, { title: "Подарок В (архив)", group_ids: ["family"] })).gifts[0].id;
+
+  await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: g1 } }
+  }), env);
+  await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "toggle_crowdfund", payload: { id: g2 } }
+  }), env);
+  await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: g3 } }
+  }), env);
+  await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "toggle_gifted", payload: { id: g3 } }
+  }), env);
+
+  telegramCalls.length = 0;
+  const response = await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "remove_group_member", payload: { group_id: "family", user_id: GUEST_1.id } }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.length, 1);
+  assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
+  const text = telegramCalls[0].payload.text;
+  assert.match(text, /В вишлисте Максим \(@maxim\) стали недоступны несколько подарков, ваши брони\/участия отменены:/);
+  assert.match(text, /«Подарок А»/);
+  assert.match(text, /«Подарок Б»/);
+  assert.doesNotMatch(text, /Подарок В/);
+  assert.doesNotMatch(text, /family|Семья/i);
+});
+
+test("New gift notifications respect subscribers index, group privacy and cap", async () => {
+  const env = createEnv();
+  telegramCalls.length = 0;
+
+  await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: GUEST_1,
+    body: { action: "subscribe", payload: { username: "maxim" } }
+  }), env);
+  await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: GUEST_2,
+    body: { action: "subscribe", payload: { username: "maxim" } }
+  }), env);
+  assert.deepEqual(
+    new Set(JSON.parse(env.DB.entries.get(`subscribers:${OWNER.id}`).value)),
+    new Set([GUEST_1.id, GUEST_2.id])
+  );
+
+  await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: OWNER,
+    body: { action: "add_group_member", payload: { group_id: "girlfriend", username: "anna1" } }
+  }), env);
+
+  // Private gift -> only GUEST_1 receives notification
+  telegramCalls.length = 0;
+  await addGift(env, OWNER, { title: "Секретный браслет", price: 7500, group_ids: ["girlfriend"] });
+  assert.equal(telegramCalls.length, 1);
+  assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
+  assert.match(telegramCalls[0].payload.text, /У Максим \(@maxim\) появилось новое желание: «Секретный браслет» \(7\s500 ₽\)/);
+
+  // Unsubscribe GUEST_2 -> removed from subscribers:<ownerId>
+  await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: GUEST_2,
+    body: { action: "unsubscribe", payload: { user_id: OWNER.id } }
+  }), env);
+  assert.deepEqual(JSON.parse(env.DB.entries.get(`subscribers:${OWNER.id}`).value), [GUEST_1.id]);
+
+  // Public gift with 25 subscribers -> capped at 20 notifications
+  const manySubscribers = Array.from({ length: 25 }, (_, i) => 9000 + i);
+  await env.DB.put(`subscribers:${OWNER.id}`, JSON.stringify(manySubscribers));
+  telegramCalls.length = 0;
+  await addGift(env, OWNER, { title: "Массовый подарок", price: null });
+  assert.equal(telegramCalls.length, 20);
+});
+
+test("Notification preferences via /notifications and callback_query, plus 403 resilience", async () => {
+  const env = createEnv();
+  telegramCalls.length = 0;
+
+  // /notifications command shows current toggles
+  let response = await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        chat: { id: GUEST_1.id },
+        from: { id: GUEST_1.id },
+        text: "/notifications@wishlist_test_bot"
+      }
+    })
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(telegramCalls.length, 1);
+  assert.match(telegramCalls[0].payload.text, /Брони и совместные сборы: включены/);
+  assert.match(telegramCalls[0].payload.text, /Новые желания друзей: включены/);
+  assert.equal(
+    telegramCalls[0].payload.reply_markup.inline_keyboard[0][0].callback_data,
+    "notify:toggle:bookings"
+  );
+
+  // Toggle bookings off via callback_query
+  telegramCalls.length = 0;
+  response = await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      callback_query: {
+        id: "cb-1",
+        from: { id: GUEST_1.id },
+        data: "notify:toggle:bookings",
+        message: { message_id: 42, chat: { id: GUEST_1.id } }
+      }
+    })
+  }), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(env.DB.entries.get(`notify_prefs:${GUEST_1.id}`).value), {
+    bookings: false,
+    new_gifts: true
+  });
+  assert.equal(telegramCalls.some(call => call.method === "editMessageText"), true);
+  assert.equal(telegramCalls.some(call => call.method === "answerCallbackQuery"), true);
+
+  // Subscribe GUEST_1 to OWNER; book and delete gift -> bookings disabled so 0 booking notifications
+  await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: GUEST_1,
+    body: { action: "subscribe", payload: { username: "maxim" } }
+  }), env);
+  const giftId = (await addGift(env, OWNER, { title: "Книга" })).gifts[0].id;
+  await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: GUEST_1,
+    body: { owner_id: OWNER.id, action: "toggle_book", payload: { id: giftId } }
+  }), env);
+
+  telegramCalls.length = 0;
+  await worker.fetch(requestApi("/api/data", {
+    method: "POST",
+    user: OWNER,
+    body: { owner_id: OWNER.id, action: "delete", payload: { id: giftId } }
+  }), env);
+  assert.equal(telegramCalls.length, 0);
+
+  // new_gifts is still enabled -> adding a gift notifies GUEST_1
+  telegramCalls.length = 0;
+  await addGift(env, OWNER, { title: "Настольная игра" });
+  assert.equal(telegramCalls.length, 1);
+  assert.equal(telegramCalls[0].payload.chat_id, GUEST_1.id);
+
+  // Toggle new_gifts off as well
+  await worker.fetch(new Request(`${BASE}/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      callback_query: {
+        id: "cb-2",
+        from: { id: GUEST_1.id },
+        data: "notify:toggle:new_gifts",
+        message: { message_id: 42, chat: { id: GUEST_1.id } }
+      }
+    })
+  }), env);
+  telegramCalls.length = 0;
+  await addGift(env, OWNER, { title: "Ещё один подарок" });
+  assert.equal(telegramCalls.length, 0);
+
+  // Simulate Telegram API 403 Forbidden (user blocked the bot) -> HTTP API must still return 200 OK
+  await worker.fetch(requestApi("/api/social", {
+    method: "POST",
+    user: GUEST_2,
+    body: { action: "subscribe", payload: { username: "maxim" } }
+  }), env);
+
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    ok: false,
+    error_code: 403,
+    description: "Forbidden: bot was blocked by the user"
+  }), {
+    status: 403,
+    headers: { "Content-Type": "application/json" }
+  });
 
   try {
-    let response = await worker.fetch(new Request(`${BASE}/api/config`), env);
-    assert.equal(response.status, 200);
-    assert.deepEqual(await json(response), { botUsername: "wishlist_test_bot" });
-
-    response = await worker.fetch(new Request(`${BASE}/api/config`), env);
-    assert.equal(response.status, 200);
-    assert.equal(calls.filter(call => call.method === "getMe").length, 1);
-
-    const botToken = env.BOT_TOKEN;
-    delete env.BOT_TOKEN;
-    response = await worker.fetch(new Request(`${BASE}/api/config`), env);
-    assert.equal(response.status, 500);
-    assert.deepEqual(await json(response), { error: "BOT_TOKEN is not configured" });
-    env.BOT_TOKEN = botToken;
-
-    const update = {
-      message: {
-        chat: { id: 777 },
-        text: "/start list_1001"
-      }
-    };
-    response = await worker.fetch(new Request(`${BASE}/`, {
+    const blockedRes = await worker.fetch(requestApi("/api/data", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Telegram-Bot-Api-Secret-Token": "test-webhook-secret"
-      },
-      body: JSON.stringify(update)
+      user: OWNER,
+      body: { owner_id: OWNER.id, action: "add", payload: giftPayload({ title: "Подарок при 403" }) }
     }), env);
-    assert.equal(response.status, 200);
-
-    const send = calls.find(call => call.method === "sendMessage");
-    assert.equal(send.payload.chat_id, 777);
-    const button = send.payload.reply_markup.inline_keyboard[0][0];
-    assert.equal(button.text, "Открыть вишлист");
-    const webAppUrl = new URL(button.web_app.url);
-    assert.equal(webAppUrl.searchParams.get("list"), "1001");
-
-    response = await worker.fetch(new Request(`${BASE}/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Telegram-Bot-Api-Secret-Token": "wrong"
-      },
-      body: JSON.stringify(update)
-    }), env);
-    assert.equal(response.status, 401);
+    assert.equal(blockedRes.status, 200);
+    const body = await json(blockedRes);
+    assert.equal(body.gifts[0].title, "Подарок при 403");
   } finally {
-    globalThis.fetch = originalFetch;
+    globalThis.fetch = defaultFetchStub;
   }
 });
 

@@ -139,17 +139,23 @@ function buildOwnerLabel(owner) {
 }
 
 function buildWishlistReplyMarkup(env, ownerId) {
-  if (!env.WEBAPP_URL) return undefined;
-  const webAppUrl = new URL(env.WEBAPP_URL);
-  webAppUrl.searchParams.set("list", String(ownerId));
-  return {
-    inline_keyboard: [[{ text: "Открыть вишлист", web_app: { url: webAppUrl.toString() } }]]
-  };
+  if (!env?.WEBAPP_URL) return undefined;
+  try {
+    const webAppUrl = new URL(env.WEBAPP_URL);
+    webAppUrl.searchParams.set("list", String(ownerId));
+    return {
+      inline_keyboard: [[{ text: "Открыть вишлист", web_app: { url: webAppUrl.toString() } }]]
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function formatNotificationPrice(price) {
-  if (!Number.isFinite(Number(price)) || Number(price) <= 0) return "";
-  return ` (${new Intl.NumberFormat("ru-RU").format(Math.round(Number(price)))} ₽)`;
+  if (price === null || price === undefined || price === "") return "";
+  const numericPrice = Number(price);
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0) return "";
+  return ` (${new Intl.NumberFormat("ru-RU").format(Math.round(numericPrice))} ₽)`;
 }
 
 async function sendNotificationSafe(env, chatId, text, replyMarkup) {
@@ -170,9 +176,13 @@ async function sendNotificationsBatch(env, items) {
     const chunk = items.slice(offset, offset + NOTIFICATION_BATCH_SIZE);
     await Promise.allSettled(chunk.map(async item => {
       if (!isValidChatId(item.chatId)) return;
-      const prefs = await readNotificationPrefs(env, item.chatId);
-      if (prefs[item.prefKey] === false) return;
-      await sendNotificationSafe(env, item.chatId, item.text, item.replyMarkup);
+      try {
+        const prefs = await readNotificationPrefs(env, item.chatId);
+        if (prefs[item.prefKey] === false) return;
+        await sendNotificationSafe(env, item.chatId, item.text, item.replyMarkup);
+      } catch (error) {
+        console.warn("Failed to process notification item:", error?.stack || error);
+      }
     }));
   }
 }
@@ -372,6 +382,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
       const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
       if (previous.is_crowdfund !== next.is_crowdfund) {
         for (const viewerId of beforeIds) {
+          if (viewerId === ownerId) continue;
           notifications.push({
             chatId: viewerId,
             prefKey: "bookings",
@@ -381,7 +392,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
           });
         }
       } else {
-        const removedIds = [...beforeIds].filter(viewerId => !afterIds.has(viewerId));
+        const removedIds = [...beforeIds].filter(viewerId => viewerId !== ownerId && !afterIds.has(viewerId));
         for (const viewerId of removedIds) {
           notifications.push({
             chatId: viewerId,
@@ -393,11 +404,12 @@ async function handleGiftsPost(request, env, viewer, ctx) {
         }
         const changedFields = [];
         if (previous.title !== next.title) changedFields.push("название");
-        if (previous.price !== next.price) changedFields.push("цена");
-        if (previous.comment !== next.comment) changedFields.push("комментарий");
-        if (previous.link !== next.link) changedFields.push("ссылка");
+        if ((previous.price ?? null) !== (next.price ?? null)) changedFields.push("цена");
+        if ((previous.comment || "") !== (next.comment || "")) changedFields.push("комментарий");
+        if ((previous.link || "") !== (next.link || "")) changedFields.push("ссылка");
         if (changedFields.length) {
           for (const viewerId of afterIds) {
+            if (viewerId === ownerId) continue;
             notifications.push({
               chatId: viewerId,
               prefKey: "bookings",
@@ -420,6 +432,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
       const ownerLabel = buildOwnerLabel(record.owner);
       const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
       for (const viewerId of collectGiftViewerIds(gift)) {
+        if (viewerId === ownerId) continue;
         notifications.push({
           chatId: viewerId,
           prefKey: "bookings",
@@ -443,6 +456,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
       const ownerLabel = buildOwnerLabel(record.owner);
       const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
       for (const viewerId of collectGiftViewerIds(gift)) {
+        if (viewerId === ownerId) continue;
         notifications.push({
           chatId: viewerId,
           prefKey: "bookings",
@@ -673,6 +687,10 @@ function subscriptionsKey(userId) {
   return `subscriptions:${userId}`;
 }
 
+function subscribersKey(ownerId) {
+  return `subscribers:${ownerId}`;
+}
+
 function groupsKey(ownerId) {
   return `groups:${ownerId}`;
 }
@@ -767,10 +785,6 @@ async function addSubscription(env, viewerId, targetId) {
   await addSubscriber(env, targetId, viewerId);
 }
 
-function subscribersKey(ownerId) {
-  return `subscribers:${ownerId}`;
-}
-
 async function readSubscribers(env, ownerId) {
   const stored = await env.DB.get(subscribersKey(ownerId), { type: "json" });
   if (!Array.isArray(stored)) return [];
@@ -785,6 +799,7 @@ async function readSubscribers(env, ownerId) {
 }
 
 async function addSubscriber(env, ownerId, viewerId) {
+  if (ownerId === viewerId) return;
   const subscribers = await readSubscribers(env, ownerId);
   if (subscribers.includes(viewerId)) return;
   subscribers.unshift(viewerId);
@@ -951,6 +966,9 @@ async function handleSocialPost(request, env, viewer, ctx) {
 }
 
 async function requestTelegramUserSelection(env, viewer, action, payload) {
+  if (!env.WEBAPP_URL) {
+    throw new HttpError(500, "WEBAPP_URL is not configured");
+  }
   const requestId = crypto.getRandomValues(new Uint32Array(1))[0] % 2_000_000_000 + 1;
   const pending = {
     requesterId: viewer.id,
@@ -1310,9 +1328,6 @@ async function deleteInternalImage(env, imageUrl, ownerId) {
 
 async function handleTelegramWebhook(request, env) {
   await getBotToken(env);
-  if (!env.WEBAPP_URL) {
-    throw new HttpError(500, "WEBAPP_URL is not configured");
-  }
   if (env.WEBHOOK_SECRET) {
     const receivedSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "";
     if (receivedSecret !== env.WEBHOOK_SECRET) throw new HttpError(401, "Invalid webhook secret");
@@ -1325,15 +1340,15 @@ async function handleTelegramWebhook(request, env) {
     throw new HttpError(400, "Invalid Telegram update");
   }
 
+  const callbackQuery = update?.callback_query;
+  if (callbackQuery) {
+    return await handleNotificationCallback(env, callbackQuery);
+  }
+
   const message = update?.message;
   const sharedUsers = message?.users_shared || message?.user_shared;
   if (sharedUsers) {
     return await handleSharedUserSelection(env, message, sharedUsers);
-  }
-
-  const callbackQuery = update?.callback_query;
-  if (callbackQuery) {
-    return await handleNotificationCallback(env, callbackQuery);
   }
 
   const text = String(message?.text || "");
@@ -1345,6 +1360,10 @@ async function handleTelegramWebhook(request, env) {
   const startMatch = text.match(/^\/start(?:@\w+)?(?:\s+(list_\d+))?\s*$/);
   if (!message?.chat?.id || !startMatch) {
     return json({ ok: true });
+  }
+
+  if (!env.WEBAPP_URL) {
+    throw new HttpError(500, "WEBAPP_URL is not configured");
   }
 
   const webAppUrl = new URL(env.WEBAPP_URL);
@@ -1369,6 +1388,9 @@ async function handleTelegramWebhook(request, env) {
 }
 
 async function handleSharedUserSelection(env, message, shared) {
+  if (!env.WEBAPP_URL) {
+    throw new HttpError(500, "WEBAPP_URL is not configured");
+  }
   const requestId = Number(shared?.request_id);
   const requesterId = Number(message?.from?.id);
   if (!Number.isSafeInteger(requestId) || requestId <= 0
@@ -1421,7 +1443,7 @@ async function handleSharedUserSelection(env, message, shared) {
       group.memberIds.push(selectedId);
       await saveGroups(env, requesterId, groups);
     }
-    confirmation = `${selectedProfile.first_name} добавлен(а) в группу «${group.name}».`,
+    confirmation = `${selectedProfile.first_name} добавлен(а) в группу «${group.name}».`;
   } else {
     await env.DB.delete(key);
     throw new HttpError(400, "Unknown selection action");
@@ -1489,10 +1511,11 @@ async function handleNotificationCallback(env, callbackQuery) {
       await env.DB.put(notifyPrefsKey(userId), JSON.stringify(prefs));
 
       const messageId = Number(callbackQuery?.message?.message_id);
-      if (Number.isSafeInteger(messageId) && messageId > 0) {
+      const chatId = Number(callbackQuery?.message?.chat?.id ?? userId);
+      if (Number.isSafeInteger(messageId) && messageId > 0 && isValidChatId(chatId)) {
         try {
           await callTelegramApi(env, "editMessageText", {
-            chat_id: Number(userId),
+            chat_id: chatId,
             message_id: messageId,
             text: buildNotificationSettingsText(prefs),
             reply_markup: buildNotificationSettingsMarkup(prefs)
@@ -1504,7 +1527,11 @@ async function handleNotificationCallback(env, callbackQuery) {
     }
     const callbackId = callbackQuery?.id;
     if (callbackId) {
-      await callTelegramApi(env, "answerCallbackQuery", { callback_query_id: callbackId });
+      try {
+        await callTelegramApi(env, "answerCallbackQuery", { callback_query_id: callbackId });
+      } catch (error) {
+        console.warn("Failed to answer callback query:", error?.stack || error);
+      }
     }
   } catch (error) {
     console.warn("Failed to handle notification callback:", error?.stack || error);
