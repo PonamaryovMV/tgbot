@@ -142,6 +142,7 @@ function createInitialDbState() {
     groupsByOwner,
     subscriptionsByUser,
     usersById,
+    coreProfiles: {},
     images: {},
     nextGiftNum: 10,
     nextGroupNum: 10,
@@ -172,6 +173,17 @@ function getActorFromInitData(initData, db) {
   }
   if (!db.groupsByOwner[id]) db.groupsByOwner[id] = [];
   if (!db.subscriptionsByUser[id]) db.subscriptionsByUser[id] = [];
+  if (!db.coreProfiles[id]) {
+    db.coreProfiles[id] = {
+      id: `usr_${id}`,
+      telegram_id: id,
+      display_name: db.usersById[id].name,
+      username: db.usersById[id].username,
+      payment_phone: "",
+      preferred_banks: [],
+      default_currency: "RUB"
+    };
+  }
   return db.usersById[id];
 }
 
@@ -234,31 +246,16 @@ function attachMockBackend(page, db) {
     const url = new URL(request.url());
     const isLocalOrigin = url.hostname === "127.0.0.1" || url.hostname === "localhost";
 
-    if (!isLocalOrigin) {
+    if (!url.pathname.startsWith("/api/")) {
+      if (isLocalOrigin) {
+        await route.continue();
+        return;
+      }
       await route.fulfill({
-        status: 204,
-        contentType: "text/plain; charset=utf-8",
+        status: 200,
+        contentType: "application/javascript; charset=utf-8",
         body: ""
       });
-      return;
-    }
-
-    if (!url.pathname.startsWith("/api/")) {
-      try {
-        const response = await route.fetch();
-        const body = await response.body();
-        await route.fulfill({
-          status: response.status(),
-          headers: response.headers(),
-          body
-        });
-      } catch {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/javascript; charset=utf-8",
-          body: ""
-        });
-      }
       return;
     }
 
@@ -282,6 +279,27 @@ function attachMockBackend(page, db) {
         contentType: "application/json; charset=utf-8",
         body: JSON.stringify(payload)
       });
+
+    if (path === "/api/core/bootstrap" && method === "GET") {
+      return sendJson({
+        ok: true,
+        module: "superapp_core",
+        d1_bound: true,
+        user: db.coreProfiles[actor.id]
+      });
+    }
+
+    if (path === "/api/core/profile" && method === "POST") {
+      const body = JSON.parse(request.postData() || "{}");
+      db.coreProfiles[actor.id] = {
+        ...db.coreProfiles[actor.id],
+        ...(body.display_name !== undefined ? { display_name: String(body.display_name).trim() } : {}),
+        ...(body.payment_phone !== undefined ? { payment_phone: String(body.payment_phone).trim() } : {}),
+        ...(Array.isArray(body.preferred_banks) ? { preferred_banks: body.preferred_banks } : {}),
+        ...(body.default_currency !== undefined ? { default_currency: String(body.default_currency).toUpperCase() } : {})
+      };
+      return sendJson({ ok: true, user: db.coreProfiles[actor.id] });
+    }
 
     if (path === "/api/wishlist" && method === "GET") {
       const targetId = Number(url.searchParams.get("ownerId") || actor.id);
@@ -606,6 +624,15 @@ export default async function runTelegramScenario(page, baseUrl) {
   const demoDockVisible = await page.locator(".demo-dock-wrapper").isVisible();
   assert.equal(demoDockVisible, false, "Demo Studio dock must be hidden inside Telegram WebApp session");
 
+  const wishlistMenuVisible = await page.locator("#hubModuleWishlistBtn").isVisible();
+  const expensesMenuVisible = await page.locator("#hubModuleExpensesBtn").isVisible();
+  assert.equal(wishlistMenuVisible, true, "Superapp hub wishlist menu item must be visible");
+  assert.equal(expensesMenuVisible, true, "Superapp hub expenses menu item must be visible");
+
+  await page.click("#hubModuleExpensesBtn");
+  const wishlistStillVisible = await page.locator("#wishlistWorkspace").isVisible();
+  assert.equal(wishlistStillVisible, true, "Locked expenses button must keep user in wishlist workspace");
+
   await page.fill("#addTitleInput", "Беспроводная колонка");
   await page.click("#addSubmitBtn");
   await page.waitForSelector('#giftsGrid .gift-card:has-text("Беспроводная колонка")');
@@ -686,6 +713,7 @@ export default async function runTelegramScenario(page, baseUrl) {
     demoDockHidden: !demoDockVisible,
     verifiedFlows: [
       "telegram-session-init",
+      "superapp-hub-menu",
       "create-edit-delete-gift-with-upload",
       "custom-groups",
       "deep-link-and-privacy-filtering",
