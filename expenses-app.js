@@ -1,9 +1,10 @@
 /**
- * Модуль 4: «Совместные расходы» (Этап 2 + Этап 3) — дашборд событий, создание события,
+ * Модуль 4: «Совместные расходы» (Этапы 2–4) — дашборд событий, создание события,
  * виртуальные участники (Ghost Profiles), веса, «Единый кошелёк», Claim Profile,
- * а также операции (Расход / В котёл / Перевод), 5 режимов сплита и мультивалютность.
+ * операции (Расход / В котёл / Перевод), 5 режимов сплита, SVG-граф долгов,
+ * кросс-событийная сводка и 2-шаговое погашение по СБП.
  */
-const EXPENSES_DEMO_STORAGE_KEY = "tg_expenses_stage3_demo_v1";
+const EXPENSES_DEMO_STORAGE_KEY = "tg_expenses_stage4_demo_v1";
 const EXPENSE_ICONS = ["🎉", "🎄", "🍸", "🏖", "🎂", "🚗", "🏕", "🏙", "⚽", "🎮"];
 const EXPENSE_CATEGORIES = [
   { id: "food", label: "Еда", icon: "🍽" },
@@ -54,7 +55,7 @@ function getInitialDemoExpensesData() {
         viewer_member_id: "mem_1",
         viewer_role: "OWNER",
         total_spent_minor: 3600000,
-        net_balance_minor: 900000,
+        net_balance_minor: 1200000,
         members: [
           {
             id: "mem_1",
@@ -66,7 +67,9 @@ function getInitialDemoExpensesData() {
             is_ghost: false,
             role: "OWNER",
             default_weight: 1,
-            linked_payer_member_id: null
+            linked_payer_member_id: null,
+            payment_phone: "+7 999 123-45-67",
+            preferred_banks: ["Т-Банк", "Сбер"]
           },
           {
             id: "mem_2",
@@ -78,7 +81,9 @@ function getInitialDemoExpensesData() {
             is_ghost: false,
             role: "MEMBER",
             default_weight: 1,
-            linked_payer_member_id: "mem_1"
+            linked_payer_member_id: null,
+            payment_phone: "+7 916 555-33-19",
+            preferred_banks: ["Т-Банк", "ВТБ"]
           },
           {
             id: "mem_3",
@@ -90,7 +95,9 @@ function getInitialDemoExpensesData() {
             is_ghost: true,
             role: "MEMBER",
             default_weight: 1,
-            linked_payer_member_id: null
+            linked_payer_member_id: null,
+            payment_phone: "",
+            preferred_banks: []
           }
         ],
         operations: [
@@ -145,6 +152,7 @@ function getInitialDemoExpensesData() {
             ]
           }
         ],
+        settlements: [],
         audit_log: [
           {
             id: "log_2",
@@ -184,13 +192,19 @@ function saveDemoExpensesStore(store) {
   }
 }
 
-function computeWalletsFromClientMembers(members) {
+function getClientUnitHeadId(members, memberId) {
   const byId = new Map((members || []).map(m => [m.id, m]));
+  const m = byId.get(memberId);
+  if (!m) return memberId;
+  return m.linked_payer_member_id && byId.has(m.linked_payer_member_id)
+    ? m.linked_payer_member_id
+    : m.id;
+}
+
+function computeWalletsFromClientMembers(members) {
   const groups = new Map();
   for (const m of members || []) {
-    const headId = m.linked_payer_member_id && byId.has(m.linked_payer_member_id)
-      ? m.linked_payer_member_id
-      : m.id;
+    const headId = getClientUnitHeadId(members, m.id);
     if (!groups.has(headId)) groups.set(headId, []);
     groups.get(headId).push(m);
   }
@@ -208,39 +222,126 @@ function computeWalletsFromClientMembers(members) {
   return wallets;
 }
 
-function recalculateDemoEventSummary(ev) {
-  const ops = Array.isArray(ev.operations) ? ev.operations : [];
+function computeClientSettlementPlan(ev) {
   const members = Array.isArray(ev.members) ? ev.members : [];
-  ev.total_spent_minor = ops
-    .filter(o => o.operation_type !== "TRANSFER")
-    .reduce((sum, o) => sum + (Number(o.base_amount_minor) || 0), 0);
+  const ops = Array.isArray(ev.operations) ? ev.operations : [];
+  const settlements = Array.isArray(ev.settlements) ? ev.settlements : [];
+  const confirmed = settlements.filter(s => s.status === "CONFIRMED");
+  const pending = settlements.filter(s => s.status === "PENDING");
 
-  const memberBal = {};
-  for (const m of members) memberBal[m.id] = 0;
+  const unitGroups = new Map();
+  for (const m of members) {
+    const headId = getClientUnitHeadId(members, m.id);
+    if (!unitGroups.has(headId)) unitGroups.set(headId, []);
+    unitGroups.get(headId).push(m);
+  }
+
+  const units = [];
+  const unitBalances = {};
+  for (const [headId, list] of unitGroups.entries()) {
+    const recipient = list.find(x => x.payment_phone) || list.find(x => !x.is_ghost) || list[0];
+    units.push({
+      id: headId,
+      name: list.length >= 2 ? list.map(x => x.member_name).join(" + ") : list[0].member_name,
+      is_wallet: list.length >= 2,
+      member_ids: list.map(x => x.id),
+      payment_phone: recipient?.payment_phone || "",
+      preferred_banks: Array.isArray(recipient?.preferred_banks) ? recipient.preferred_banks : []
+    });
+    unitBalances[headId] = 0;
+  }
+
+  const pairMap = new Map();
+  const addPair = (fromU, toU, amt) => {
+    if (!fromU || !toU || fromU === toU || amt <= 0) return;
+    const k = `${fromU}|${toU}`;
+    pairMap.set(k, (pairMap.get(k) || 0) + amt);
+  };
+
   for (const op of ops) {
-    for (const s of op.splits || []) {
-      memberBal[s.member_id] = (memberBal[s.member_id] || 0) + ((Number(s.paid_amount_minor) || 0) - (Number(s.owed_amount_minor) || 0));
+    const splits = Array.isArray(op.splits) ? op.splits : [];
+    const payers = splits.filter(s => (Number(s.paid_amount_minor) || 0) > 0);
+    const totalPaid = payers.reduce((s, p) => s + (Number(p.paid_amount_minor) || 0), 0);
+
+    for (const s of splits) {
+      const u = getClientUnitHeadId(members, s.member_id);
+      const paid = Number(s.paid_amount_minor) || 0;
+      const owed = Number(s.owed_amount_minor) || 0;
+      unitBalances[u] = (unitBalances[u] || 0) + (paid - owed);
+
+      if (owed > 0 && totalPaid > 0) {
+        payers.forEach((p, idx) => {
+          const share = idx === payers.length - 1
+            ? owed - payers.slice(0, idx).reduce((acc, x) => acc + Math.round(owed * (Number(x.paid_amount_minor) || 0) / totalPaid), 0)
+            : Math.round(owed * (Number(p.paid_amount_minor) || 0) / totalPaid);
+          addPair(u, getClientUnitHeadId(members, p.member_id), share);
+        });
+      }
     }
   }
 
-  const byId = new Map(members.map(m => [m.id, m]));
-  const viewer = byId.get(ev.viewer_member_id) || members[0];
-  if (!viewer) {
-    ev.net_balance_minor = 0;
-    return;
+  for (const st of confirmed) {
+    const fromU = getClientUnitHeadId(members, st.from_member_id);
+    const toU = getClientUnitHeadId(members, st.to_member_id);
+    const amt = Number(st.allocated_amount_minor ?? st.total_amount_minor) || 0;
+    if (fromU && toU && amt > 0) {
+      unitBalances[fromU] = (unitBalances[fromU] || 0) + amt;
+      unitBalances[toU] = (unitBalances[toU] || 0) - amt;
+      addPair(toU, fromU, amt);
+    }
   }
-  const headId = viewer.linked_payer_member_id && byId.has(viewer.linked_payer_member_id)
-    ? viewer.linked_payer_member_id
-    : viewer.id;
 
-  let net = 0;
-  for (const m of members) {
-    const mHead = m.linked_payer_member_id && byId.has(m.linked_payer_member_id)
-      ? m.linked_payer_member_id
-      : m.id;
-    if (mHead === headId) net += memberBal[m.id] || 0;
+  const isPending = (fromU, toU) =>
+    pending.some(st =>
+      getClientUnitHeadId(members, st.from_member_id) === fromU &&
+      getClientUnitHeadId(members, st.to_member_id) === toU
+    );
+
+  let edges = [];
+  if (ev.simplify_debts) {
+    const debtors = [];
+    const creditors = [];
+    for (const [id, bal] of Object.entries(unitBalances)) {
+      if (bal < 0) debtors.push({ id, amt: -bal });
+      else if (bal > 0) creditors.push({ id, amt: bal });
+    }
+    debtors.sort((a, b) => b.amt - a.amt);
+    creditors.sort((a, b) => b.amt - a.amt);
+    let i = 0;
+    let j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const d = debtors[i];
+      const c = creditors[j];
+      const amt = Math.min(d.amt, c.amt);
+      if (amt > 0) {
+        edges.push({ from_unit_id: d.id, to_unit_id: c.id, amount_minor: amt, pending: isPending(d.id, c.id) });
+      }
+      d.amt -= amt;
+      c.amt -= amt;
+      if (d.amt <= 0) i += 1;
+      if (c.amt <= 0) j += 1;
+    }
+  } else {
+    const seen = new Set();
+    for (const key of pairMap.keys()) {
+      if (seen.has(key)) continue;
+      const [a, b] = key.split("|");
+      seen.add(`${a}|${b}`);
+      seen.add(`${b}|${a}`);
+      const net = (pairMap.get(`${a}|${b}`) || 0) - (pairMap.get(`${b}|${a}`) || 0);
+      if (net > 0) edges.push({ from_unit_id: a, to_unit_id: b, amount_minor: net, pending: isPending(a, b) });
+      else if (net < 0) edges.push({ from_unit_id: b, to_unit_id: a, amount_minor: -net, pending: isPending(b, a) });
+    }
   }
-  ev.net_balance_minor = net;
+
+  ev.units = units;
+  ev.unit_balances_minor = unitBalances;
+  ev.settlement_edges = edges;
+  ev.viewer_unit_id = ev.viewer_member_id ? getClientUnitHeadId(members, ev.viewer_member_id) : (units[0]?.id || null);
+  ev.total_spent_minor = ops
+    .filter(o => o.operation_type !== "TRANSFER")
+    .reduce((sum, o) => sum + (Number(o.base_amount_minor) || 0), 0);
+  ev.net_balance_minor = ev.viewer_unit_id ? (unitBalances[ev.viewer_unit_id] || 0) : 0;
 }
 
 function getExpensesState() {
@@ -248,14 +349,18 @@ function getExpensesState() {
     state.expenses = {
       view: "dashboard", // "dashboard" | "event"
       activeTab: "ops", // "ops" | "settle" | "history"
+      settleView: "graph", // "graph" | "list"
+      focusedUnitId: null,
       loading: false,
       activeEvents: [],
       archivedEvents: [],
+      crossEventDebts: [],
       currentEvent: null,
       mergeSelection: [],
       newEventIcon: "🎉",
       newEventSimplify: true,
-      opDraft: null
+      opDraft: null,
+      settleCtx: null
     };
   }
   return state.expenses;
@@ -294,6 +399,7 @@ async function loadExpensesDashboard() {
       const data = await (typeof readApiResponse === "function" ? readApiResponse(response) : response.json());
       exp.activeEvents = Array.isArray(data.active_events) ? data.active_events : [];
       exp.archivedEvents = Array.isArray(data.archived_events) ? data.archived_events : [];
+      exp.crossEventDebts = Array.isArray(data.cross_event_debts) ? data.cross_event_debts : [];
     } catch (error) {
       if (typeof showToast === "function") {
         showToast(`❌ ${error.message || "Не удалось загрузить события"}`);
@@ -307,26 +413,60 @@ async function loadExpensesDashboard() {
   }
 
   const demo = loadDemoExpensesStore();
-  for (const ev of demo.events) recalculateDemoEventSummary(ev);
+  const crossMap = new Map();
+  for (const ev of demo.events) {
+    computeClientSettlementPlan(ev);
+    if (ev.status === "ARCHIVED") continue;
+    const myU = ev.viewer_unit_id;
+    for (const edge of ev.settlement_edges || []) {
+      let otherU = null;
+      let sign = 0;
+      if (edge.from_unit_id === myU) { otherU = edge.to_unit_id; sign = -1; }
+      else if (edge.to_unit_id === myU) { otherU = edge.from_unit_id; sign = 1; }
+      if (!otherU) continue;
+      const unitObj = (ev.units || []).find(u => u.id === otherU);
+      if (!unitObj) continue;
+      const key = `${ev.base_currency}|${unitObj.name.toLowerCase()}`;
+      if (!crossMap.has(key)) {
+        crossMap.set(key, {
+          key,
+          currency: ev.base_currency || "RUB",
+          name: unitObj.name,
+          is_wallet: unitObj.is_wallet,
+          payment_phone: unitObj.payment_phone || "",
+          preferred_banks: unitObj.preferred_banks || [],
+          net_minor: 0,
+          allocations: []
+        });
+      }
+      const rec = crossMap.get(key);
+      rec.net_minor += sign * edge.amount_minor;
+      rec.allocations.push({
+        event_id: ev.id,
+        event_title: ev.title,
+        from_member_id: ev.viewer_member_id,
+        to_member_id: unitObj.id,
+        amount_minor: sign * edge.amount_minor
+      });
+    }
+  }
   saveDemoExpensesStore(demo);
+
   exp.activeEvents = demo.events
     .filter(e => e.status !== "ARCHIVED")
     .map(e => ({ ...e, members_count: (e.members || []).length }));
   exp.archivedEvents = demo.events
     .filter(e => e.status === "ARCHIVED")
     .map(e => ({ ...e, members_count: (e.members || []).length }));
+  exp.crossEventDebts = [...crossMap.values()].filter(x => Math.abs(x.net_minor) > 0);
   exp.loading = false;
   syncExpensesSummaryToHub();
   renderExpensesModule();
 }
 
 function getEventStatusBadge(status) {
-  if (status === "ARCHIVED") {
-    return `<span class="exp-status-pill archived">Архив</span>`;
-  }
-  if (status === "SETTLING") {
-    return `<span class="exp-status-pill settling">Расчёты · заморожено</span>`;
-  }
+  if (status === "ARCHIVED") return `<span class="exp-status-pill archived">Архив</span>`;
+  if (status === "SETTLING") return `<span class="exp-status-pill settling">Расчёты · заморожено</span>`;
   return `<span class="exp-status-pill active">Активно</span>`;
 }
 
@@ -352,7 +492,37 @@ function renderExpensesDashboard() {
   const activeContainer = document.getElementById("expensesActiveEventsList");
   const archivedSection = document.getElementById("expensesArchivedSection");
   const archivedContainer = document.getElementById("expensesArchivedEventsList");
+  const crossContainer = document.getElementById("expensesCrossPeopleSection");
   if (!activeContainer) return;
+
+  if (crossContainer) {
+    if (!exp.loading && exp.crossEventDebts.length > 0) {
+      crossContainer.innerHTML = `
+        <div class="hub-section-label">По людям <span style="text-transform: none; font-weight: 500; opacity: 0.75;">с учётом всех событий</span></div>
+        <div class="composer-card" style="padding: 8px 14px; margin-bottom: 14px;">
+          ${exp.crossEventDebts.map(c => {
+            const isPos = c.net_minor > 0;
+            const nEv = c.allocations.length;
+            return `
+              <button type="button" class="exp-edge-row" onclick="openCrossPersonSettleModal('${escapeHtml(c.key)}')">
+                <div class="exp-member-avatar">${escapeHtml(c.name.slice(0, 2).toUpperCase())}</div>
+                <div style="flex: 1; min-width: 0;">
+                  <div style="font-size: 14.5px; font-weight: 700;">${escapeHtml(c.name)}</div>
+                  <div style="font-size: 12px; color: var(--tg-theme-hint-color);">${isPos ? "Вам должны" : "Вы должны"} · ${nEv} событ.</div>
+                </div>
+                <div style="text-align: right; flex-shrink: 0;">
+                  <div class="exp-event-bal ${isPos ? "pos" : "neg"}">${formatExpenseMinor(Math.abs(c.net_minor), c.currency)}</div>
+                  <span class="btn-mini" style="margin-top: 4px;">${isPos ? "Напомнить" : "Закрыть долг"}</span>
+                </div>
+              </button>
+            `;
+          }).join("")}
+        </div>
+      `;
+    } else {
+      crossContainer.innerHTML = "";
+    }
+  }
 
   if (exp.loading) {
     activeContainer.innerHTML = `<div class="composer-card" style="text-align: center; color: var(--tg-theme-hint-color);">Загрузка событий...</div>`;
@@ -421,6 +591,7 @@ async function openExpenseEvent(eventId) {
         exp.currentEvent = data.event;
         exp.view = "event";
         exp.activeTab = "ops";
+        exp.focusedUnitId = null;
         renderExpensesModule();
       }
     } catch (error) {
@@ -433,10 +604,11 @@ async function openExpenseEvent(eventId) {
   const found = demo.events.find(e => e.id === eventId);
   if (found) {
     found.wallets = computeWalletsFromClientMembers(found.members || []);
-    recalculateDemoEventSummary(found);
+    computeClientSettlementPlan(found);
     exp.currentEvent = found;
     exp.view = "event";
     exp.activeTab = "ops";
+    exp.focusedUnitId = null;
     renderExpensesModule();
   }
 }
@@ -445,6 +617,7 @@ function backToExpensesDashboard() {
   const exp = getExpensesState();
   exp.view = "dashboard";
   exp.currentEvent = null;
+  exp.focusedUnitId = null;
   if (typeof triggerHaptic === "function") triggerHaptic("light");
   loadExpensesDashboard();
 }
@@ -452,7 +625,15 @@ function backToExpensesDashboard() {
 function switchExpenseEventTab(tabName) {
   const exp = getExpensesState();
   exp.activeTab = tabName;
+  exp.focusedUnitId = null;
   if (typeof triggerHaptic === "function") triggerHaptic("light");
+  renderExpenseEventDetail();
+}
+
+function switchSettleSubView(viewName) {
+  const exp = getExpensesState();
+  exp.settleView = viewName;
+  exp.focusedUnitId = null;
   renderExpenseEventDetail();
 }
 
@@ -558,25 +739,84 @@ function renderExpenseEventDetail() {
   }
 
   if (exp.activeTab === "settle") {
+    const units = Array.isArray(ev.units) ? ev.units : [];
+    const edges = Array.isArray(ev.settlement_edges) ? ev.settlement_edges : [];
+    const pendingSettlements = (ev.settlements || []).filter(s => s.status === "PENDING");
+    const myUnitId = ev.viewer_unit_id;
+    const unitName = id => (units.find(u => u.id === id) || { name: id }).name;
+
+    const listHtml = edges.length
+      ? edges.map(e => `
+          <button type="button" class="exp-edge-row" onclick="openEdgeSettleModal('${escapeHtml(e.from_unit_id)}', '${escapeHtml(e.to_unit_id)}', ${e.amount_minor})">
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 14.5px; font-weight: 700;">
+                ${escapeHtml(unitName(e.from_unit_id))} <span style="color: var(--tg-theme-hint-color);">→</span> ${escapeHtml(unitName(e.to_unit_id))}
+              </div>
+              <div style="font-size: 12px; color: var(--tg-theme-hint-color);">
+                ${e.pending ? "Ожидает подтверждения" : e.to_unit_id === myUnitId ? "Вам должны" : e.from_unit_id === myUnitId ? "Вы должны · нажать для перевода" : "Перевод между участниками"}
+              </div>
+            </div>
+            <div class="exp-op-amt">${formatExpenseMinor(e.amount_minor, cur)}</div>
+          </button>
+        `).join("")
+      : `<div style="text-align: center; color: var(--tg-theme-hint-color); padding: 18px 8px;">Все расчёты завершены 🎉</div>`;
+
+    const pendingHtml = pendingSettlements.length ? `
+      <div class="hub-section-label">Ожидают подтверждения (${pendingSettlements.length})</div>
+      ${pendingSettlements.map(s => {
+        const toU = getClientUnitHeadId(members, s.to_member_id);
+        const fromU = getClientUnitHeadId(members, s.from_member_id);
+        const incoming = toU === myUnitId;
+        return `
+          <div class="composer-card" style="padding: 13px; margin-bottom: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: ${incoming ? "10px" : "0"};">
+              <div class="exp-member-avatar">${incoming ? "↓" : "↑"}</div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-size: 14px; font-weight: 700;">${escapeHtml(unitName(fromU))} → ${escapeHtml(unitName(toU))}</div>
+                <div style="font-size: 12px; color: var(--tg-theme-hint-color);">${escapeHtml(s.payment_method || "СБП")}${s.comment ? " · " + escapeHtml(s.comment) : ""}</div>
+              </div>
+              <div class="exp-op-amt">${formatExpenseMinor(s.allocated_amount_minor ?? s.total_amount_minor, s.currency || cur)}</div>
+            </div>
+            ${incoming ? `
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn-accent" style="flex: 1; min-height: 38px; font-size: 13px;" onclick="confirmIncomingSettlement('${escapeHtml(s.id)}')">Подтвердить</button>
+                <button type="button" class="btn-glass" style="flex: 1; min-height: 38px; font-size: 13px;" onclick="rejectIncomingSettlement('${escapeHtml(s.id)}')">Деньги не пришли</button>
+              </div>
+            ` : `<div class="composer-hint">Ожидает подтверждения получателем</div>`}
+          </div>
+        `;
+      }).join("")}
+    ` : "";
+
     bodyEl.innerHTML = `
-      <div class="composer-card" style="margin-top: 12px;">
-        <div class="bento-switch-card" style="margin-bottom: 12px;" onclick="toggleEventSimplifyDebts()">
+      <div class="composer-card" style="margin-top: 12px; padding: 12px 14px; margin-bottom: 10px;">
+        <div class="bento-switch-card" style="padding: 0; border: 0; background: transparent;" onclick="toggleEventSimplifyDebts()">
           <div class="switch-text-wrap">
             <span class="switch-title">Упрощать долги</span>
-            <span class="switch-subtitle">Минимизировать число переводов между участниками</span>
+            <span class="switch-subtitle">Минимизировать число переводов</span>
           </div>
           <span class="ios-switch">
             <input type="checkbox" id="expSimplifyToggleInput" ${ev.simplify_debts ? "checked" : ""} onchange="toggleEventSimplifyDebts(event)" />
             <span class="ios-slider"></span>
           </span>
         </div>
-        <div class="composer-hint">
-          ${wallets.length
-            ? `Активны единые кошельки: ${wallets.map(w => escapeHtml(w.name)).join(", ")}. При расчёте их доли объединяются.`
-            : "Граф переводов и погашение по СБП подключаются на Этапе 4."}
-        </div>
       </div>
+
+      <div class="segmented-tabs" style="margin-bottom: 12px;">
+        <button type="button" class="seg-tab-btn ${exp.settleView === "graph" ? "active" : ""}" onclick="switchSettleSubView('graph')">Граф</button>
+        <button type="button" class="seg-tab-btn ${exp.settleView === "list" ? "active" : ""}" onclick="switchSettleSubView('list')">Список</button>
+      </div>
+
+      ${exp.settleView === "graph"
+        ? `<div class="exp-graph-host" id="expSettlementGraphHost"></div>`
+        : `<div class="composer-card" style="padding: 10px 14px;">${listHtml}</div>`}
+
+      ${pendingHtml}
     `;
+
+    if (exp.settleView === "graph") {
+      requestAnimationFrame(() => renderSettlementSvgGraph(ev));
+    }
     return;
   }
 
@@ -597,6 +837,507 @@ function renderExpenseEventDetail() {
           `).join("")}
     </div>
   `;
+}
+
+/* ==========================================================================
+   ЭТАП 4: ИНТЕРАКТИВНЫЙ SVG-ГРАФ ПЕРЕВОДОВ И ПОГАШЕНИЕ ПО СБП
+   ========================================================================== */
+function renderSettlementSvgGraph(ev) {
+  const host = document.getElementById("expSettlementGraphHost");
+  if (!host) return;
+
+  const exp = getExpensesState();
+  const units = Array.isArray(ev.units) ? ev.units : [];
+  const edges = Array.isArray(ev.settlement_edges) ? ev.settlement_edges : [];
+  const balances = ev.unit_balances_minor || {};
+  const cur = ev.base_currency || "RUB";
+
+  if (edges.length === 0) {
+    host.style.height = "auto";
+    host.innerHTML = `<div style="text-align: center; color: var(--tg-theme-hint-color); padding: 26px 12px;">Все расчёты завершены 🎉</div>`;
+    return;
+  }
+
+  const W = host.clientWidth || 340;
+  const CW = 104;
+  const CH = 44;
+  const byId = new Map(units.map(u => [u.id, u]));
+  const pos = {};
+  let H = 0;
+
+  if (ev.simplify_debts) {
+    const leftIds = [...new Set(edges.map(e => e.from_unit_id))];
+    const rightIds = [...new Set(edges.map(e => e.to_unit_id))];
+    const gap = 18;
+    const colH = n => n * CH + Math.max(0, n - 1) * gap;
+    H = Math.max(colH(leftIds.length), colH(rightIds.length)) + 36;
+
+    leftIds.forEach((id, i) => {
+      pos[id] = { x: 10, y: (H - colH(leftIds.length)) / 2 + i * (CH + gap) };
+    });
+    rightIds.forEach((id, i) => {
+      pos[id] = { x: W - CW - 10, y: (H - colH(rightIds.length)) / 2 + i * (CH + gap) };
+    });
+  } else {
+    const ids = [...new Set(edges.flatMap(e => [e.from_unit_id, e.to_unit_id]))];
+    H = Math.max(280, Math.round(W * 0.8));
+    const cx = W / 2;
+    const cy = H / 2;
+    const R = Math.min(W / 2 - CW / 2 - 12, H / 2 - CH / 2 - 14);
+    ids.forEach((id, i) => {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / ids.length;
+      pos[id] = { x: cx + R * Math.cos(a) - CW / 2, y: cy + R * Math.sin(a) - CH / 2 };
+    });
+  }
+
+  host.style.height = `${H}px`;
+  const svgParts = [];
+  const pills = [];
+
+  for (const e of edges) {
+    const a = pos[e.from_unit_id];
+    const b = pos[e.to_unit_id];
+    if (!a || !b) continue;
+
+    let d;
+    let ex;
+    let ey;
+    let angle;
+    let px;
+    let py;
+    if (ev.simplify_debts) {
+      const x1 = a.x + CW;
+      const y1 = a.y + CH / 2;
+      const x2 = b.x;
+      const y2 = b.y + CH / 2;
+      const c1 = x1 + 38;
+      const c2 = x2 - 38;
+      d = `M ${x1} ${y1} C ${c1} ${y1}, ${c2} ${y2}, ${x2} ${y2}`;
+      ex = x2;
+      ey = y2;
+      angle = Math.atan2(y2 - y1, x2 - c2);
+      px = W / 2;
+      py = (y1 + y2) / 2;
+    } else {
+      const c1x = a.x + CW / 2;
+      const c1y = a.y + CH / 2;
+      const c2x = b.x + CW / 2;
+      const c2y = b.y + CH / 2;
+      const dx = c2x - c1x;
+      const dy = c2y - c1y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const ux = dx / dist;
+      const uy = dy / dist;
+      const sx = c1x + ux * 56;
+      const sy = c1y + uy * 26;
+      const tx = c2x - ux * 58;
+      const ty = c2y - uy * 26;
+      const mx = (sx + tx) / 2;
+      const my = (sy + ty) / 2;
+      const ox = mx - W / 2;
+      const oy = my - H / 2;
+      const ol = Math.hypot(ox, oy) || 1;
+      const ccx = mx + (ox / ol) * 24;
+      const ccy = my + (oy / ol) * 24;
+      d = `M ${sx} ${sy} Q ${ccx} ${ccy} ${tx} ${ty}`;
+      ex = tx;
+      ey = ty;
+      angle = Math.atan2(ty - ccy, tx - ccx);
+      px = 0.25 * sx + 0.5 * ccx + 0.25 * tx;
+      py = 0.25 * sy + 0.5 * ccy + 0.25 * ty;
+    }
+
+    const s = 7;
+    const hx1 = ex - s * Math.cos(angle - 0.42);
+    const hy1 = ey - s * Math.sin(angle - 0.42);
+    const hx2 = ex - s * Math.cos(angle + 0.42);
+    const hy2 = ey - s * Math.sin(angle + 0.42);
+
+    const focused = exp.focusedUnitId;
+    const isHot = Boolean(focused && (e.from_unit_id === focused || e.to_unit_id === focused));
+    const isDim = Boolean(focused && !isHot);
+
+    svgParts.push(`
+      <g class="exp-edge-g ${isHot ? "hot" : ""} ${isDim ? "dim" : ""}">
+        <path class="exp-edge-path ${e.pending ? "pending" : ""}" d="${d}"/>
+        <polygon class="exp-edge-arrow" points="${ex},${ey} ${hx1},${hy1} ${hx2},${hy2}"/>
+      </g>
+    `);
+    pills.push({ ...e, x: px, y: py, isHot, isDim });
+  }
+
+  const nodesHtml = Object.entries(pos).map(([id, p]) => {
+    const u = byId.get(id);
+    if (!u) return "";
+    const bal = Number(balances[id]) || 0;
+    const focused = exp.focusedUnitId;
+    const isHot = focused === id;
+    const isDim = Boolean(focused && !isHot);
+    return `
+      <div class="exp-graph-node ${isHot ? "hot" : ""} ${isDim ? "dim" : ""}"
+           style="left: ${p.x}px; top: ${p.y}px;"
+           onclick="toggleGraphNodeFocus('${escapeHtml(id)}')">
+        <div class="exp-graph-node-name">${escapeHtml(u.name)}</div>
+        <div class="exp-graph-node-bal">${bal > 0 ? "+" : ""}${formatExpenseMinor(bal, cur)}</div>
+      </div>
+    `;
+  }).join("");
+
+  const pillsHtml = pills.map(p => `
+    <div class="exp-graph-pill ${p.isHot ? "hot" : ""} ${p.isDim ? "dim" : ""}"
+         style="left: ${p.x}px; top: ${p.y}px;"
+         onclick="openEdgeSettleModal('${escapeHtml(p.from_unit_id)}', '${escapeHtml(p.to_unit_id)}', ${p.amount_minor})">
+      ${formatExpenseMinor(p.amount_minor, cur)}
+    </div>
+  `).join("");
+
+  host.innerHTML = `
+    <svg class="exp-graph-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+      ${svgParts.join("")}
+    </svg>
+    ${nodesHtml}
+    ${pillsHtml}
+  `;
+}
+
+function toggleGraphNodeFocus(unitId) {
+  const exp = getExpensesState();
+  exp.focusedUnitId = exp.focusedUnitId === unitId ? null : unitId;
+  if (exp.currentEvent) renderSettlementSvgGraph(exp.currentEvent);
+}
+
+function openEdgeSettleModal(fromUnitId, toUnitId, amountMinor) {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  if (!ev) return;
+
+  const units = Array.isArray(ev.units) ? ev.units : [];
+  const fromU = units.find(u => u.id === fromUnitId);
+  const toU = units.find(u => u.id === toUnitId);
+  if (!fromU || !toU) return;
+
+  const myU = ev.viewer_unit_id;
+  if (toUnitId === myU) {
+    openDebtReminderModal(fromU.name, amountMinor, ev.base_currency || "RUB");
+    return;
+  }
+  if (fromUnitId !== myU) {
+    if (typeof showToast === "function") showToast("Перевод между другими участниками");
+    return;
+  }
+
+  exp.settleCtx = {
+    recipientName: toU.name,
+    paymentPhone: toU.payment_phone || "",
+    preferredBanks: Array.isArray(toU.preferred_banks) ? toU.preferred_banks : [],
+    currency: ev.base_currency || "RUB",
+    method: "СБП",
+    comment: "",
+    items: [
+      {
+        event_id: ev.id,
+        event_title: ev.title,
+        to_member_id: toU.id,
+        amount_minor: Number(amountMinor) || 0,
+        checked: true
+      }
+    ]
+  };
+  renderSettleTransferModal();
+}
+
+function openCrossPersonSettleModal(key) {
+  const exp = getExpensesState();
+  const c = exp.crossEventDebts.find(x => x.key === key);
+  if (!c) return;
+
+  if (c.net_minor > 0) {
+    openDebtReminderModal(c.name, c.net_minor, c.currency);
+    return;
+  }
+
+  const items = (c.allocations || [])
+    .filter(a => a.amount_minor < 0)
+    .map(a => ({
+      event_id: a.event_id,
+      event_title: a.event_title,
+      to_member_id: a.to_member_id,
+      amount_minor: Math.abs(a.amount_minor),
+      checked: true
+    }));
+
+  exp.settleCtx = {
+    recipientName: c.name,
+    paymentPhone: c.payment_phone || "",
+    preferredBanks: Array.isArray(c.preferred_banks) ? c.preferred_banks : [],
+    currency: c.currency || "RUB",
+    method: "СБП",
+    comment: "",
+    items
+  };
+  renderSettleTransferModal();
+}
+
+function openDebtReminderModal(debtorName, amountMinor, currency) {
+  const body = document.getElementById("settleTransferModalBody");
+  if (!body) return;
+
+  body.innerHTML = `
+    <div class="modal-head">
+      <h2 class="modal-title" id="settleTransferModalTitle">🔔 Напоминание о долге</h2>
+      <button type="button" class="btn-close-circle" onclick="closeSettleTransferModal()" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="exp-recipient-box">
+      <div class="exp-member-avatar" style="width: 46px; height: 46px; font-size: 18px;">🔔</div>
+      <div style="flex: 1; min-width: 0;">
+        <strong style="font-size: 16px; display: block;">${escapeHtml(debtorName)}</strong>
+        <div style="font-size: 13px; color: var(--tg-theme-hint-color); margin-top: 3px;">Вам должны ${formatExpenseMinor(amountMinor, currency)}</div>
+      </div>
+    </div>
+    <div class="composer-card" style="box-shadow: none; font-size: 13.5px; color: var(--tg-theme-hint-color);">
+      «Привет! Напоминаю про общий бюджет (${formatExpenseMinor(amountMinor, currency)}) — скинь, пожалуйста, когда будет удобно. Спасибо!»
+    </div>
+    <button type="button" class="btn-accent" style="width: 100%;" onclick="sendDebtReminder('${escapeHtml(debtorName)}', '${escapeHtml(formatExpenseMinor(amountMinor, currency))}')">
+      📋 Скопировать напоминание
+    </button>
+  `;
+
+  const backdrop = document.getElementById("settleTransferModalBackdrop");
+  if (backdrop) backdrop.classList.add("open");
+}
+
+async function sendDebtReminder(name, formattedAmount) {
+  const text = `Привет, ${name}! Напоминаю про расчёт по общим тратам (${formattedAmount}) — переведи, пожалуйста, когда будет удобно.`;
+  if (typeof copyToClipboard === "function") await copyToClipboard(text);
+  closeSettleTransferModal();
+  if (typeof showToast === "function") showToast("📋 Текст напоминания скопирован");
+}
+
+function renderSettleTransferModal() {
+  const exp = getExpensesState();
+  const ctx = exp.settleCtx;
+  const body = document.getElementById("settleTransferModalBody");
+  if (!ctx || !body) return;
+
+  const totalMinor = ctx.items.filter(i => i.checked).reduce((s, i) => s + i.amount_minor, 0);
+  const cur = ctx.currency || "RUB";
+
+  body.innerHTML = `
+    <div class="modal-head">
+      <h2 class="modal-title" id="settleTransferModalTitle">Погашение долга</h2>
+      <button type="button" class="btn-close-circle" onclick="closeSettleTransferModal()" aria-label="Закрыть">✕</button>
+    </div>
+
+    <div class="exp-recipient-box">
+      <div class="exp-member-avatar" style="width: 46px; height: 46px; font-size: 16px;">${escapeHtml(ctx.recipientName.slice(0, 2).toUpperCase())}</div>
+      <div style="flex: 1; min-width: 0;">
+        <strong style="font-size: 16px; display: block; margin-bottom: 3px;">${escapeHtml(ctx.recipientName)}</strong>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+          <span style="font-size: 13px; color: var(--tg-theme-hint-color);">${ctx.paymentPhone ? escapeHtml(ctx.paymentPhone) : "Телефон СБП не указан"}</span>
+          ${ctx.paymentPhone ? `<button type="button" class="btn-mini" onclick="copyExpenseInviteLink('${escapeHtml(ctx.paymentPhone)}')">Копировать</button>` : ""}
+        </div>
+        <div class="audience-editor">
+          ${ctx.preferredBanks.length
+            ? ctx.preferredBanks.map(b => `<span class="audience-chip active" style="min-height: 28px; padding: 3px 9px;">${escapeHtml(b)}</span>`).join("")
+            : `<span class="audience-chip" style="min-height: 28px; padding: 3px 9px;">СБП</span>`}
+        </div>
+      </div>
+    </div>
+
+    <div class="hub-section-label">Из каких событий</div>
+    <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
+      ${ctx.items.map((it, idx) => `
+        <label class="exp-split-row" style="cursor: pointer;">
+          <input type="checkbox" style="width: 18px; height: 18px; accent-color: var(--tg-theme-button-color);" ${it.checked ? "checked" : ""} onchange="toggleSettleItemCheckbox(${idx}, this.checked)" />
+          <span style="flex: 1; font-size: 14px;">${escapeHtml(it.event_title)}</span>
+          <strong class="tabular-nums">${formatExpenseMinor(it.amount_minor, cur)}</strong>
+        </label>
+      `).join("")}
+    </div>
+
+    <div class="exp-split-summary-bar" style="margin-bottom: 12px;">
+      <span>Итого к переводу</span>
+      <strong class="tabular-nums">${formatExpenseMinor(totalMinor, cur)}</strong>
+    </div>
+
+    <div class="hub-section-label">Способ перевода</div>
+    <div class="desire-segment" style="margin-bottom: 12px;">
+      ${["СБП", "Карта", "Наличные"].map(m => `
+        <button type="button" class="desire-btn ${ctx.method === m ? "active" : ""}" onclick="setSettlePaymentMethod('${m}')">${m}</button>
+      `).join("")}
+    </div>
+
+    <div class="field-block" style="margin-bottom: 14px;">
+      <label class="field-label" for="expSettleCommentInput">Комментарий</label>
+      <input type="text" class="input-modern" id="expSettleCommentInput" placeholder="Необязательно" value="${escapeHtml(ctx.comment)}" oninput="getExpensesState().settleCtx.comment=this.value" />
+    </div>
+
+    <button type="button" class="btn-accent" style="width: 100%;" ${totalMinor <= 0 ? "disabled" : ""} onclick="submitSettlePayment()">
+      Я отправил деньги${totalMinor > 0 ? " · " + formatExpenseMinor(totalMinor, cur) : ""}
+    </button>
+    <div class="composer-hint" style="text-align: center; margin-top: 10px;">Получатель увидит перевод в статусе «Ожидает подтверждения».</div>
+  `;
+
+  const backdrop = document.getElementById("settleTransferModalBackdrop");
+  if (backdrop) backdrop.classList.add("open");
+}
+
+function closeSettleTransferModal() {
+  const backdrop = document.getElementById("settleTransferModalBackdrop");
+  if (backdrop) backdrop.classList.remove("open");
+}
+
+function toggleSettleItemCheckbox(idx, checked) {
+  const ctx = getExpensesState().settleCtx;
+  if (!ctx?.items?.[idx]) return;
+  ctx.items[idx].checked = Boolean(checked);
+  renderSettleTransferModal();
+}
+
+function setSettlePaymentMethod(method) {
+  const ctx = getExpensesState().settleCtx;
+  if (!ctx) return;
+  ctx.method = method;
+  renderSettleTransferModal();
+}
+
+async function submitSettlePayment() {
+  const exp = getExpensesState();
+  const ctx = exp.settleCtx;
+  if (!ctx) return;
+  const selected = ctx.items.filter(i => i.checked && i.amount_minor > 0);
+  if (!selected.length) return;
+
+  if (typeof isTelegramSession !== "undefined" && isTelegramSession && typeof API_ORIGIN !== "undefined" && API_ORIGIN) {
+    try {
+      const response = await fetch(`${API_ORIGIN}/api/expenses/settlements`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(typeof getAuthHeaders === "function" ? getAuthHeaders() : {})
+        },
+        body: JSON.stringify({
+          currency: ctx.currency,
+          payment_method: ctx.method,
+          comment: ctx.comment,
+          allocations: selected.map(s => ({
+            event_id: s.event_id,
+            to_member_id: s.to_member_id,
+            amount_minor: s.amount_minor
+          }))
+        })
+      });
+      await (typeof readApiResponse === "function" ? readApiResponse(response) : response.json());
+      closeSettleTransferModal();
+      if (exp.currentEvent) await openExpenseEvent(exp.currentEvent.id);
+      await loadExpensesDashboard();
+      if (typeof triggerHaptic === "function") triggerHaptic("success");
+      if (typeof showToast === "function") showToast("✓ Перевод отправлен на подтверждение");
+    } catch (error) {
+      if (typeof showToast === "function") showToast(`❌ ${error.message || "Не удалось зафиксировать перевод"}`);
+    }
+    return;
+  }
+
+  // Демо-режим
+  const demo = loadDemoExpensesStore();
+  const now = new Date().toISOString();
+  for (const item of selected) {
+    const ev = demo.events.find(e => e.id === item.event_id);
+    if (!ev) continue;
+    ev.settlements = ev.settlements || [];
+    ev.settlements.push({
+      id: `demo_st_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`,
+      from_member_id: ev.viewer_member_id,
+      to_member_id: item.to_member_id,
+      total_amount_minor: item.amount_minor,
+      allocated_amount_minor: item.amount_minor,
+      currency: ctx.currency,
+      payment_method: ctx.method,
+      comment: ctx.comment,
+      status: "PENDING",
+      created_at: now
+    });
+    ev.audit_log.unshift({
+      id: `log_${Date.now()}`,
+      action: "SETTLEMENT_SENT",
+      text: `Вы отправили перевод ${formatExpenseMinor(item.amount_minor, ctx.currency)} (${ctx.method}) — ожидает подтверждения`,
+      created_at: now
+    });
+    computeClientSettlementPlan(ev);
+    if (exp.currentEvent?.id === ev.id) exp.currentEvent = ev;
+  }
+  saveDemoExpensesStore(demo);
+  closeSettleTransferModal();
+  if (exp.currentEvent) renderExpenseEventDetail();
+  await loadExpensesDashboard();
+  if (typeof showToast === "function") showToast("✓ Перевод отправлен на подтверждение");
+}
+
+async function confirmIncomingSettlement(settlementId) {
+  const exp = getExpensesState();
+  if (typeof isTelegramSession !== "undefined" && isTelegramSession && typeof API_ORIGIN !== "undefined" && API_ORIGIN) {
+    try {
+      const response = await fetch(`${API_ORIGIN}/api/expenses/settlements/${encodeURIComponent(settlementId)}/confirm`, {
+        method: "POST",
+        headers: typeof getAuthHeaders === "function" ? getAuthHeaders() : {}
+      });
+      await (typeof readApiResponse === "function" ? readApiResponse(response) : response.json());
+      if (exp.currentEvent) await openExpenseEvent(exp.currentEvent.id);
+      await loadExpensesDashboard();
+      if (typeof showToast === "function") showToast("✓ Перевод подтверждён");
+    } catch (error) {
+      if (typeof showToast === "function") showToast(`❌ ${error.message || "Не удалось подтвердить перевод"}`);
+    }
+    return;
+  }
+
+  const demo = loadDemoExpensesStore();
+  for (const ev of demo.events) {
+    const st = (ev.settlements || []).find(s => s.id === settlementId);
+    if (st) {
+      st.status = "CONFIRMED";
+      computeClientSettlementPlan(ev);
+      if (exp.currentEvent?.id === ev.id) exp.currentEvent = ev;
+    }
+  }
+  saveDemoExpensesStore(demo);
+  if (exp.currentEvent) renderExpenseEventDetail();
+  await loadExpensesDashboard();
+  if (typeof showToast === "function") showToast("✓ Перевод подтверждён");
+}
+
+async function rejectIncomingSettlement(settlementId) {
+  const exp = getExpensesState();
+  if (typeof isTelegramSession !== "undefined" && isTelegramSession && typeof API_ORIGIN !== "undefined" && API_ORIGIN) {
+    try {
+      const response = await fetch(`${API_ORIGIN}/api/expenses/settlements/${encodeURIComponent(settlementId)}/reject`, {
+        method: "POST",
+        headers: typeof getAuthHeaders === "function" ? getAuthHeaders() : {}
+      });
+      await (typeof readApiResponse === "function" ? readApiResponse(response) : response.json());
+      if (exp.currentEvent) await openExpenseEvent(exp.currentEvent.id);
+      await loadExpensesDashboard();
+      if (typeof showToast === "function") showToast("Отмечено: деньги не пришли");
+    } catch (error) {
+      if (typeof showToast === "function") showToast(`❌ ${error.message || "Не удалось отклонить перевод"}`);
+    }
+    return;
+  }
+
+  const demo = loadDemoExpensesStore();
+  for (const ev of demo.events) {
+    const st = (ev.settlements || []).find(s => s.id === settlementId);
+    if (st) {
+      st.status = "REJECTED";
+      computeClientSettlementPlan(ev);
+      if (exp.currentEvent?.id === ev.id) exp.currentEvent = ev;
+    }
+  }
+  saveDemoExpensesStore(demo);
+  if (exp.currentEvent) renderExpenseEventDetail();
+  await loadExpensesDashboard();
+  if (typeof showToast === "function") showToast("Отмечено: деньги не пришли");
 }
 
 /* ==========================================================================
@@ -942,7 +1683,6 @@ function renderOperationSplitEditor() {
     return;
   }
 
-  // MANUAL_ITEMS
   box.innerHTML = `
     ${d.items.map((it, idx) => `
       <div class="exp-receipt-item-card">
@@ -1202,7 +1942,6 @@ async function submitExpenseOperation() {
     return;
   }
 
-  // Демо-режим
   const demo = loadDemoExpensesStore();
   const target = demo.events.find(e => e.id === ev.id);
   if (!target) return;
@@ -1273,7 +2012,7 @@ async function submitExpenseOperation() {
     text: `${d.id ? "Изменена" : "Добавлена"} операция «${opRecord.title}» — ${formatExpenseMinor(opRecord.original_amount_minor, opRecord.original_currency)}`,
     created_at: now
   });
-  recalculateDemoEventSummary(target);
+  computeClientSettlementPlan(target);
   saveDemoExpensesStore(demo);
   exp.currentEvent = target;
   closeExpenseOperationModal();
@@ -1312,7 +2051,7 @@ async function deleteCurrentExpenseOperation() {
   const target = demo.events.find(e => e.id === ev.id);
   if (!target) return;
   target.operations = (target.operations || []).filter(o => o.id !== d.id);
-  recalculateDemoEventSummary(target);
+  computeClientSettlementPlan(target);
   saveDemoExpensesStore(demo);
   exp.currentEvent = target;
   closeExpenseOperationModal();
@@ -1438,7 +2177,9 @@ async function handleCreateExpenseEventSubmit(event) {
       is_ghost: false,
       role: "OWNER",
       default_weight: 1,
-      linked_payer_member_id: null
+      linked_payer_member_id: null,
+      payment_phone: "+7 999 123-45-67",
+      preferred_banks: ["Т-Банк"]
     }
   ];
   const seen = new Set([meName.toLocaleLowerCase("ru-RU")]);
@@ -1472,7 +2213,9 @@ async function handleCreateExpenseEventSubmit(event) {
       is_ghost: true,
       role: "MEMBER",
       default_weight: 1,
-      linked_payer_member_id: null
+      linked_payer_member_id: null,
+      payment_phone: "",
+      preferred_banks: []
     });
   });
 
@@ -1495,10 +2238,12 @@ async function handleCreateExpenseEventSubmit(event) {
     members,
     wallets: [],
     operations: [],
+    settlements: [],
     audit_log: [
       { id: `log_${Date.now()}`, action: "EVENT_CREATED", text: `${meName} создал(а) событие «${title}»`, created_at: now }
     ]
   };
+  computeClientSettlementPlan(created);
   demo.events.unshift(created);
   saveDemoExpensesStore(demo);
   closeNewEventModal();
@@ -1658,7 +2403,9 @@ async function handleAddGhostMemberSubmit(event) {
     is_ghost: true,
     role: "MEMBER",
     default_weight: 1,
-    linked_payer_member_id: null
+    linked_payer_member_id: null,
+    payment_phone: "",
+    preferred_banks: []
   });
   target.audit_log.unshift({
     id: `log_${Date.now()}`,
@@ -1666,6 +2413,7 @@ async function handleAddGhostMemberSubmit(event) {
     text: `Добавлен участник «${name}»`,
     created_at: now
   });
+  computeClientSettlementPlan(target);
   saveDemoExpensesStore(demo);
   exp.currentEvent = target;
   if (input) input.value = "";
@@ -1751,6 +2499,7 @@ async function removeExpenseMember(memberId) {
   for (const m of target.members) {
     if (m.linked_payer_member_id === memberId) m.linked_payer_member_id = null;
   }
+  computeClientSettlementPlan(target);
   saveDemoExpensesStore(demo);
   exp.currentEvent = target;
   exp.mergeSelection = exp.mergeSelection.filter(id => id !== memberId);
@@ -1780,6 +2529,7 @@ async function mergeSelectedIntoUnifiedWallet() {
         exp.mergeSelection = [];
         renderEventParticipantsModal();
         renderExpenseEventDetail();
+        loadExpensesDashboard();
       }
       if (typeof triggerHaptic === "function") triggerHaptic("success");
       if (typeof showToast === "function") showToast("🤝 Единый кошелёк создан");
@@ -1799,7 +2549,7 @@ async function mergeSelectedIntoUnifiedWallet() {
   for (const m of selected) {
     if (m.id !== head.id) m.linked_payer_member_id = head.id;
   }
-  recalculateDemoEventSummary(target);
+  computeClientSettlementPlan(target);
   target.audit_log.unshift({
     id: `log_${Date.now()}`,
     action: "WALLET_MERGED",
@@ -1811,6 +2561,7 @@ async function mergeSelectedIntoUnifiedWallet() {
   exp.mergeSelection = [];
   renderEventParticipantsModal();
   renderExpenseEventDetail();
+  loadExpensesDashboard();
   if (typeof showToast === "function") showToast("🤝 Единый кошелёк создан");
 }
 
@@ -1830,6 +2581,7 @@ async function unmergeUnifiedWallet(headMemberId) {
         exp.currentEvent = data.event;
         renderEventParticipantsModal();
         renderExpenseEventDetail();
+        loadExpensesDashboard();
       }
       if (typeof showToast === "function") showToast("Единый кошелёк разъединён");
     } catch (error) {
@@ -1846,11 +2598,12 @@ async function unmergeUnifiedWallet(headMemberId) {
       m.linked_payer_member_id = null;
     }
   }
-  recalculateDemoEventSummary(target);
+  computeClientSettlementPlan(target);
   saveDemoExpensesStore(demo);
   exp.currentEvent = target;
   renderEventParticipantsModal();
   renderExpenseEventDetail();
+  loadExpensesDashboard();
   if (typeof showToast === "function") showToast("Единый кошелёк разъединён");
 }
 
@@ -1925,6 +2678,7 @@ async function patchCurrentExpenseEvent(patch) {
   const target = demo.events.find(e => e.id === ev.id);
   if (!target) return;
   Object.assign(target, patch);
+  computeClientSettlementPlan(target);
   saveDemoExpensesStore(demo);
   exp.currentEvent = target;
   renderExpenseEventDetail();
@@ -2012,7 +2766,7 @@ async function copyExpenseInviteLink(url) {
     await navigator.clipboard.writeText(url).catch(() => {});
   }
   if (typeof triggerHaptic === "function") triggerHaptic("success");
-  if (typeof showToast === "function") showToast("🔗 Ссылка-приглашение скопирована");
+  if (typeof showToast === "function") showToast("🔗 Скопировано");
 }
 
 function closeClaimProfileModal() {
