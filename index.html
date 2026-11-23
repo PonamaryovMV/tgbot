@@ -106,39 +106,84 @@
     </button>
   </div>
 
-  <!-- МОДУЛЬ 2: СОВМЕСТНЫЕ РАСХОДЫ -->
+  <!-- МОДУЛЬ 2: СОВМЕСТНЫЕ РАСХОДЫ (ЭТАП 2) -->
   <div class="app-shell expenses-shell" id="expensesAppShell" hidden>
-    <div class="expenses-head-bar">
-      <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 12px;" id="backFromExpensesBtn" onclick="openSuperappHub()">
-        ‹ Меню
+    <!-- ДАШБОРД СОБЫТИЙ -->
+    <div id="expensesDashboardView">
+      <div class="expenses-head-bar">
+        <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 12px;" id="backFromExpensesBtn" onclick="openSuperappHub()">
+          ‹ Меню
+        </button>
+        <h1 class="expenses-head-title">💰 Совместные расходы</h1>
+        <button type="button" class="btn-accent" style="min-height: 40px; padding: 0 14px;" id="openNewEventHeaderBtn" onclick="openNewEventModal()">
+          ＋ Событие
+        </button>
+      </div>
+
+      <div class="expenses-balance-grid">
+        <div class="expenses-bal-tile pos">
+          <small>Мне должны</small>
+          <strong id="expensesOweMeValue">0 ₽</strong>
+        </div>
+        <div class="expenses-bal-tile neg">
+          <small>Я должен</small>
+          <strong id="expensesIOweValue">0 ₽</strong>
+        </div>
+      </div>
+
+      <div class="hub-section-label">Активные события</div>
+      <div id="expensesActiveEventsList"></div>
+
+      <button type="button" class="btn-accent" style="width: 100%; margin-top: 6px;" id="openNewEventFooterBtn" onclick="openNewEventModal()">
+        ＋ Новое событие
       </button>
-      <h1 class="expenses-head-title">💰 Совместные расходы</h1>
-    </div>
 
-    <div class="expenses-balance-grid">
-      <div class="expenses-bal-tile pos">
-        <small>Мне должны</small>
-        <strong id="expensesOweMeValue">0 ₽</strong>
-      </div>
-      <div class="expenses-bal-tile neg">
-        <small>Я должен</small>
-        <strong id="expensesIOweValue">0 ₽</strong>
+      <div id="expensesArchivedSection" hidden>
+        <div class="hub-section-label" style="margin-top: 20px;">Архив</div>
+        <div id="expensesArchivedEventsList"></div>
       </div>
     </div>
 
-    <section class="composer-card" id="expensesStage1Section">
-      <div class="modal-head" style="margin-bottom: 8px;">
-        <h2 class="modal-title" style="font-size: 17px;">События и общие траты</h2>
-        <span class="role-mode-badge">Этап 1 · База D1</span>
+    <!-- ЭКРАН КОНКРЕТНОГО СОБЫТИЯ -->
+    <div id="expenseEventDetailView" hidden>
+      <div class="expenses-head-bar">
+        <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 12px;" id="backToExpensesDashBtn" onclick="backToExpensesDashboard()">
+          ‹ События
+        </button>
+        <div style="flex: 1; min-width: 0;">
+          <div class="expenses-head-title" id="expDetailTitle">🎉 Событие</div>
+          <div style="font-size: 12px; color: var(--tg-theme-hint-color);" id="expDetailSub">1 уч. · Активно</div>
+        </div>
+        <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 10px;" id="expShareInviteBtn" onclick="openEventInviteShareModal()" title="Пригласить">
+          📤
+        </button>
+        <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 10px;" id="expParticipantsBtn" onclick="openEventParticipantsModal()" title="Участники">
+          👥
+        </button>
+        <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 10px;" id="expEventMenuBtn" onclick="openExpenseEventMenuModal()" title="Ещё">
+          ⋯
+        </button>
       </div>
-      <p class="hero-subtitle" style="margin-bottom: 14px; line-height: 1.5;">
-        Профиль и реквизиты СБП подключены к базе данных. Создание событий, приглашение друзей и добавление чеков появятся на следующем шаге.
-      </p>
-      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button type="button" class="btn-glass" onclick="openSbpProfileModal()">💳 Настроить СБП</button>
-        <button type="button" class="btn-accent" onclick="selectSuperappModule('wishlist')">🎁 Перейти в вишлисты</button>
+
+      <div class="expenses-balance-grid">
+        <div class="expenses-bal-tile">
+          <small>Общий бюджет</small>
+          <strong id="expDetailBudget">0 ₽</strong>
+        </div>
+        <div class="expenses-bal-tile">
+          <small id="expDetailBalLabel">Вам должны</small>
+          <strong id="expDetailBalValue">0 ₽</strong>
+        </div>
       </div>
-    </section>
+
+      <div class="workspace-nav" style="margin-bottom: 0;">
+        <button type="button" class="workspace-nav-btn active" data-exp-tab="ops" onclick="switchExpenseEventTab('ops')">Траты</button>
+        <button type="button" class="workspace-nav-btn" data-exp-tab="settle" onclick="switchExpenseEventTab('settle')">Расчёты</button>
+        <button type="button" class="workspace-nav-btn" data-exp-tab="history" onclick="switchExpenseEventTab('history')">История</button>
+      </div>
+
+      <div id="expDetailTabBody"></div>
+    </div>
   </div>
 
   <!-- МОДУЛЬ 1: ВИШЛИСТЫ -->
@@ -508,6 +553,100 @@
     </section>
   </div>
 
+  <!-- МОДАЛЬНОЕ ОКНО: НОВОЕ СОБЫТИЕ РАСХОДОВ -->
+  <div class="modal-overlay" id="newEventModalBackdrop" onclick="handleBackdropClick(event, 'newEventModalBackdrop')">
+    <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="newEventModalTitle">
+      <div class="sheet-pill-handle"></div>
+      <div class="modal-head">
+        <h2 class="modal-title" id="newEventModalTitle">Новое событие</h2>
+        <button type="button" class="btn-close-circle" onclick="closeNewEventModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <form id="createExpenseEventForm" onsubmit="handleCreateExpenseEventSubmit(event)">
+        <div class="form-bento-grid">
+          <div class="field-block span-2">
+            <label class="field-label" for="newEventTitleInput">Название</label>
+            <input type="text" class="input-modern" id="newEventTitleInput" maxlength="80" placeholder="Например, Поездка на Байкал" required />
+          </div>
+          <div class="field-block span-2">
+            <span class="field-label">Иконка</span>
+            <div class="category-preset-row" id="newEventIconsPicker"></div>
+          </div>
+          <div class="field-block">
+            <label class="field-label" for="newEventCurrencySelect">Базовая валюта</label>
+            <select class="input-modern" id="newEventCurrencySelect">
+              <option value="RUB">RUB · ₽</option>
+              <option value="USD">USD · $</option>
+              <option value="EUR">EUR · €</option>
+              <option value="KZT">KZT · ₸</option>
+              <option value="TRY">TRY · ₺</option>
+              <option value="GEL">GEL · ₾</option>
+            </select>
+          </div>
+          <div class="field-block">
+            <label class="field-label" for="newEventCopyMembersSelect">Скопировать участников</label>
+            <select class="input-modern" id="newEventCopyMembersSelect">
+              <option value="">— не копировать —</option>
+            </select>
+          </div>
+          <div class="field-block span-2">
+            <label class="field-label" for="newEventGhostsInput">Участники (по одному в строке, можно без Telegram)</label>
+            <textarea class="input-modern textarea-modern" id="newEventGhostsInput" placeholder="Гоша&#10;Лена"></textarea>
+          </div>
+        </div>
+        <label class="bento-switch-card" for="newEventSimplifyInput" style="margin-top: 12px;">
+          <div class="switch-text-wrap">
+            <span class="switch-title">Упрощать долги</span>
+            <span class="switch-subtitle">Минимизировать число переводов</span>
+          </div>
+          <span class="ios-switch">
+            <input type="checkbox" id="newEventSimplifyInput" checked />
+            <span class="ios-slider"></span>
+          </span>
+        </label>
+        <div style="display: flex; gap: 10px; margin-top: 16px;">
+          <button type="button" class="btn-glass" style="flex: 1;" onclick="closeNewEventModal()">Отмена</button>
+          <button type="submit" class="btn-accent" id="submitCreateEventBtn" style="flex: 2;">Создать событие</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: УЧАСТНИКИ, ВЕСА И ЕДИНЫЙ КОШЕЛЁК -->
+  <div class="modal-overlay" id="eventParticipantsModalBackdrop" onclick="handleBackdropClick(event, 'eventParticipantsModalBackdrop')">
+    <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="eventParticipantsModalTitle">
+      <div class="sheet-pill-handle"></div>
+      <div class="modal-head">
+        <h2 class="modal-title" id="eventParticipantsModalTitle">👥 Участники и кошельки</h2>
+        <button type="button" class="btn-close-circle" onclick="closeEventParticipantsModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div id="eventParticipantsModalBody"></div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: МЕНЮ СОБЫТИЯ -->
+  <div class="modal-overlay" id="expenseEventMenuBackdrop" onclick="handleBackdropClick(event, 'expenseEventMenuBackdrop')">
+    <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="expenseEventMenuTitle">
+      <div class="sheet-pill-handle"></div>
+      <div class="modal-head">
+        <h2 class="modal-title" id="expenseEventMenuTitle">Настройки события</h2>
+        <button type="button" class="btn-close-circle" onclick="closeExpenseEventMenuModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div id="expenseEventMenuBody"></div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: ИНВАЙТ-ССЫЛКА И CLAIM PROFILE -->
+  <div class="modal-overlay" id="claimProfileModalBackdrop" onclick="handleBackdropClick(event, 'claimProfileModalBackdrop')">
+    <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="claimProfileModalTitle">
+      <div class="sheet-pill-handle"></div>
+      <div class="modal-head">
+        <h2 class="modal-title" id="claimProfileModalTitle">🔗 Приглашение в событие</h2>
+        <button type="button" class="btn-close-circle" onclick="closeClaimProfileModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div id="claimProfileModalBody"></div>
+    </div>
+  </div>
+
   <!-- МОДАЛЬНОЕ ОКНО: ПРОФИЛЬ И РЕКВИЗИТЫ СБП -->
   <div class="modal-overlay" id="sbpProfileModalBackdrop" onclick="handleBackdropClick(event, 'sbpProfileModalBackdrop')">
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="sbpProfileModalTitle">
@@ -810,5 +949,6 @@
   <script src="app-social.js"></script>
   <script src="app-render.js"></script>
   <script src="expenses-hub.js"></script>
+  <script src="expenses-app.js"></script>
 </body>
 </html>
