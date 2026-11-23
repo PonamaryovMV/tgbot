@@ -2489,7 +2489,21 @@ export function buildSuperappStartKeyboard(webAppBaseUrl) {
   };
 }
 
-async function tryHandleSuperappStartCommand(request, env) {
+async function sendStartReply(env, chatId, text, replyMarkup) {
+  if (!env?.BOT_TOKEN) return;
+  const tgApiBase = ["https://api.", "telegram.org/bot", env.BOT_TOKEN, "/sendMessage"].join("");
+  await fetch(tgApiBase, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      reply_markup: replyMarkup
+    })
+  });
+}
+
+async function tryHandleSuperappStartCommand(request, env, ctx) {
   if (request.method !== "POST") return null;
   const url = new URL(request.url);
   if (url.pathname !== "/" && url.pathname !== "/webhook") return null;
@@ -2514,60 +2528,83 @@ async function tryHandleSuperappStartCommand(request, env) {
   const chatId = message?.chat?.id;
   if (!chatId || !text) return null;
 
-  const genericStartMatch = text.match(
-    /^\/start(?:@\w+)?(?:\s+(module_(?:wishlist|expenses)|exp_[A-Za-z0-9_-]{4,40}))?\s*$/
-  );
-  if (!genericStartMatch || !env?.BOT_TOKEN || !env?.WEBAPP_URL) {
-    return null;
+  const startMatch = text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?\s*$/);
+  if (!startMatch) return null;
+
+  const arg = startMatch[1] || "";
+
+  // Если WEBAPP_URL не задан в env, всё равно отвечаем пользователю, чтобы не было «тишины»
+  if (!env?.WEBAPP_URL) {
+    if (env?.BOT_TOKEN) {
+      const task = sendStartReply(
+        env,
+        chatId,
+        "Бот запущен, но не задана переменная WEBAPP_URL в настройках Cloudflare Worker."
+      );
+      dispatchBackground(ctx, task);
+      await task;
+    }
+    return json({ ok: true });
   }
 
-  const arg = genericStartMatch[1] || "";
   const normalizedBase = env.WEBAPP_URL.endsWith("/") ? env.WEBAPP_URL : `${env.WEBAPP_URL}/`;
   const baseUrl = new URL(normalizedBase);
-  if (arg === "module_wishlist") baseUrl.searchParams.set("module", "wishlist");
-  if (arg === "module_expenses") baseUrl.searchParams.set("module", "expenses");
+
   if (arg.startsWith("exp_")) {
     baseUrl.searchParams.set("module", "expenses");
     baseUrl.searchParams.set("invite", arg);
+    const task = sendStartReply(
+      env,
+      chatId,
+      "Вас пригласили в событие модуля «Совместные расходы». Нажмите кнопку ниже, чтобы открыть событие:",
+      {
+        inline_keyboard: [[
+          { text: "💰 Открыть событие расходов", web_app: { url: baseUrl.toString() } }
+        ]]
+      }
+    );
+    dispatchBackground(ctx, task);
+    await task;
+    return json({ ok: true });
   }
 
-  let replyMarkup;
-  let promptText = "Привет! Выберите раздел Mini App, который нужно открыть:";
-  if (arg.startsWith("exp_")) {
-    promptText = "Вас пригласили в событие модуля «Совместные расходы». Нажмите кнопку ниже, чтобы открыть событие:";
-    replyMarkup = {
-      inline_keyboard: [[
-        {
-          text: "💰 Открыть событие расходов",
-          web_app: { url: baseUrl.toString() }
-        }
-      ]]
-    };
-  } else if (arg) {
-    replyMarkup = {
-      inline_keyboard: [[
-        {
-          text: arg === "module_wishlist" ? "🎁 Открыть вишлисты" : "💰 Открыть совместные расходы",
-          web_app: { url: baseUrl.toString() }
-        }
-      ]]
-    };
-  } else {
-    replyMarkup = buildSuperappStartKeyboard(normalizedBase);
+  if (arg === "module_wishlist" || arg === "module_expenses") {
+    const mod = arg === "module_wishlist" ? "wishlist" : "expenses";
+    baseUrl.searchParams.set("module", mod);
+    const task = sendStartReply(
+      env,
+      chatId,
+      mod === "wishlist"
+        ? "Нажмите кнопку ниже, чтобы открыть вишлисты:"
+        : "Нажмите кнопку ниже, чтобы открыть совместные расходы:",
+      {
+        inline_keyboard: [[
+          {
+            text: mod === "wishlist" ? "🎁 Открыть вишлисты" : "💰 Открыть совместные расходы",
+            web_app: { url: baseUrl.toString() }
+          }
+        ]]
+      }
+    );
+    dispatchBackground(ctx, task);
+    await task;
+    return json({ ok: true });
   }
 
-  const tgApiBase = ["https://api.", "telegram.org/bot", env.BOT_TOKEN, "/sendMessage"].join("");
-  await fetch(tgApiBase, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: promptText,
-      reply_markup: replyMarkup
-    })
-  });
+  if (!arg) {
+    const task = sendStartReply(
+      env,
+      chatId,
+      "Привет! Выберите раздел Mini App, который нужно открыть:",
+      buildSuperappStartMenuKeyboard(normalizedBase)
+    );
+    dispatchBackground(ctx, task);
+    await task;
+    return json({ ok: true });
+  }
 
-  return json({ ok: true });
+  // Для /start list_<id>... возвращаем null, чтобы сработал штатный обработчик в worker.js
+  return null;
 }
 
 export {
@@ -2653,7 +2690,7 @@ export default {
       }
     }
 
-    const startResponse = await tryHandleSuperappStartCommand(request, env);
+    const startResponse = await tryHandleSuperappStartCommand(request, env, ctx);
     if (startResponse) return startResponse;
 
     const baseWorker = await import("./worker.js");
