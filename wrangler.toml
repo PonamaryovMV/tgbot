@@ -1,12 +1,12 @@
 name = "tgbot"
 main = "expenses-worker.js"
-compatibility_date = "2026-04-01"
+compatibility_date = "2025-01-01"
 
 [[kv_namespaces]]
 binding = "DB"
-id = "69c8fd0a3c2f4f55a56ab52354f349c3"
+id = "1406ebcd7f43433a89671b7b010757bc"
 
 [[d1_databases]]
 binding = "EXPENSES_DB"
-database_name = "tg_expenses"
+database_name = "tg_expenses_d1"
 database_id = "d3e17054-e5c6-4f3d-b6fb-eee6cae0cb63"
