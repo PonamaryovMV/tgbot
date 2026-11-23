@@ -8,21 +8,19 @@ export const DEFAULT_GROUPS = Object.freeze([
   { id: "colleagues", name: "Коллеги" }
 ]);
 
-export const LEGACY_GROUP_NAMES = Object.freeze(
-  Object.fromEntries(DEFAULT_GROUPS.map(group => [group.id, group.name]))
-);
+export const LEGACY_GROUP_NAMES = Object.freeze({
+  contacts: "Контакты",
+  family: "Семья",
+  girlfriend: "Девушка",
+  friends: "Друзья"
+});
 
 export const MAX_SOCIAL_ITEMS = 200;
 export const MAX_GROUPS = 20;
 export const MAX_OCCASIONS = 20;
-export const MAX_NEW_GIFT_NOTIFICATIONS = 25;
+export const MAX_NEW_GIFT_NOTIFICATIONS = 20;
 export const NOTIFICATION_BATCH_SIZE = 5;
 
-const ALLOWED_IMAGE_TYPES = new Map([
-  ["image/webp", ".webp"],
-  ["image/jpeg", ".jpg"],
-  ["image/jpg", ".jpg"]
-]);
 const MAX_IMAGE_BYTES = 512 * 1024;
 const INIT_DATA_TTL_SEC = 86400;
 const SELECTION_TTL_SEC = 900;
@@ -35,7 +33,7 @@ export class ApiError extends Error {
 }
 
 export function createShortId(prefix) {
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
   const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
   return `${prefix}_${hex}`;
 }
@@ -74,11 +72,16 @@ export function json(data, status = 200, extraHeaders = {}) {
 // 2. САНИТИЗАЦИЯ И ВАЛИДАЦИЯ ДАННЫХ
 // ==========================================================================
 export function cleanPlainText(value, maxLen) {
-  return String(value ?? "")
+  if (value === null || value === undefined) return "";
+  if (typeof value !== "string" && typeof value !== "number") {
+    throw new ApiError(400, "Invalid text field");
+  }
+  const text = String(value)
     .replace(/[\u0000-\u001F\u007F]/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLen);
+    .trim();
+  if (text.length > maxLen) throw new ApiError(400, "Text field is too long");
+  return text;
 }
 
 export function normalizeUsername(value, required = true) {
@@ -140,12 +143,24 @@ function sanitizePrice(value) {
 
 export function sanitizeDesire(value, legacyPriority = false) {
   const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return legacyPriority ? "high" : "medium";
   if (raw === "high" || raw === "medium" || raw === "wait") return raw;
-  return legacyPriority ? "high" : "medium";
+  throw new ApiError(400, "Invalid desire level");
+}
+
+// Ленient-вариант для отображения: не роняет чтение при повреждённых данных в KV.
+function displayDesire(gift) {
+  try {
+    return sanitizeDesire(gift?.desire, Boolean(gift?.priority));
+  } catch {
+    return Boolean(gift?.priority) ? "high" : "medium";
+  }
 }
 
 export function sanitizeTags(values) {
-  if (!Array.isArray(values)) return [];
+  if (values === undefined || values === null || values === "") return [];
+  if (!Array.isArray(values)) throw new ApiError(400, "Tags must be an array");
+  if (values.length > 8) throw new ApiError(400, "No more than 8 tags are allowed");
   const tags = [];
   const seen = new Set();
   for (const rawValue of values) {
@@ -155,7 +170,6 @@ export function sanitizeTags(values) {
     if (seen.has(key)) continue;
     seen.add(key);
     tags.push(cleaned);
-    if (tags.length >= 8) break;
   }
   return tags;
 }
@@ -173,24 +187,30 @@ function normalizeOccasionId(value) {
 }
 
 export function sanitizeGiftGroupIds(values, allowedIds = null) {
-  if (!Array.isArray(values)) return [];
+  if (values === undefined || values === null || values === "") return [];
+  if (!Array.isArray(values)) throw new ApiError(400, "Gift groups must be an array");
   const unique = [];
   for (const raw of values) {
-    const id = normalizeGroupId(raw);
+    const id = normalizeGroupId(raw) || String(raw ?? "").trim();
+    if (allowedIds && !allowedIds.has(id)) {
+      throw new ApiError(400, "Unknown gift group");
+    }
     if (!id) continue;
-    if (allowedIds && !allowedIds.has(id)) continue;
     if (!unique.includes(id)) unique.push(id);
   }
   return unique;
 }
 
 export function sanitizeGiftOccasionIds(values, allowedIds = null) {
-  if (!Array.isArray(values)) return [];
+  if (values === undefined || values === null || values === "") return [];
+  if (!Array.isArray(values)) throw new ApiError(400, "Gift occasions must be an array");
   const unique = [];
   for (const raw of values) {
-    const id = normalizeOccasionId(raw);
+    const id = normalizeOccasionId(raw) || String(raw ?? "").trim();
+    if (allowedIds && !allowedIds.has(id)) {
+      throw new ApiError(400, "Unknown gift occasion");
+    }
     if (!id) continue;
-    if (allowedIds && !allowedIds.has(id)) continue;
     if (!unique.includes(id)) unique.push(id);
   }
   return unique;
@@ -231,6 +251,18 @@ export function getInternalImageId(imagePath) {
   return imagePath.slice("/api/img/".length);
 }
 
+export async function deleteInternalImage(env, imagePath, ownerId) {
+  const imageId = getInternalImageId(imagePath);
+  if (!imageId) return;
+  try {
+    const { value, metadata } = await env.DB.getWithMetadata(`img:${imageId}`, "arrayBuffer");
+    if (!value || Number(metadata?.ownerId) !== ownerId) return;
+    await env.DB.delete(`img:${imageId}`);
+  } catch (error) {
+    console.error("Failed to delete unused image:", error?.message || error);
+  }
+}
+
 export async function assertInternalImageOwnership(env, ownerId, imagePath) {
   const imageId = getInternalImageId(imagePath);
   if (!imageId) return;
@@ -254,7 +286,7 @@ export async function cloneInternalImage(env, sourceImagePath, targetOwnerId) {
   const contentType = metadata?.contentType || "image/webp";
   await env.DB.put(`img:${newImageId}`, value, {
     metadata: {
-      ownerId: targetOwnerId,
+      ownerId: String(targetOwnerId),
       contentType,
       uploadedAt: new Date().toISOString()
     }
@@ -363,10 +395,18 @@ function normalizeOccasions(rawOccasions) {
 }
 
 export async function loadWishlist(env, ownerId) {
-  const raw = await env.DB.get(`user:${ownerId}`, "json");
+  const [raw, directory] = await Promise.all([
+    env.DB.get(`user:${ownerId}`, "json"),
+    env.DB.get(directoryKey(ownerId), "json")
+  ]);
+  const fallback = directory && typeof directory === "object" ? directory : null;
   if (!raw || typeof raw !== "object") {
     return {
-      owner: { id: ownerId, first_name: "Пользователь", username: "" },
+      owner: {
+        id: ownerId,
+        first_name: cleanPlainText(fallback?.first_name, 64) || "Пользователь",
+        username: fallback?.username ? normalizeUsername(fallback.username, false) : ""
+      },
       occasions: [],
       gifts: []
     };
@@ -374,8 +414,13 @@ export async function loadWishlist(env, ownerId) {
   return {
     owner: {
       id: ownerId,
-      first_name: cleanPlainText(raw.owner?.first_name, 64) || "Пользователь",
-      username: raw.owner?.username ? normalizeUsername(raw.owner.username, false) : ""
+      first_name:
+        cleanPlainText(raw.owner?.first_name, 64) ||
+        cleanPlainText(fallback?.first_name, 64) ||
+        "Пользователь",
+      username:
+        (raw.owner?.username ? normalizeUsername(raw.owner.username, false) : "") ||
+        (fallback?.username ? normalizeUsername(fallback.username, false) : "")
     },
     occasions: normalizeOccasions(raw.occasions),
     gifts: Array.isArray(raw.gifts) ? raw.gifts : []
@@ -649,9 +694,9 @@ export async function requestTelegramUserSelection(env, viewerId, { purpose, gro
     throw new ApiError(500, "BOT_TOKEN is not configured");
   }
   const requestId = createShortId("sel");
-  const numericRequestId = Number(BigInt(`0x${requestId.slice(4, 11)}`) % 2000000000n) + 1;
+  const numericRequestId = crypto.getRandomValues(new Uint32Array(1))[0] % 2_000_000_000 + 1;
 
-  await env.DB.put(selectionKey(requestId), JSON.stringify({
+  await env.DB.put(selectionKey(numericRequestId), JSON.stringify({
     viewerId,
     numericRequestId,
     purpose,
@@ -681,7 +726,7 @@ export async function requestTelegramUserSelection(env, viewerId, { purpose, gro
   const botUsername = await getBotUsername(env);
   return {
     status: "selection_required",
-    requestId,
+    requestId: numericRequestId,
     botUsername
   };
 }
@@ -744,7 +789,7 @@ export async function cleanupGiftAudience(env, ownerId, gift, groups, ctx) {
 
   for (const item of affectedUsers) {
     await syncWishlistParticipation(env, item.userId, ownerId, gift, null);
-    dispatchBackground(ctx, notifyGuestAboutGiftChange(env, item.userId, ownerId, gift, {
+    await dispatchBackground(ctx, notifyGuestAboutGiftChange(env, item.userId, ownerId, gift, {
       reason: "access_revoked",
       participationType: item.type
     }));
@@ -802,26 +847,22 @@ function buildNotificationsKeyboard(prefs) {
   return {
     inline_keyboard: [
       [{
-        text: `${prefs.bookings ? "✅" : "🔕"} Изменения по броням и сборам`,
-        callback_data: "notif_toggle:bookings"
+        text: prefs.bookings ? "Брони и сборы: выключить" : "Брони и сборы: включить",
+        callback_data: "notify:toggle:bookings"
       }],
       [{
-        text: `${prefs.new_gifts ? "✅" : "🔕"} Новые желания в подписках`,
-        callback_data: "notif_toggle:new_gifts"
+        text: prefs.new_gifts ? "Новые желания: выключить" : "Новые желания: включить",
+        callback_data: "notify:toggle:new_gifts"
       }]
     ]
   };
 }
 
 function formatNotificationsSettingsText(prefs) {
-  return [
-    "Настройки уведомлений вишлиста:",
-    "",
-    `• Изменения по броням и сборам: ${prefs.bookings ? "включены" : "выключены"}`,
-    `• Новые желания в подписках: ${prefs.new_gifts ? "включены" : "выключены"}`,
-    "",
-    "Нажмите на кнопку ниже, чтобы переключить:"
-  ].join("\n");
+  const status = value => (value ? "включены" : "выключены");
+  return "Настройки уведомлений:\n"
+    + `• Брони и совместные сборы: ${status(prefs.bookings)}\n`
+    + `• Новые желания друзей: ${status(prefs.new_gifts)}`;
 }
 
 function buildMiniAppButton(env, startParamValue, label = "Открыть вишлист") {
@@ -829,7 +870,9 @@ function buildMiniAppButton(env, startParamValue, label = "Открыть виш
   if (!baseUrl) return undefined;
   try {
     const url = new URL(baseUrl);
-    if (startParamValue) {
+    if (startParamValue && startParamValue.startsWith("list_")) {
+      url.searchParams.set("list", startParamValue.slice("list_".length));
+    } else if (startParamValue) {
       url.searchParams.set("tgWebAppStartParam", startParamValue);
     }
     return {
@@ -883,12 +926,6 @@ function formatOwnerLabel(ownerProfile) {
   return "владельца вишлиста";
 }
 
-function formatParticipationType(type) {
-  if (type === "crowdfund") return "совместном сборе";
-  if (type === "reusable") return "многоразовом подарке";
-  return "бронировании подарка";
-}
-
 export async function notifyGuestAboutGiftChange(env, guestId, ownerId, gift, options = {}) {
   if (!env.BOT_TOKEN || !guestId || guestId === ownerId) return;
   const prefs = await loadNotificationPrefs(env, guestId);
@@ -901,18 +938,22 @@ export async function notifyGuestAboutGiftChange(env, guestId, ownerId, gift, op
 
   let text = "";
   if (reason === "deleted") {
-    text = `В вишлисте ${ownerLabel} удалён подарок «${giftTitle}», в котором вы участвовали. Отметка участия снята.`;
+    text = gift?.is_crowdfund
+      ? `${ownerLabel} удалил(а) подарок «${giftTitle}». Ваше участие в совместном сборе отменено.`
+      : `${ownerLabel} удалил(а) подарок «${giftTitle}». Ваша бронь отменена.`;
   } else if (reason === "gifted") {
-    text = `В вишлисте ${ownerLabel} подарок «${giftTitle}» отмечен как уже подаренный.`;
+    text = `${ownerLabel} отметил(а) подарок «${giftTitle}» как уже подаренный.`;
   } else if (reason === "format_changed") {
-    text = `В вишлисте ${ownerLabel} изменился формат подарка «${giftTitle}» (${options.detail || "обновлены условия участия"}). Проверьте актуальный статус в приложении.`;
+    text = `${ownerLabel} изменил(а) формат подарка «${giftTitle}». `
+      + "Ваша бронь/участие в сборе сброшены — при желании отметьтесь снова.";
   } else if (reason === "access_revoked") {
-    text = `Изменились настройки видимости вишлиста ${ownerLabel}: ваше участие в ${formatParticipationType(options.participationType)} «${giftTitle}» автоматически отменено.`;
+    text = `Подарок «${giftTitle}» в вишлисте ${ownerLabel} стал недоступен. `
+      + "Ваша бронь/участие отменены.";
   } else {
     const changes = Array.isArray(options.changes) && options.changes.length
-      ? ` (${options.changes.join(", ")})`
-      : "";
-    text = `В вишлисте ${ownerLabel} обновились детали подарка «${giftTitle}»${changes}.`;
+      ? options.changes.join(", ")
+      : "детали";
+    text = `${ownerLabel} обновил(а) забронированный подарок «${giftTitle}» (изменено: ${changes}).`;
   }
 
   const replyMarkup = buildMiniAppButton(env, `list_${ownerId}`, "Открыть вишлист");
@@ -952,7 +993,8 @@ export async function notifyGuestsBatch(env, notifications) {
         const ownerProfile = await loadProfile(env, first.ownerId);
         const ownerLabel = formatOwnerLabel(ownerProfile);
         const titles = items.map(i => `«${cleanPlainText(i.gift?.title, 80) || "Подарок"}»`).join(", ");
-        const text = `Изменились настройки видимости вишлиста ${ownerLabel}: автоматически отменено участие по подаркам: ${titles}.`;
+        const text = `В вишлисте ${ownerLabel} стали недоступны несколько подарков, `
+          + `ваши брони/участия отменены: ${titles}.`;
         const replyMarkup = buildMiniAppButton(env, `list_${first.ownerId}`, "Открыть вишлист");
         await sendTelegramBotMessage(env, first.guestId, text, replyMarkup);
       });
@@ -978,10 +1020,10 @@ export async function notifySubscribersAboutNewGift(env, ownerId, gift, groups) 
   const ownerProfile = await loadProfile(env, ownerId);
   const ownerLabel = formatOwnerLabel(ownerProfile);
   const giftTitle = cleanPlainText(gift?.title, 120) || "Новый подарок";
-  const priceLine = gift?.price !== null && gift?.price !== undefined && Number(gift.price) > 0
-    ? ` — ${new Intl.NumberFormat("ru-RU").format(Number(gift.price))} ₽`
+  const priceSuffix = gift?.price !== null && gift?.price !== undefined && Number(gift.price) > 0
+    ? ` (${new Intl.NumberFormat("ru-RU").format(Number(gift.price))} ₽)`
     : "";
-  const text = `В вишлисте ${ownerLabel} появилось новое желание: «${giftTitle}»${priceLine}.`;
+  const text = `У ${ownerLabel} появилось новое желание: «${giftTitle}»${priceSuffix}`;
   const replyMarkup = buildMiniAppButton(env, `list_${ownerId}`, "Посмотреть в вишлисте");
 
   const targets = visibleSubscribers.slice(0, MAX_NEW_GIFT_NOTIFICATIONS);
@@ -1004,11 +1046,17 @@ function participationsKey(viewerId) {
   return `participations:${viewerId}`;
 }
 
+function readParticipationEntries(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.items)) return raw.items;
+  return [];
+}
+
 export async function syncWishlistParticipation(env, viewerId, ownerId, gift, type) {
   const id = parseId(viewerId, "viewer_id");
   const key = participationsKey(id);
   const raw = await env.DB.get(key, "json");
-  const items = Array.isArray(raw?.items) ? raw.items : [];
+  const items = readParticipationEntries(raw);
   const giftId = String(gift.id);
   const filtered = items.filter(
     item => !(Number(item.ownerId) === ownerId && String(item.giftId) === giftId)
@@ -1023,13 +1071,51 @@ export async function syncWishlistParticipation(env, viewerId, ownerId, gift, ty
     });
   }
 
-  await env.DB.put(key, JSON.stringify({ items: filtered.slice(0, 200) }));
+  await env.DB.put(key, JSON.stringify(filtered.slice(0, 200)));
+}
+
+// Восстанавливает записи участия зрителя по конкретному владельцу на основе
+// актуального состояния вишлиста (гость открыл чужой список).
+export async function restoreParticipationsForOwner(env, viewerId, ownerId, record, groups) {
+  if (viewerId === ownerId) return;
+  const key = participationsKey(viewerId);
+  const raw = await env.DB.get(key, "json");
+  const existing = readParticipationEntries(raw);
+  const kept = existing.filter(item => Number(item.ownerId) !== ownerId);
+  const now = new Date().toISOString();
+
+  for (const gift of record.gifts) {
+    if (!canViewerAccessGift(gift, ownerId, viewerId, groups)) continue;
+    let type = "";
+    if (gift.is_crowdfund) {
+      if (Array.isArray(gift.participants) && gift.participants.includes(viewerId)) type = "crowdfund";
+    } else if (gift.is_reusable) {
+      if (Array.isArray(gift.reusable_givers) && gift.reusable_givers.includes(viewerId)) type = "reusable";
+    } else if (gift.booked_by === viewerId) {
+      type = "book";
+    }
+    if (!type) continue;
+    const prev = existing.find(item =>
+      Number(item.ownerId) === ownerId &&
+      String(item.giftId) === String(gift.id) &&
+      item.type === type
+    );
+    kept.push({
+      ownerId,
+      giftId: gift.id,
+      type,
+      updatedAt: prev?.updatedAt || now
+    });
+  }
+
+  kept.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  await env.DB.put(key, JSON.stringify(kept.slice(0, 200)));
 }
 
 export async function handleParticipationsGet(env, viewer) {
   const key = participationsKey(viewer.id);
   const raw = await env.DB.get(key, "json");
-  const stored = Array.isArray(raw?.items) ? raw.items : [];
+  const stored = readParticipationEntries(raw);
   const byOwner = new Map();
 
   for (const item of stored) {
@@ -1069,6 +1155,11 @@ export async function handleParticipationsGet(env, viewer) {
         type,
         updatedAt: entry.updatedAt || new Date().toISOString()
       });
+      const slimGift = serializeGiftForViewer(gift, ownerId, viewer.id);
+      delete slimGift.booked_by;
+      delete slimGift.participants;
+      delete slimGift.reusable_givers;
+      slimGift.participantsCount = Array.isArray(gift.participants) ? gift.participants.length : 0;
       activeItems.push({
         type,
         updatedAt: entry.updatedAt || new Date().toISOString(),
@@ -1077,13 +1168,13 @@ export async function handleParticipationsGet(env, viewer) {
           first_name: record.owner.first_name,
           username: record.owner.username || ""
         },
-        gift: serializeGiftForViewer(gift, ownerId, viewer.id)
+        gift: slimGift
       });
     }
   }
 
   if (cleanedIndex.length !== stored.length) {
-    await env.DB.put(key, JSON.stringify({ items: cleanedIndex }));
+    await env.DB.put(key, JSON.stringify(cleanedIndex));
   }
 
   return json({ items: activeItems });
@@ -1119,7 +1210,7 @@ function serializeGiftForViewer(gift, ownerId, viewerId) {
     category: gift.category || "",
     comment: gift.comment || "",
     priority: Boolean(gift.priority),
-    desire: sanitizeDesire(gift.desire, Boolean(gift.priority)),
+    desire: displayDesire(gift),
     tags: sanitizeTags(gift.tags),
     occasion_ids: sanitizeGiftOccasionIds(gift.occasion_ids),
     is_crowdfund: Boolean(gift.is_crowdfund),
@@ -1181,15 +1272,19 @@ export function serializeWishlist(record, ownerId, viewerId, { groups = [], isSu
 // 7. ОБРАБОТЧИКИ HTTP API И TELEGRAM WEBHOOK
 // ==========================================================================
 async function getBotUsername(env) {
+  if (!env.BOT_TOKEN) {
+    throw new ApiError(500, "BOT_TOKEN is not configured");
+  }
+
   const cached = await env.DB.get("config:bot", "json");
   if (cached?.username) return cached.username;
 
-  if (!env.BOT_TOKEN) return "";
   const data = await callTelegramApi(env, "getMe", {});
   const username = data?.result?.username || "";
-  if (username) {
-    await env.DB.put("config:bot", JSON.stringify({ username }), { expirationTtl: 3600 });
+  if (!username) {
+    throw new ApiError(502, "Telegram bot username is unavailable");
   }
+  await env.DB.put("config:bot", JSON.stringify({ username }), { expirationTtl: 86400 });
   return username;
 }
 
@@ -1200,14 +1295,14 @@ async function handleImageUpload(request, env, viewer) {
     throw new ApiError(400, "Missing image file");
   }
 
-  const contentType = String(file.type || "").toLowerCase();
-  if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
-    throw new ApiError(415, "Only WebP and JPEG images are supported");
+  const buffer = await file.arrayBuffer();
+  if (buffer.byteLength < 12 || buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new ApiError(413, "Image must be smaller than 512 KB");
   }
 
-  const buffer = await file.arrayBuffer();
-  if (buffer.byteLength === 0 || buffer.byteLength > MAX_IMAGE_BYTES) {
-    throw new ApiError(413, "Image must be between 1 byte and 512 KB");
+  const contentType = detectImageType(buffer);
+  if (!contentType) {
+    throw new ApiError(415, "Only WebP and JPEG images are supported");
   }
 
   const imageId = crypto.randomUUID().replaceAll("-", "");
@@ -1220,6 +1315,16 @@ async function handleImageUpload(request, env, viewer) {
   });
 
   return json({ url: `/api/img/${imageId}` }, 201);
+}
+
+function detectImageType(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const isWebp = String.fromCharCode(...bytes.slice(0, 4)) === "RIFF"
+    && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
+  if (isJpeg) return "image/jpeg";
+  if (isWebp) return "image/webp";
+  return "";
 }
 
 async function handleImageGet(env, viewer, imageId) {
@@ -1270,6 +1375,8 @@ async function handleGiftsGet(env, viewer, url) {
       first_name: viewer.first_name,
       username: viewer.username || record.owner.username || ""
     };
+  } else {
+    await restoreParticipationsForOwner(env, viewer.id, ownerId, record, groups);
   }
 
   return json(
@@ -1299,15 +1406,18 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     "save_occasion",
     "delete_occasion"
   ]);
-  const guestActions = new Set(["toggle_book", "toggle_crowdfund", "copy_gift"]);
+  const guestActions = new Set(["toggle_book", "toggle_crowdfund"]);
 
+  if (action === "copy_gift" && isOwner) {
+    throw new ApiError(400, "You cannot copy your own gift");
+  }
   if (ownerActions.has(action) && !isOwner) {
     throw new ApiError(403, "Only the wishlist owner can modify gifts");
   }
   if (guestActions.has(action) && isOwner) {
-    throw new ApiError(403, "Owner cannot book or copy own gifts");
+    throw new ApiError(403, "Owner cannot book their own gift");
   }
-  if (!ownerActions.has(action) && !guestActions.has(action)) {
+  if (!ownerActions.has(action) && !guestActions.has(action) && action !== "copy_gift") {
     throw new ApiError(400, "Unsupported action");
   }
 
@@ -1340,7 +1450,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
         item => item.id !== requestedId && item.title.toLocaleLowerCase("ru-RU") === titleKey
       );
       if (duplicate) {
-        throw new ApiError(400, "Occasion with this title already exists");
+        throw new ApiError(409, "Occasion with this title already exists");
       }
       existing.title = title;
       await saveWishlist(env, ownerId, record);
@@ -1354,14 +1464,11 @@ async function handleGiftsPost(request, env, viewer, ctx) {
       item => item.title.toLocaleLowerCase("ru-RU") === titleKey
     );
     if (existingByTitle) {
-      return json({
-        ...serializeWishlist(record, ownerId, viewer.id, { groups }),
-        savedOccasionId: existingByTitle.id
-      });
+      throw new ApiError(409, "Occasion with this title already exists");
     }
 
     if (record.occasions.length >= MAX_OCCASIONS) {
-      throw new ApiError(400, `Maximum ${MAX_OCCASIONS} occasions allowed`);
+      throw new ApiError(409, "Occasions limit reached");
     }
 
     const newOccasion = {
@@ -1402,7 +1509,10 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     await assertInternalImageOwnership(env, ownerId, image);
     const desire = sanitizeDesire(payload.desire, Boolean(payload.priority));
     const isCrowdfund = Boolean(payload.is_crowdfund);
-    const isReusable = !isCrowdfund && Boolean(payload.is_reusable);
+    const isReusable = Boolean(payload.is_reusable);
+    if (isCrowdfund && isReusable) {
+      throw new ApiError(400, "Gift cannot be both crowdfund and reusable");
+    }
 
     const newGift = {
       id: createGiftId(record.gifts),
@@ -1427,7 +1537,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
 
     record.gifts.unshift(newGift);
     await saveWishlist(env, ownerId, record);
-    dispatchBackground(ctx, notifySubscribersAboutNewGift(env, ownerId, newGift, groups));
+    await dispatchBackground(ctx, notifySubscribersAboutNewGift(env, ownerId, newGift, groups));
     return json(serializeWishlist(record, ownerId, viewer.id, { groups }));
   }
 
@@ -1569,8 +1679,13 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     await cleanupGiftAudience(env, ownerId, updated, groups, ctx);
     await saveWishlist(env, ownerId, record);
 
+    if (existing.image && existing.image !== updated.image
+      && !record.gifts.some(gift => gift.image === existing.image)) {
+      await deleteInternalImage(env, existing.image, ownerId);
+    }
+
     if (notifications.length > 0) {
-      dispatchBackground(ctx, notifyGuestsBatch(env, notifications));
+      await dispatchBackground(ctx, notifyGuestsBatch(env, notifications));
     }
 
     return json(serializeWishlist(record, ownerId, viewer.id, { groups }));
@@ -1581,6 +1696,10 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     if (idx === -1) throw new ApiError(404, "Gift not found");
     const [removed] = record.gifts.splice(idx, 1);
 
+    if (removed.image && !record.gifts.some(gift => gift.image === removed.image)) {
+      await deleteInternalImage(env, removed.image, ownerId);
+    }
+
     const affectedGuestIds = collectGiftViewerIds(removed);
     for (const guestId of affectedGuestIds) {
       await syncWishlistParticipation(env, guestId, ownerId, removed, null);
@@ -1589,7 +1708,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     await saveWishlist(env, ownerId, record);
 
     if (!removed.is_gifted && affectedGuestIds.length > 0) {
-      dispatchBackground(
+      await dispatchBackground(
         ctx,
         notifyGuestsBatch(
           env,
@@ -1618,7 +1737,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     if (nextGifted) {
       const guestIds = collectGiftViewerIds(targetGift);
       if (guestIds.length > 0) {
-        dispatchBackground(
+        await dispatchBackground(
           ctx,
           notifyGuestsBatch(
             env,
@@ -1642,6 +1761,9 @@ async function handleGiftsPost(request, env, viewer, ctx) {
   assertGiftVisible(gift, ownerId, viewer.id, groups);
 
   if (action === "copy_gift") {
+    if (ownerId === viewer.id) {
+      throw new ApiError(400, "You cannot copy your own gift");
+    }
     const viewerRecord = await loadWishlist(env, viewer.id);
     viewerRecord.owner = {
       id: viewer.id,
@@ -1653,7 +1775,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
       ? await cloneInternalImage(env, gift.image, viewer.id)
       : sanitizeImage(gift.image);
 
-    const desire = sanitizeDesire(gift.desire, Boolean(gift.priority));
+    const desire = displayDesire(gift);
     const isCrowdfund = Boolean(gift.is_crowdfund);
     const isReusable = !isCrowdfund && Boolean(gift.is_reusable);
 
@@ -1680,7 +1802,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
 
     viewerRecord.gifts.unshift(copiedGift);
     await saveWishlist(env, viewer.id, viewerRecord);
-    dispatchBackground(ctx, notifySubscribersAboutNewGift(env, viewer.id, copiedGift, await loadGroups(env, viewer.id)));
+    await dispatchBackground(ctx, notifySubscribersAboutNewGift(env, viewer.id, copiedGift, await loadGroups(env, viewer.id)));
 
     return json({
       ok: true,
@@ -1694,7 +1816,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
 
   if (action === "toggle_book") {
     if (gift.is_crowdfund) {
-      throw new ApiError(400, "This gift uses crowdfund mode");
+      throw new ApiError(409, "This gift uses crowdfund mode");
     }
 
     if (gift.is_reusable) {
@@ -1727,7 +1849,7 @@ async function handleGiftsPost(request, env, viewer, ctx) {
 
   if (action === "toggle_crowdfund") {
     if (!gift.is_crowdfund) {
-      throw new ApiError(400, "This gift does not use crowdfund mode");
+      throw new ApiError(409, "This gift does not use crowdfund mode");
     }
     if (!Array.isArray(gift.participants)) gift.participants = [];
     const pos = gift.participants.indexOf(viewer.id);
@@ -1791,14 +1913,14 @@ async function handleSocialPost(request, env, viewer, ctx) {
   if (action === "create_group") {
     const groups = await loadGroups(env, viewer.id);
     if (groups.length >= MAX_GROUPS) {
-      throw new ApiError(400, `Maximum ${MAX_GROUPS} groups allowed`);
+      throw new ApiError(409, "Groups limit reached");
     }
     const name = sanitizeGroupName(payload.name);
     const duplicate = groups.find(
       item => item.name.toLocaleLowerCase("ru-RU") === name.toLocaleLowerCase("ru-RU")
     );
     if (duplicate) {
-      throw new ApiError(400, "Group with this name already exists");
+      throw new ApiError(409, "Group with this name already exists");
     }
     groups.push({
       id: createShortId("grp"),
@@ -1817,7 +1939,7 @@ async function handleSocialPost(request, env, viewer, ctx) {
       item => item.id !== group.id && item.name.toLocaleLowerCase("ru-RU") === name.toLocaleLowerCase("ru-RU")
     );
     if (duplicate) {
-      throw new ApiError(400, "Group with this name already exists");
+      throw new ApiError(409, "Group with this name already exists");
     }
     group.name = name;
     await saveGroups(env, viewer.id, groups);
@@ -1954,7 +2076,7 @@ async function handleSocialPost(request, env, viewer, ctx) {
       await saveWishlist(env, viewer.id, record);
     }
     if (notifications.length > 0) {
-      dispatchBackground(ctx, notifyGuestsBatch(env, notifications));
+      await dispatchBackground(ctx, notifyGuestsBatch(env, notifications));
     }
 
     return json(await buildSocialPayload(env, viewer.id));
@@ -2008,8 +2130,8 @@ export async function handleTelegramWebhook(request, env) {
       });
     }
 
-    if (data.startsWith("notif_toggle:") && fromUser?.id) {
-      const field = data.slice("notif_toggle:".length);
+    if (data.startsWith("notify:toggle:") && fromUser?.id) {
+      const field = data.slice("notify:toggle:".length);
       if (field === "bookings" || field === "new_gifts") {
         const current = await loadNotificationPrefs(env, fromUser.id);
         const updated = await saveNotificationPrefs(env, fromUser.id, {
@@ -2053,8 +2175,12 @@ export async function handleTelegramWebhook(request, env) {
   const chatId = message.chat?.id;
   if (!chatId) return json({ ok: true });
 
-  if (message.users_shared && message.from?.id) {
-    await handleSharedUserSelection(env, message.from.id, chatId, message.users_shared);
+  const sharedRaw = message.users_shared || message.user_shared;
+  if (sharedRaw && message.from?.id) {
+    const shared = Array.isArray(sharedRaw.users)
+      ? sharedRaw
+      : { request_id: sharedRaw.request_id, users: [sharedRaw] };
+    await handleSharedUserSelection(env, message.from.id, chatId, shared);
     return json({ ok: true });
   }
 
@@ -2154,23 +2280,10 @@ export async function handleSharedUserSelection(env, viewerId, chatId, usersShar
   const sharedUsers = Array.isArray(usersShared.users) ? usersShared.users : [];
   const selected = sharedUsers[0];
 
-  const listed = await env.DB.list({ prefix: "selection:" });
-  let matchedKey = "";
-  let pending = null;
-  for (const keyInfo of listed.keys) {
-    const candidate = await env.DB.get(keyInfo.name, "json");
-    if (
-      candidate &&
-      Number(candidate.viewerId) === viewerId &&
-      Number(candidate.numericRequestId) === numericRequestId
-    ) {
-      matchedKey = keyInfo.name;
-      pending = candidate;
-      break;
-    }
-  }
+  const matchedKey = selectionKey(numericRequestId);
+  const pending = await env.DB.get(matchedKey, "json");
 
-  if (!pending || !selected) {
+  if (!pending || Number(pending.viewerId) !== viewerId || !selected) {
     await sendTelegramBotMessage(
       env,
       chatId,
@@ -2182,11 +2295,11 @@ export async function handleSharedUserSelection(env, viewerId, chatId, usersShar
 
   await env.DB.delete(matchedKey);
   const selectedId = parseId(selected.user_id, "selected_user_id");
-  const firstName = [selected.first_name, selected.last_name].filter(Boolean).join(" ").trim() || "Пользователь";
+  const firstName = [selected.first_name, selected.last_name].filter(Boolean).join(" ").trim() || undefined;
   await upsertUserDirectory(env, {
     id: selectedId,
     first_name: firstName,
-    username: selected.username ? normalizeUsername(selected.username, false) : ""
+    username: selected.username ? normalizeUsername(selected.username, false) : undefined
   });
 
   if (selectedId === viewerId) {
@@ -2205,10 +2318,19 @@ export async function handleSharedUserSelection(env, viewerId, chatId, usersShar
     messageText = `Подписка на ${cleanPlainText(firstName, 64)} сохранена. Вернитесь в Mini App.`;
   } else if (pending.purpose === "group") {
     const groups = await loadGroups(env, viewerId);
-    const group = getGroup(groups, pending.groupId);
+    const group = groups.find(item => item.id === String(pending.groupId || ""));
+    if (!group) {
+      await sendTelegramBotMessage(
+        env,
+        chatId,
+        "Выбранная группа больше не существует.",
+        { remove_keyboard: true }
+      );
+      return;
+    }
     if (!group.memberIds.includes(selectedId)) {
       group.memberIds.unshift(selectedId);
-      await saveGroups(env, viewer.id, groups);
+      await saveGroups(env, viewerId, groups);
     }
     messageText = `${cleanPlainText(firstName, 64)} добавлен в группу «${group.name}». Вернитесь в Mini App.`;
   }
@@ -2274,6 +2396,18 @@ export default {
       if (url.pathname === "/api/config" && request.method === "GET") {
         const botUsername = await getBotUsername(env);
         return json({ botUsername }, 200, cors);
+      }
+
+      // Неизвестные маршруты отклоняем до проверки авторизации (404 вместо 401).
+      if (
+        url.pathname !== "/api/upload" &&
+        url.pathname !== "/api/participations" &&
+        url.pathname !== "/api/social" &&
+        url.pathname !== "/api/gifts" &&
+        url.pathname !== "/api/data" &&
+        !url.pathname.startsWith("/api/img/")
+      ) {
+        throw new ApiError(404, "Not found");
       }
 
       const viewer = await verifyTelegramInitData(
