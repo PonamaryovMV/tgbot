@@ -1,10 +1,10 @@
 /**
- * Модуль 4: «Совместные расходы» (Этапы 2–4) — дашборд событий, создание события,
+ * Модуль 4: «Совместные расходы» (Этапы 2–5) — дашборд событий, создание события,
  * виртуальные участники (Ghost Profiles), веса, «Единый кошелёк», Claim Profile,
  * операции (Расход / В котёл / Перевод), 5 режимов сплита, SVG-граф долгов,
- * кросс-событийная сводка и 2-шаговое погашение по СБП.
+ * кросс-событийная сводка, 2-шаговое погашение по СБП, целевые сборы и CSV-экспорт.
  */
-const EXPENSES_DEMO_STORAGE_KEY = "tg_expenses_stage4_demo_v1";
+const EXPENSES_DEMO_STORAGE_KEY = "tg_expenses_stage5_demo_v1";
 const EXPENSE_ICONS = ["🎉", "🎄", "🍸", "🏖", "🎂", "🚗", "🏕", "🏙", "⚽", "🎮"];
 const EXPENSE_CATEGORIES = [
   { id: "food", label: "Еда", icon: "🍽" },
@@ -153,6 +153,19 @@ function getInitialDemoExpensesData() {
           }
         ],
         settlements: [],
+        goal: {
+          id: "demo_goal_1",
+          event_id: "demo_ev_1",
+          title: "Предоплата за коттедж",
+          target_per_member_minor: 500000,
+          receiver_member_id: "mem_1",
+          status: "ACTIVE",
+          contributions: [
+            { member_id: "mem_1", member_name: meName, status: "PAID" },
+            { member_id: "mem_2", member_name: "Анна", status: "PENDING" },
+            { member_id: "mem_3", member_name: "Гоша", status: "UNPAID" }
+          ]
+        },
         audit_log: [
           {
             id: "log_2",
@@ -347,9 +360,9 @@ function computeClientSettlementPlan(ev) {
 function getExpensesState() {
   if (!state.expenses) {
     state.expenses = {
-      view: "dashboard", // "dashboard" | "event"
-      activeTab: "ops", // "ops" | "settle" | "history"
-      settleView: "graph", // "graph" | "list"
+      view: "dashboard",
+      activeTab: "ops",
+      settleView: "graph",
       focusedUnitId: null,
       loading: false,
       activeEvents: [],
@@ -651,6 +664,60 @@ function buildOperationPersonalLabel(ev, op) {
   return { cls: "neg", text: `Ваша доля −${formatExpenseMinor(Math.abs(diff), cur)}` };
 }
 
+function renderEventGoalSection(ev) {
+  const goal = ev.goal;
+  const cur = ev.base_currency || "RUB";
+  const members = Array.isArray(ev.members) ? ev.members : [];
+  if (!goal) {
+    return `
+      <button type="button" class="btn-glass" style="width: 100%; min-height: 40px; font-size: 13px; margin-bottom: 12px;" onclick="openCreateGoalModal()">
+        🎯 Открыть целевой сбор фиксированной суммы
+      </button>
+    `;
+  }
+
+  const contribs = Array.isArray(goal.contributions) ? goal.contributions : [];
+  const perMember = Number(goal.target_per_member_minor) || 0;
+  const paidCount = contribs.filter(c => c.status === "PAID").length;
+  const totalCount = contribs.length || members.length || 1;
+  const collectedMinor = paidCount * perMember;
+  const targetMinor = totalCount * perMember;
+  const pct = targetMinor > 0 ? Math.min(100, Math.round((collectedMinor / targetMinor) * 100)) : 0;
+
+  return `
+    <div class="exp-goal-card">
+      <div class="exp-goal-head">
+        <div>
+          <div class="exp-goal-title">🎯 ${escapeHtml(goal.title)}</div>
+          <div style="font-size: 12px; color: var(--tg-theme-hint-color);">По ${formatExpenseMinor(perMember, cur)} с участника</div>
+        </div>
+        <strong class="tabular-nums" style="font-size: 13px;">${formatExpenseMinor(collectedMinor, cur)} / ${formatExpenseMinor(targetMinor, cur)}</strong>
+      </div>
+      <div class="exp-goal-progress">
+        <div class="exp-goal-progress-fill" style="width: ${pct}%;"></div>
+      </div>
+      ${contribs.map(c => {
+        const m = members.find(x => x.id === c.member_id);
+        const name = c.member_name || m?.member_name || "Участник";
+        const badge = c.status === "PAID"
+          ? `<span class="exp-status-pill active">Сдал</span>`
+          : c.status === "PENDING"
+            ? `<span class="exp-status-pill settling">Отметил перевод</span>`
+            : `<span class="exp-status-pill archived">Не сдал</span>`;
+        const nextStatus = c.status === "UNPAID" ? "PENDING" : c.status === "PENDING" ? "PAID" : "UNPAID";
+        const btnLabel = c.status === "UNPAID" ? "Отметить" : c.status === "PENDING" ? "Подтвердить" : "Сбросить";
+        return `
+          <div class="exp-goal-row">
+            <span style="flex: 1; min-width: 0; font-weight: 600;">${escapeHtml(name)}</span>
+            ${badge}
+            <button type="button" class="btn-mini" onclick="cycleGoalContributionStatus('${escapeHtml(goal.id)}', '${escapeHtml(c.member_id)}', '${nextStatus}')">${btnLabel}</button>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function renderExpenseEventDetail() {
   const exp = getExpensesState();
   const ev = exp.currentEvent;
@@ -722,6 +789,9 @@ function renderExpenseEventDetail() {
       : `<div class="composer-card" style="text-align: center; color: var(--tg-theme-hint-color);">Пока нет операций. Нажмите «＋ Добавить операцию», чтобы внести первую трату.</div>`;
 
     bodyEl.innerHTML = `
+      <div style="margin-top: 12px;">
+        ${renderEventGoalSection(ev)}
+      </div>
       <div class="hub-section-label" style="display: flex; align-items: center; justify-content: space-between;">
         <span>Операции (${operations.length})</span>
         <button type="button" class="btn-mini" onclick="openEventParticipantsModal()">👥 Участники (${members.length})</button>
@@ -837,6 +907,229 @@ function renderExpenseEventDetail() {
           `).join("")}
     </div>
   `;
+}
+
+/* ==========================================================================
+   ЭТАП 5: ЦЕЛЕВЫЕ СБОРЫ И ЭКСПОРТ ВЕДОМОСТИ В CSV
+   ========================================================================== */
+function openCreateGoalModal() {
+  const ev = getExpensesState().currentEvent;
+  const body = document.getElementById("settleTransferModalBody");
+  if (!ev || !body) return;
+  const cur = ev.base_currency || "RUB";
+
+  body.innerHTML = `
+    <div class="modal-head">
+      <h2 class="modal-title" id="settleTransferModalTitle">🎯 Новый целевой сбор</h2>
+      <button type="button" class="btn-close-circle" onclick="closeSettleTransferModal()" aria-label="Закрыть">✕</button>
+    </div>
+    <form onsubmit="handleCreateGoalSubmit(event)">
+      <div class="form-bento-grid">
+        <div class="field-block span-2">
+          <label class="field-label" for="expGoalTitleInput">Название сбора</label>
+          <input type="text" class="input-modern" id="expGoalTitleInput" maxlength="100" placeholder="Например, Подарок имениннику" required />
+        </div>
+        <div class="field-block span-2">
+          <label class="field-label" for="expGoalAmountInput">Сумма с каждого участника (${escapeHtml(cur)})</label>
+          <input type="number" step="0.01" min="1" class="input-modern tabular-nums" id="expGoalAmountInput" placeholder="2000" required />
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 16px;">
+        <button type="button" class="btn-glass" style="flex: 1;" onclick="closeSettleTransferModal()">Отмена</button>
+        <button type="submit" class="btn-accent" style="flex: 2;">Открыть сбор</button>
+      </div>
+    </form>
+  `;
+
+  const backdrop = document.getElementById("settleTransferModalBackdrop");
+  if (backdrop) backdrop.classList.add("open");
+}
+
+async function handleCreateGoalSubmit(event) {
+  event.preventDefault();
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  if (!ev) return;
+
+  const title = String(document.getElementById("expGoalTitleInput")?.value || "").trim();
+  const amount = Number(document.getElementById("expGoalAmountInput")?.value || 0);
+  const targetMinor = Math.round(amount * 100);
+  if (!title || targetMinor <= 0) return;
+
+  if (typeof isTelegramSession !== "undefined" && isTelegramSession && typeof API_ORIGIN !== "undefined" && API_ORIGIN) {
+    try {
+      const response = await fetch(`${API_ORIGIN}/api/expenses/events/${encodeURIComponent(ev.id)}/goals`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(typeof getAuthHeaders === "function" ? getAuthHeaders() : {})
+        },
+        body: JSON.stringify({
+          title,
+          target_per_member_minor: targetMinor,
+          receiver_member_id: ev.viewer_member_id
+        })
+      });
+      const data = await (typeof readApiResponse === "function" ? readApiResponse(response) : response.json());
+      closeSettleTransferModal();
+      if (data?.event) {
+        exp.currentEvent = data.event;
+        renderExpenseEventDetail();
+      }
+      if (typeof showToast === "function") showToast("🎯 Целевой сбор открыт");
+    } catch (error) {
+      if (typeof showToast === "function") showToast(`❌ ${error.message || "Не удалось открыть сбор"}`);
+    }
+    return;
+  }
+
+  const demo = loadDemoExpensesStore();
+  const target = demo.events.find(e => e.id === ev.id);
+  if (!target) return;
+  target.goal = {
+    id: `demo_goal_${Date.now()}`,
+    event_id: ev.id,
+    title,
+    target_per_member_minor: targetMinor,
+    receiver_member_id: target.viewer_member_id,
+    status: "ACTIVE",
+    contributions: (target.members || []).map(m => ({
+      member_id: m.id,
+      member_name: m.member_name,
+      status: m.id === target.viewer_member_id ? "PAID" : "UNPAID"
+    }))
+  };
+  saveDemoExpensesStore(demo);
+  exp.currentEvent = target;
+  closeSettleTransferModal();
+  renderExpenseEventDetail();
+  if (typeof showToast === "function") showToast("🎯 Целевой сбор открыт");
+}
+
+async function cycleGoalContributionStatus(goalId, memberId, nextStatus) {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  if (!ev) return;
+
+  if (typeof isTelegramSession !== "undefined" && isTelegramSession && typeof API_ORIGIN !== "undefined" && API_ORIGIN) {
+    try {
+      const response = await fetch(
+        `${API_ORIGIN}/api/expenses/events/${encodeURIComponent(ev.id)}/goals/${encodeURIComponent(goalId)}/contributions/${encodeURIComponent(memberId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(typeof getAuthHeaders === "function" ? getAuthHeaders() : {})
+          },
+          body: JSON.stringify({ status: nextStatus })
+        }
+      );
+      const data = await (typeof readApiResponse === "function" ? readApiResponse(response) : response.json());
+      if (data?.event) {
+        exp.currentEvent = data.event;
+        renderExpenseEventDetail();
+      }
+    } catch (error) {
+      if (typeof showToast === "function") showToast(`❌ ${error.message || "Не удалось обновить статус"}`);
+    }
+    return;
+  }
+
+  const demo = loadDemoExpensesStore();
+  const target = demo.events.find(e => e.id === ev.id);
+  const c = target?.goal?.contributions?.find(x => x.member_id === memberId);
+  if (c) {
+    c.status = nextStatus;
+    saveDemoExpensesStore(demo);
+    exp.currentEvent = target;
+    renderExpenseEventDetail();
+  }
+}
+
+function exportCurrentExpenseEventCsv() {
+  const ev = getExpensesState().currentEvent;
+  if (!ev) return;
+
+  const members = Array.isArray(ev.members) ? ev.members : [];
+  const units = Array.isArray(ev.units) ? ev.units : [];
+  const ops = Array.isArray(ev.operations) ? ev.operations : [];
+  const edges = Array.isArray(ev.settlement_edges) ? ev.settlement_edges : [];
+  const balances = ev.unit_balances_minor || {};
+  const cur = ev.base_currency || "RUB";
+
+  const memberName = id => (members.find(m => m.id === id) || { member_name: id }).member_name;
+  const unitName = id => (units.find(u => u.id === id) || { name: id }).name;
+  const fmtMoney = minor => ((Number(minor) || 0) / 100).toFixed(2);
+
+  const rows = [
+    ["Событие", ev.title || ""],
+    ["Базовая валюта", cur],
+    ["Статус", ev.status || "ACTIVE"],
+    [],
+    ["Дата", "Тип", "Название", "Категория", "Сумма", "Валюта", "Курс", "В базовой валюте", "Плательщики", "Доли"]
+  ];
+
+  for (const op of ops) {
+    const typeLabel = op.operation_type === "TRANSFER"
+      ? "Перевод"
+      : op.operation_type === "PREPAYMENT"
+        ? "В котёл"
+        : "Расход";
+    const payersText = (op.payers || []).map(memberName).join(" + ");
+    const sharesText = Object.entries(op.shares_minor || {})
+      .map(([mid, v]) => `${memberName(mid)}: ${fmtMoney(v)}`)
+      .join("; ");
+    rows.push([
+      op.expense_date || "",
+      typeLabel,
+      op.title || "",
+      op.category || "",
+      fmtMoney(op.original_amount_minor),
+      op.original_currency || cur,
+      String(op.exchange_rate ?? 1),
+      fmtMoney(op.base_amount_minor),
+      payersText,
+      sharesText
+    ]);
+  }
+
+  rows.push([]);
+  rows.push(["Итоговые балансы юнитов"]);
+  rows.push(["Участник / Кошелёк", "Тип", `Баланс (${cur})`]);
+  for (const u of units) {
+    rows.push([
+      u.name,
+      u.is_wallet ? "Единый кошелёк" : "Участник",
+      fmtMoney(balances[u.id] || 0)
+    ]);
+  }
+
+  rows.push([]);
+  rows.push(["Схема переводов"]);
+  rows.push(["От кого", "Кому", `Сумма (${cur})`, "Статус"]);
+  for (const e of edges) {
+    rows.push([
+      unitName(e.from_unit_id),
+      unitName(e.to_unit_id),
+      fmtMoney(e.amount_minor),
+      e.pending ? "Ожидает подтверждения" : "К переводу"
+    ]);
+  }
+
+  const csvContent = "\uFEFF" + rows
+    .map(r => r.map(cell => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(";"))
+    .join("\r\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${String(ev.title || "event").replace(/[^a-zA-Zа-яА-Я0-9_-]+/g, "_")}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  if (typeof showToast === "function") showToast("📊 Ведомость CSV скачана");
 }
 
 /* ==========================================================================
@@ -1239,7 +1532,6 @@ async function submitSettlePayment() {
     return;
   }
 
-  // Демо-режим
   const demo = loadDemoExpensesStore();
   const now = new Date().toISOString();
   for (const item of selected) {
@@ -2239,6 +2531,7 @@ async function handleCreateExpenseEventSubmit(event) {
     wallets: [],
     operations: [],
     settlements: [],
+    goal: null,
     audit_log: [
       { id: `log_${Date.now()}`, action: "EVENT_CREATED", text: `${meName} создал(а) событие «${title}»`, created_at: now }
     ]
@@ -2407,6 +2700,9 @@ async function handleAddGhostMemberSubmit(event) {
     payment_phone: "",
     preferred_banks: []
   });
+  if (target.goal?.contributions) {
+    target.goal.contributions.push({ member_id: target.members.at(-1).id, member_name: name, status: "UNPAID" });
+  }
   target.audit_log.unshift({
     id: `log_${Date.now()}`,
     action: "MEMBER_ADDED",
@@ -2608,7 +2904,7 @@ async function unmergeUnifiedWallet(headMemberId) {
 }
 
 /* ==========================================================================
-   НАСТРОЙКИ СОБЫТИЯ (ЗАМОРОЗКА / АРХИВ / УПРОЩЕНИЕ ДОЛГОВ)
+   НАСТРОЙКИ СОБЫТИЯ (ЗАМОРОЗКА / АРХИВ / УПРОЩЕНИЕ ДОЛГОВ / CSV)
    ========================================================================== */
 function openExpenseEventMenuModal() {
   const exp = getExpensesState();
@@ -2623,6 +2919,12 @@ function openExpenseEventMenuModal() {
     <div style="display: flex; flex-direction: column; gap: 10px;">
       <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); openEventParticipantsModal();">
         👥 Участники, веса и единые кошельки
+      </button>
+      <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); openCreateGoalModal();">
+        🎯 Целевой сбор фиксированной суммы
+      </button>
+      <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); exportCurrentExpenseEventCsv();">
+        📊 Экспорт ведомости в CSV
       </button>
       <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); openEventInviteShareModal();">
         🔗 Пригласить по ссылке / Claim Profile
