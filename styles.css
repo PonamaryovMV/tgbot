@@ -935,6 +935,152 @@ button {
 }
 
 /* ==========================================================================
+   3.3 ГРАФ РАСЧЁТОВ, СПИСОК ДОЛГОВ И ПОГАШЕНИЕ ПО СБП (ЭТАП 4)
+   ========================================================================== */
+.exp-graph-host {
+  position: relative;
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--specular-inset), var(--shadow-sm);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.exp-graph-svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.exp-edge-path {
+  fill: none;
+  stroke: var(--tg-theme-hint-color);
+  stroke-width: 1.8;
+  opacity: 0.55;
+  transition: opacity 0.2s, stroke 0.2s;
+}
+
+.exp-edge-path.pending {
+  stroke-dasharray: 5 5;
+}
+
+.exp-edge-arrow {
+  fill: var(--tg-theme-hint-color);
+  opacity: 0.55;
+  transition: opacity 0.2s, fill 0.2s;
+}
+
+.exp-edge-g.dim .exp-edge-path,
+.exp-edge-g.dim .exp-edge-arrow {
+  opacity: 0.12;
+}
+
+.exp-edge-g.hot .exp-edge-path {
+  stroke: var(--tg-theme-button-color);
+  opacity: 1;
+  stroke-width: 2.3;
+}
+
+.exp-edge-g.hot .exp-edge-arrow {
+  fill: var(--tg-theme-button-color);
+  opacity: 1;
+}
+
+.exp-graph-node {
+  position: absolute;
+  width: 104px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--surface-input);
+  border: 1.5px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  z-index: 2;
+  cursor: pointer;
+  transition: opacity 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.exp-graph-node.dim {
+  opacity: 0.28;
+}
+
+.exp-graph-node.hot {
+  background: var(--accent-soft);
+  border-color: var(--border-focus);
+}
+
+.exp-graph-node-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.exp-graph-node-bal {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--tg-theme-hint-color);
+}
+
+.exp-graph-pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-highlight);
+  border-radius: 9px;
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  z-index: 3;
+  cursor: pointer;
+  transition: opacity 0.2s, border-color 0.2s;
+}
+
+.exp-graph-pill.dim {
+  opacity: 0.2;
+}
+
+.exp-graph-pill.hot {
+  border-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-color);
+}
+
+.exp-edge-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.exp-edge-row:first-child {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.exp-recipient-box {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-input);
+  border: 1px solid var(--border-hairline);
+  margin-bottom: 12px;
+}
+
+/* ==========================================================================
    4. ОСНОВНОЙ КОНТЕЙНЕР И BENTO HERO HEADER
    ========================================================================== */
 .app-shell {
