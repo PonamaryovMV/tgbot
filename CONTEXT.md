@@ -2,7 +2,7 @@
 
 - **Цель:** Поэтапный модульный рефакторинг репозитория `PonamaryovMV/tgbot` на модули по 200–450 строк без изменения логики и контрактов.
 - **Репозиторий / ветка:** `PonamaryovMV/tgbot` (`main`)
-- **Последний коммит:** `a1f4b0c` — разбиение фронтенда на `src/ui/*`, подключение в `index.html`, обновление `ARCHITECTURE.md` и `tests/browser-runner.mjs`.
+- **Последний коммит:** `6406359d3d313cd4f95fa023400b65ce995d8f85` — разбиение фронтенда на `src/ui/*`, подключение в `index.html`, обновление `ARCHITECTURE.md` и `tests/browser-runner.mjs`.
 - **Что работает:** Модули бэкенда в `src/expenses/` и `src/wishlist/` с сохранением экспортов в `expenses-worker.js` и `worker.js`; ES-модули UI в `src/ui/` подключены через `./src/ui/main.js`.
 - **Текущий статус / проверка:** Код запушен в `main` через MCP; локальный запуск `node --test` и Playwright требует запуска в среде с Node.js >= 20 и установленным Chromium.
 - **Файлы в фокусе:** `expenses-worker.js`, `worker.js`, `index.html`, `src/expenses/*`, `src/wishlist/*`, `src/ui/*`, `ARCHITECTURE.md`.
