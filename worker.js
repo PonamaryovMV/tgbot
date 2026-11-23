@@ -922,7 +922,6 @@ export async function notifyGuestAboutGiftChange(env, guestId, ownerId, gift, op
 export async function notifyGuestsBatch(env, notifications) {
   if (!Array.isArray(notifications) || notifications.length === 0) return;
 
-  // Группируем множественные отмены при исключении из группы в одно сообщение на получателя
   const revokedByGuest = new Map();
   const directItems = [];
 
@@ -1327,7 +1326,6 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     };
   }
 
-  // --- Действия владельца ---
   if (action === "save_occasion") {
     const title = sanitizeOccasionTitle(payload.title);
     const requestedId = normalizeOccasionId(payload.id);
@@ -1489,7 +1487,6 @@ async function handleGiftsPost(request, env, viewer, ctx) {
 
     const notifications = [];
 
-    // Обработка смены формата участия (одиночная бронь / сбор / многоразовый подарок)
     if (previousSnapshot.is_crowdfund && !updated.is_crowdfund) {
       const oldParticipants = Array.isArray(updated.participants) ? [...updated.participants] : [];
       updated.participants = [];
@@ -1548,7 +1545,6 @@ async function handleGiftsPost(request, env, viewer, ctx) {
       });
     }
 
-    // Проверка изменения важных деталей для оставшихся активных участников
     const detailChanges = [];
     if (previousSnapshot.title !== updated.title) detailChanges.push("название");
     if (previousSnapshot.price !== updated.price) detailChanges.push("цена");
@@ -1640,7 +1636,6 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     return json(serializeWishlist(record, ownerId, viewer.id, { groups }));
   }
 
-  // --- Действия гостя ---
   const idx = findGiftIndex(record.gifts, payload.id);
   if (idx === -1) throw new ApiError(404, "Gift not found");
   const gift = record.gifts[idx];
@@ -2000,7 +1995,6 @@ export async function handleTelegramWebhook(request, env) {
   const update = await request.json().catch(() => null);
   if (!update) return json({ ok: true });
 
-  // Обработка inline-кнопок настройки уведомлений (/notifications)
   if (update.callback_query) {
     const query = update.callback_query;
     const fromUser = query.from;
@@ -2214,7 +2208,7 @@ export async function handleSharedUserSelection(env, viewerId, chatId, usersShar
     const group = getGroup(groups, pending.groupId);
     if (!group.memberIds.includes(selectedId)) {
       group.memberIds.unshift(selectedId);
-      await saveGroups(env, viewerId, groups);
+      await saveGroups(env, viewer.id, groups);
     }
     messageText = `${cleanPlainText(firstName, 64)} добавлен в группу «${group.name}». Вернитесь в Mini App.`;
   }
