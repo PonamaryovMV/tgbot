@@ -5,7 +5,8 @@ import {
   EXPENSE_SCHEMA_SQL,
   handleCoreApi,
   handleExpensesApi,
-  getExpensesErrorResponse
+  getExpensesErrorResponse,
+  buildSuperappStartKeyboard
 } from "../expenses-worker.js";
 
 function createMockD1() {
@@ -167,4 +168,15 @@ test("Stage 1 expenses health and dashboard respond cleanly", async () => {
 
   const errRes = getExpensesErrorResponse(new Error("generic"));
   assert.equal(errRes, null);
+});
+
+test("Bot /start keyboard exposes both Wishlists and Shared Expenses modules", () => {
+  const appUrl = ["https://", "ponamaryovmv.github.io/tgbot/"].join("");
+  const kb = buildSuperappStartKeyboard(appUrl);
+  assert.equal(kb.inline_keyboard.length, 2);
+  assert.equal(kb.inline_keyboard[0][0].text, "🎁 Вишлисты");
+  assert.equal(new URL(kb.inline_keyboard[0][0].web_app.url).searchParams.get("module"), "wishlist");
+  assert.equal(kb.inline_keyboard[0][1].text, "💰 Совместные расходы");
+  assert.equal(new URL(kb.inline_keyboard[0][1].web_app.url).searchParams.get("module"), "expenses");
+  assert.equal(kb.inline_keyboard[1][0].text, "🧭 Главное меню");
 });
