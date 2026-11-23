@@ -75,17 +75,17 @@ function createStage5MockD1() {
         return { results: [] };
       },
       async run() {
-        const q = this._sql.trim().toLowerCase();
+        const q = this._sql.trim().toLowerCase().replace(/\s+/g, " ");
         if (q.startsWith("insert into users")) {
-          const [id, telegramId, username, displayName, paymentPhone, preferredBanksJson, defaultCurrency, createdAt, updatedAt] = this._params;
+          const [id, telegramId, username, displayName, createdAt, updatedAt] = this._params;
           const rec = {
             id: String(id),
             telegram_id: Number(telegramId),
             username: String(username || ""),
             display_name: String(displayName),
-            payment_phone: String(paymentPhone || ""),
-            preferred_banks_json: String(preferredBanksJson || "[]"),
-            default_currency: String(defaultCurrency || "RUB"),
+            payment_phone: "",
+            preferred_banks_json: "[]",
+            default_currency: "RUB",
             created_at: String(createdAt),
             updated_at: String(updatedAt)
           };
@@ -94,7 +94,8 @@ function createStage5MockD1() {
           return { success: true };
         }
         if (q.startsWith("insert into events")) {
-          const [id, title, description, icon, baseCurrency, creatorId, simplifyDebts, status, inviteToken, createdAt, updatedAt] = this._params;
+          const [id, title, description, icon, baseCurrency, creatorId, simplifyDebts, inviteToken, createdAt, updatedAt] = this._params;
+          const status = "ACTIVE";
           eventsById.set(String(id), {
             id: String(id),
             title: String(title),
@@ -117,7 +118,20 @@ function createStage5MockD1() {
           return { success: true };
         }
         if (q.startsWith("insert into event_members")) {
-          const [id, eventId, userId, memberName, role, defaultWeight, linkedPayerMemberId, joinedAt] = this._params;
+          const role = q.includes("'owner'") ? "OWNER" : "MEMBER";
+          const thirdValueNull = /values \(\?, \?, null/i.test(q);
+          let id, eventId, userId, memberName, defaultWeight = 1.0, linkedPayerMemberId = null, joinedAt;
+          if (thirdValueNull && this._params.length === 4) {
+            [id, eventId, memberName, joinedAt] = this._params;
+            userId = null;
+          } else if (thirdValueNull) {
+            [id, eventId, memberName, defaultWeight, joinedAt] = this._params;
+            userId = null;
+          } else if (this._params.length === 6) {
+            [id, eventId, userId, memberName, defaultWeight, joinedAt] = this._params;
+          } else {
+            [id, eventId, userId, memberName, joinedAt] = this._params;
+          }
           membersById.set(String(id), {
             id: String(id),
             event_id: String(eventId),
