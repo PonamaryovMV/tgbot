@@ -187,6 +187,33 @@ function getExpensesDb(env) {
   return db;
 }
 
+function getExpensesCorsHeaders(request) {
+  const origin = request?.headers?.get("Origin") || "";
+  const requestedHeaders = request?.headers?.get("Access-Control-Request-Headers") || "";
+  const headers = {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": requestedHeaders || "Content-Type, X-Telegram-Init-Data",
+    "Access-Control-Max-Age": "86400"
+  };
+  if (origin) {
+    headers["Vary"] = "Origin";
+  }
+  return headers;
+}
+
+function withExpensesCors(response, corsHeaders) {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(corsHeaders)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
 function sanitizePaymentPhone(value) {
   const raw = cleanPlainText(value, 32);
   if (!raw) return "";
@@ -2634,17 +2661,9 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/core/") || url.pathname.startsWith("/api/expenses/")) {
-      const origin = request.headers.get("Origin") || "";
+      const cors = getExpensesCorsHeaders(request);
       if (request.method === "OPTIONS") {
-        return new Response(null, {
-          status: 204,
-          headers: {
-            "Access-Control-Allow-Origin": origin || "*",
-            "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data",
-            "Access-Control-Max-Age": "86400"
-          }
-        });
+        return new Response(null, { status: 204, headers: cors });
       }
 
       try {
@@ -2652,14 +2671,15 @@ export default {
           request.headers.get("X-Telegram-Init-Data") || "",
           env?.BOT_TOKEN || ""
         );
-        if (url.pathname.startsWith("/api/core/")) {
-          return await handleCoreApi(request, env, viewer, url);
-        }
-        return await handleExpensesApi(request, env, viewer, url);
+        const response = url.pathname.startsWith("/api/core/")
+          ? await handleCoreApi(request, env, viewer, url)
+          : await handleExpensesApi(request, env, viewer, url);
+        return withExpensesCors(response, cors);
       } catch (error) {
         const mapped = getExpensesErrorResponse(error);
-        if (mapped) return mapped;
-        return json({ error: error?.message || "Unauthorized" }, error?.status || 401);
+        if (mapped) return withExpensesCors(mapped, cors);
+        const status = Number.isInteger(error?.status) ? error.status : 500;
+        return json({ error: error?.message || "Internal server error" }, status, cors);
       }
     }
 
