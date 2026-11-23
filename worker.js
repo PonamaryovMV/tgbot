@@ -64,10 +64,12 @@ import {
   handleParticipationsGet,
   serializeWishlist,
   handleGiftsGet,
-  handleGiftsPost,
+  handleGiftsPost
+} from "./src/wishlist/gifts-api.js";
+import {
   handleSocialGet,
   handleSocialPost
-} from "./src/wishlist/gifts-api.js";
+} from "./src/wishlist/social-api.js";
 
 export {
   DEFAULT_GROUPS,
