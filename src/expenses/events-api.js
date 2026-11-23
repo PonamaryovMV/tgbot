@@ -1,0 +1,618 @@
+import { cleanPlainText, json } from "../../worker.js";
+import {
+  EVENT_STATUSES,
+  CONTRIBUTION_STATUSES,
+  ExpensesApiError,
+  sanitizeCurrency,
+  sanitizeEventIcon,
+  sanitizeWeight,
+  generateInviteToken
+} from "./schema.js";
+import {
+  appendAuditLog,
+  loadEventMembers,
+  loadEventOperations,
+  loadEventSettlements,
+  loadEventAuditLog,
+  requireEventAccess,
+  serializeEventDetail,
+  loadFullEventDetail,
+  listUserEventsSummary,
+  buildEventCsvExport
+} from "./queries.js";
+
+export async function handleEventsRoute(request, db, user, path, method) {
+  if (path === "/api/expenses/health" && method === "GET") {
+    return json({
+      ok: true,
+      module: "expenses",
+      stage: 5,
+      tables_count: 9
+    });
+  }
+
+  if (path === "/api/expenses/dashboard" && method === "GET") {
+    const dashboard = await listUserEventsSummary(db, user.id);
+    return json({ ok: true, stage: 5, user, ...dashboard });
+  }
+
+  if (path === "/api/expenses/events" && method === "GET") {
+    const dashboard = await listUserEventsSummary(db, user.id);
+    return json({
+      ok: true,
+      active_events: dashboard.active_events,
+      archived_events: dashboard.archived_events
+    });
+  }
+
+  if (path === "/api/expenses/events" && method === "POST") {
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw new ExpensesApiError(400, "Invalid JSON payload");
+    }
+    const title = cleanPlainText(body.title, 80);
+    if (!title) {
+      throw new ExpensesApiError(400, "Event title is required");
+    }
+    const description = cleanPlainText(body.description, 240);
+    const icon = sanitizeEventIcon(body.icon);
+    const baseCurrency = sanitizeCurrency(body.base_currency, user.default_currency || "RUB");
+    const simplifyDebts = body.simplify_debts === false || body.simplify_debts === 0 ? 0 : 1;
+    const now = new Date().toISOString();
+    const eventId = crypto.randomUUID();
+    const inviteToken = generateInviteToken();
+
+    await db
+      .prepare(
+        `INSERT INTO events (
+          id, title, description, icon, base_currency, creator_id,
+          simplify_debts, status, invite_token, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`
+      )
+      .bind(eventId, title, description, icon, baseCurrency, user.id, simplifyDebts, inviteToken, now, now)
+      .run();
+
+    const ownerMemberId = crypto.randomUUID();
+    const ownerName = cleanPlainText(body.owner_name, 64) || user.display_name || "Участник";
+    await db
+      .prepare(
+        `INSERT INTO event_members (
+          id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
+        ) VALUES (?, ?, ?, ?, 'OWNER', 1.0, NULL, ?)`
+      )
+      .bind(ownerMemberId, eventId, user.id, ownerName, now)
+      .run();
+
+    const seenUserIds = new Set([user.id]);
+    const seenNames = new Set([ownerName.toLocaleLowerCase("ru-RU")]);
+
+    const copyFromEventId = cleanPlainText(body.copy_from_event_id, 64);
+    if (copyFromEventId) {
+      const sourceAccess = await requireEventAccess(db, copyFromEventId, user.id).catch(() => null);
+      if (sourceAccess) {
+        for (const srcMember of sourceAccess.members) {
+          if (srcMember.user_id && seenUserIds.has(srcMember.user_id)) continue;
+          const nameKey = srcMember.member_name.toLocaleLowerCase("ru-RU");
+          if (!srcMember.user_id && seenNames.has(nameKey)) continue;
+          if (srcMember.user_id) seenUserIds.add(srcMember.user_id);
+          seenNames.add(nameKey);
+
+          await db
+            .prepare(
+              `INSERT INTO event_members (
+                id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
+              ) VALUES (?, ?, ?, ?, 'MEMBER', ?, NULL, ?)`
+            )
+            .bind(
+              crypto.randomUUID(),
+              eventId,
+              srcMember.user_id || null,
+              srcMember.member_name,
+              sanitizeWeight(srcMember.default_weight, 1.0),
+              now
+            )
+            .run();
+        }
+      }
+    }
+
+    const rawGhosts = Array.isArray(body.ghost_names)
+      ? body.ghost_names
+      : typeof body.ghost_names === "string"
+        ? body.ghost_names.split(/[\n,;]+/)
+        : [];
+    for (const rawName of rawGhosts) {
+      const ghostName = cleanPlainText(rawName, 64);
+      if (!ghostName) continue;
+      const key = ghostName.toLocaleLowerCase("ru-RU");
+      if (seenNames.has(key)) continue;
+      seenNames.add(key);
+
+      await db
+        .prepare(
+          `INSERT INTO event_members (
+            id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
+          ) VALUES (?, ?, NULL, ?, 'MEMBER', 1.0, NULL, ?)`
+        )
+        .bind(crypto.randomUUID(), eventId, ghostName, now)
+        .run();
+    }
+
+    await appendAuditLog(db, eventId, user.id, "EVENT_CREATED", {
+      text: `${ownerName} создал(а) событие «${title}»`
+    });
+
+    const eventDetail = await loadFullEventDetail(db, eventId, user.id);
+    return json({ ok: true, event: eventDetail }, 201);
+  }
+
+  const inviteGetMatch = path.match(/^\/api\/expenses\/invite\/([A-Za-z0-9_-]+)$/);
+  if (inviteGetMatch && method === "GET") {
+    const token = inviteGetMatch[1];
+    const eventRow = await db
+      .prepare("SELECT * FROM events WHERE invite_token = ?")
+      .bind(token)
+      .first();
+    if (!eventRow) {
+      throw new ExpensesApiError(404, "Invite link is invalid or expired");
+    }
+    const members = await loadEventMembers(db, eventRow.id);
+    const existingMember = members.find(m => m.user_id === user.id) || null;
+    const ghostProfiles = members.filter(m => !m.user_id && !m.linked_payer_member_id);
+
+    return json({
+      ok: true,
+      event: {
+        id: eventRow.id,
+        title: eventRow.title,
+        description: eventRow.description || "",
+        icon: eventRow.icon || "🎉",
+        base_currency: eventRow.base_currency || "RUB",
+        status: eventRow.status || "ACTIVE",
+        invite_token: eventRow.invite_token,
+        members_count: members.length
+      },
+      already_joined: Boolean(existingMember),
+      viewer_member: existingMember,
+      ghost_profiles: ghostProfiles
+    });
+  }
+
+  const inviteClaimMatch = path.match(/^\/api\/expenses\/invite\/([A-Za-z0-9_-]+)\/claim$/);
+  if (inviteClaimMatch && method === "POST") {
+    const token = inviteClaimMatch[1];
+    const body = await request.json().catch(() => ({}));
+    const eventRow = await db
+      .prepare("SELECT * FROM events WHERE invite_token = ?")
+      .bind(token)
+      .first();
+    if (!eventRow) {
+      throw new ExpensesApiError(404, "Invite link is invalid or expired");
+    }
+
+    const members = await loadEventMembers(db, eventRow.id);
+    const alreadyMember = members.find(m => m.user_id === user.id);
+    if (alreadyMember) {
+      const eventDetail = await loadFullEventDetail(db, eventRow.id, user.id);
+      return json({
+        ok: true,
+        claimed: false,
+        already_joined: true,
+        event: eventDetail
+      });
+    }
+
+    const now = new Date().toISOString();
+    const targetMemberId = cleanPlainText(body?.member_id, 64);
+
+    if (targetMemberId && targetMemberId !== "__new") {
+      const ghost = members.find(m => m.id === targetMemberId);
+      if (!ghost) {
+        throw new ExpensesApiError(404, "Selected profile not found in this event");
+      }
+      if (ghost.user_id) {
+        throw new ExpensesApiError(409, "This profile has already been claimed");
+      }
+      const nextName = cleanPlainText(body?.member_name, 64) || ghost.member_name;
+      await db
+        .prepare("UPDATE event_members SET user_id = ?, member_name = ? WHERE id = ?")
+        .bind(user.id, nextName, ghost.id)
+        .run();
+
+      await appendAuditLog(db, eventRow.id, user.id, "PROFILE_CLAIMED", {
+        member_id: ghost.id,
+        text: `${user.display_name} привязал(а) профиль «${nextName}» по инвайт-ссылке`
+      });
+    } else {
+      const joinName = cleanPlainText(body?.member_name, 64) || user.display_name || "Участник";
+      const newMemberId = crypto.randomUUID();
+      await db
+        .prepare(
+          `INSERT INTO event_members (
+            id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
+          ) VALUES (?, ?, ?, ?, 'MEMBER', 1.0, NULL, ?)`
+        )
+        .bind(newMemberId, eventRow.id, user.id, joinName, now)
+        .run();
+
+      await appendAuditLog(db, eventRow.id, user.id, "MEMBER_JOINED", {
+        member_id: newMemberId,
+        text: `${joinName} присоединился(ась) к событию по инвайт-ссылке`
+      });
+    }
+
+    await db
+      .prepare("UPDATE events SET updated_at = ? WHERE id = ?")
+      .bind(now, eventRow.id)
+      .run();
+
+    const eventDetail = await loadFullEventDetail(db, eventRow.id, user.id);
+    return json({
+      ok: true,
+      claimed: Boolean(targetMemberId && targetMemberId !== "__new"),
+      event: eventDetail
+    });
+  }
+
+  const exportCsvMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/export\.csv$/);
+  if (exportCsvMatch && method === "GET") {
+    const eventId = exportCsvMatch[1];
+    const { eventRow, members, viewerMember } = await requireEventAccess(db, eventId, user.id);
+    const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
+    const detail = serializeEventDetail(eventRow, members, viewerMember, operations, [], settlements, null);
+    const csv = buildEventCsvExport(detail);
+    return new Response(csv, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="event_${eventId}.csv"`,
+        "Access-Control-Allow-Origin": "*"
+      }
+    });
+  }
+
+  const eventMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)$/);
+  if (eventMatch && method === "GET") {
+    const eventDetail = await loadFullEventDetail(db, eventMatch[1], user.id);
+    return json({ ok: true, event: eventDetail });
+  }
+
+  if (eventMatch && method === "PATCH") {
+    const eventId = eventMatch[1];
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw new ExpensesApiError(400, "Invalid JSON payload");
+    }
+    const { eventRow } = await requireEventAccess(db, eventId, user.id, { requireAdmin: true });
+    const now = new Date().toISOString();
+
+    const title = body.title !== undefined ? (cleanPlainText(body.title, 80) || eventRow.title) : eventRow.title;
+    const description = body.description !== undefined ? cleanPlainText(body.description, 240) : (eventRow.description || "");
+    const icon = body.icon !== undefined ? sanitizeEventIcon(body.icon) : (eventRow.icon || "🎉");
+    const baseCurrency = body.base_currency !== undefined
+      ? sanitizeCurrency(body.base_currency, eventRow.base_currency)
+      : eventRow.base_currency;
+    const simplifyDebts = body.simplify_debts !== undefined
+      ? (body.simplify_debts ? 1 : 0)
+      : Number(eventRow.simplify_debts ?? 1);
+    let status = eventRow.status || "ACTIVE";
+    if (body.status !== undefined) {
+      const nextStatus = String(body.status).trim().toUpperCase();
+      if (!EVENT_STATUSES.includes(nextStatus)) {
+        throw new ExpensesApiError(400, "Invalid event status");
+      }
+      status = nextStatus;
+    }
+
+    await db
+      .prepare(
+        `UPDATE events
+         SET title = ?, description = ?, icon = ?, base_currency = ?, simplify_debts = ?, status = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .bind(title, description, icon, baseCurrency, simplifyDebts, status, now, eventId)
+      .run();
+
+    if (status !== eventRow.status) {
+      const statusText = status === "ARCHIVED"
+        ? "Событие перемещено в архив"
+        : status === "SETTLING"
+          ? "Траты заморожены — идут расчёты"
+          : "Событие активно";
+      await appendAuditLog(db, eventId, user.id, "STATUS_CHANGED", { status, text: statusText });
+    } else if (body.simplify_debts !== undefined && simplifyDebts !== Number(eventRow.simplify_debts ?? 1)) {
+      await appendAuditLog(db, eventId, user.id, "SIMPLIFY_TOGGLED", {
+        simplify_debts: Boolean(simplifyDebts),
+        text: simplifyDebts ? "Включено упрощение долгов" : "Включены прямые долги"
+      });
+    }
+
+    const eventDetail = await loadFullEventDetail(db, eventId, user.id);
+    return json({ ok: true, event: eventDetail });
+  }
+
+  const goalsMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/goals$/);
+  if (goalsMatch && method === "POST") {
+    const eventId = goalsMatch[1];
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw new ExpensesApiError(400, "Invalid JSON payload");
+    }
+    const { eventRow, members, viewerMember } = await requireEventAccess(db, eventId, user.id);
+    const title = cleanPlainText(body.title, 100);
+    if (!title) throw new ExpensesApiError(400, "Goal title is required");
+    const targetMinor = Math.round(Number(body.target_per_member_minor) || 0);
+    if (targetMinor <= 0) throw new ExpensesApiError(400, "Target amount per member must be positive");
+    const receiverMemberId = members.some(m => m.id === body.receiver_member_id)
+      ? body.receiver_member_id
+      : viewerMember.id;
+
+    await db
+      .prepare("UPDATE event_goals SET status = 'CANCELLED' WHERE event_id = ? AND status = 'ACTIVE'")
+      .bind(eventId)
+      .run();
+
+    const goalId = crypto.randomUUID();
+    await db
+      .prepare(
+        `INSERT INTO event_goals (id, event_id, title, target_per_member_minor, receiver_member_id, status)
+         VALUES (?, ?, ?, ?, ?, 'ACTIVE')`
+      )
+      .bind(goalId, eventId, title, targetMinor, receiverMemberId)
+      .run();
+
+    for (const m of members) {
+      const initialStatus = m.id === receiverMemberId ? "PAID" : "UNPAID";
+      await db
+        .prepare(
+          `INSERT INTO goal_contributions (id, goal_id, member_id, status, settlement_id)
+           VALUES (?, ?, ?, ?, NULL)`
+        )
+        .bind(crypto.randomUUID(), goalId, m.id, initialStatus)
+        .run();
+    }
+
+    const now = new Date().toISOString();
+    await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
+    await appendAuditLog(db, eventId, user.id, "GOAL_CREATED", {
+      goal_id: goalId,
+      text: `${viewerMember.member_name} открыл(а) целевой сбор «${title}» по ${Math.round(targetMinor / 100)} ${eventRow.base_currency || "RUB"}`
+    });
+
+    const eventDetail = await loadFullEventDetail(db, eventId, user.id);
+    return json({ ok: true, event: eventDetail }, 201);
+  }
+
+  const goalContribMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/goals\/([A-Za-z0-9_-]+)\/contributions\/([A-Za-z0-9_-]+)$/);
+  if (goalContribMatch && method === "PATCH") {
+    const [, eventId, goalId, memberId] = goalContribMatch;
+    const body = await request.json().catch(() => null);
+    const nextStatus = String(body?.status || "").trim().toUpperCase();
+    if (!CONTRIBUTION_STATUSES.includes(nextStatus)) {
+      throw new ExpensesApiError(400, "Invalid contribution status");
+    }
+    const { members } = await requireEventAccess(db, eventId, user.id);
+    const targetMember = members.find(m => m.id === memberId);
+    if (!targetMember) throw new ExpensesApiError(404, "Member not found");
+
+    await db
+      .prepare("UPDATE goal_contributions SET status = ? WHERE goal_id = ? AND member_id = ?")
+      .bind(nextStatus, goalId, memberId)
+      .run();
+
+    const now = new Date().toISOString();
+    const labelMap = { UNPAID: "не сдал(а)", PENDING: "отметил(а) перевод", PAID: "сдал(а)" };
+    await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
+    await appendAuditLog(db, eventId, user.id, "GOAL_CONTRIBUTION_UPDATED", {
+      goal_id: goalId,
+      member_id: memberId,
+      status: nextStatus,
+      text: `${targetMember.member_name}: статус сбора «${labelMap[nextStatus]}»`
+    });
+
+    const eventDetail = await loadFullEventDetail(db, eventId, user.id);
+    return json({ ok: true, event: eventDetail });
+  }
+
+  const membersCollectionMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/members$/);
+  if (membersCollectionMatch && method === "POST") {
+    const eventId = membersCollectionMatch[1];
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw new ExpensesApiError(400, "Invalid JSON payload");
+    }
+    const { members } = await requireEventAccess(db, eventId, user.id);
+    const now = new Date().toISOString();
+    const seenNames = new Set(members.map(m => m.member_name.toLocaleLowerCase("ru-RU")));
+
+    const rawNames = Array.isArray(body.names)
+      ? body.names
+      : body.member_name
+        ? [body.member_name]
+        : [];
+    const weight = sanitizeWeight(body.default_weight, 1.0);
+    const added = [];
+
+    for (const rawName of rawNames) {
+      const name = cleanPlainText(rawName, 64);
+      if (!name) continue;
+      const key = name.toLocaleLowerCase("ru-RU");
+      if (seenNames.has(key)) continue;
+      seenNames.add(key);
+
+      await db
+        .prepare(
+          `INSERT INTO event_members (
+            id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
+          ) VALUES (?, ?, NULL, ?, 'MEMBER', ?, NULL, ?)`
+        )
+        .bind(crypto.randomUUID(), eventId, name, weight, now)
+        .run();
+      added.push(name);
+    }
+
+    if (!added.length) {
+      throw new ExpensesApiError(400, "Provide at least one unique participant name");
+    }
+
+    await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
+    await appendAuditLog(db, eventId, user.id, "MEMBER_ADDED", {
+      names: added,
+      text: `Добавлен(ы) участник(и): ${added.join(", ")}`
+    });
+
+    const eventDetail = await loadFullEventDetail(db, eventId, user.id);
+    return json({ ok: true, event: eventDetail }, 201);
+  }
+
+  const memberItemMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/members\/([A-Za-z0-9_-]+)$/);
+  if (memberItemMatch && method === "PATCH") {
+    const [, eventId, memberId] = memberItemMatch;
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw new ExpensesApiError(400, "Invalid JSON payload");
+    }
+    const { members } = await requireEventAccess(db, eventId, user.id);
+    const target = members.find(m => m.id === memberId);
+    if (!target) {
+      throw new ExpensesApiError(404, "Member not found");
+    }
+
+    const nextName = body.member_name !== undefined
+      ? (cleanPlainText(body.member_name, 64) || target.member_name)
+      : target.member_name;
+    const nextWeight = body.default_weight !== undefined
+      ? sanitizeWeight(body.default_weight, target.default_weight)
+      : target.default_weight;
+    const now = new Date().toISOString();
+
+    await db
+      .prepare("UPDATE event_members SET member_name = ?, default_weight = ? WHERE id = ?")
+      .bind(nextName, nextWeight, memberId)
+      .run();
+
+    await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
+    if (nextWeight !== target.default_weight) {
+      await appendAuditLog(db, eventId, user.id, "MEMBER_WEIGHT_UPDATED", {
+        member_id: memberId,
+        weight: nextWeight,
+        text: `Вес участника «${nextName}» изменён на ${nextWeight}x`
+      });
+    }
+
+    const eventDetail = await loadFullEventDetail(db, eventId, user.id);
+    return json({ ok: true, event: eventDetail });
+  }
+
+  if (memberItemMatch && method === "DELETE") {
+    const [, eventId, memberId] = memberItemMatch;
+    const { members } = await requireEventAccess(db, eventId, user.id, { requireAdmin: true });
+    const target = members.find(m => m.id === memberId);
+    if (!target) {
+      throw new ExpensesApiError(404, "Member not found");
+    }
+    if (target.role === "OWNER") {
+      throw new ExpensesApiError(400, "Cannot remove event owner");
+    }
+    const now = new Date().toISOString();
+
+    await db
+      .prepare("UPDATE event_members SET linked_payer_member_id = NULL WHERE event_id = ? AND linked_payer_member_id = ?")
+      .bind(eventId, memberId)
+      .run();
+    await db
+      .prepare("DELETE FROM event_members WHERE id = ? AND event_id = ?")
+      .bind(memberId, eventId)
+      .run();
+
+    await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
+    await appendAuditLog(db, eventId, user.id, "MEMBER_REMOVED", {
+      member_id: memberId,
+      text: `Участник «${target.member_name}» удалён из события`
+    });
+
+    const eventDetail = await loadFullEventDetail(db, eventId, user.id);
+    return json({ ok: true, event: eventDetail });
+  }
+
+  const walletsCollectionMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/wallets$/);
+  if (walletsCollectionMatch && method === "POST") {
+    const eventId = walletsCollectionMatch[1];
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw new ExpensesApiError(400, "Invalid JSON payload");
+    }
+    const { members } = await requireEventAccess(db, eventId, user.id);
+    const rawIds = Array.isArray(body.member_ids) ? body.member_ids.map(String) : [];
+    const uniqueIds = [...new Set(rawIds)];
+    if (uniqueIds.length < 2) {
+      throw new ExpensesApiError(400, "Select at least 2 members to create a unified wallet");
+    }
+
+    const selectedMembers = uniqueIds.map(id => members.find(m => m.id === id)).filter(Boolean);
+    if (selectedMembers.length !== uniqueIds.length) {
+      throw new ExpensesApiError(404, "One or more selected members not found");
+    }
+
+    const headMember = selectedMembers.find(m => m.role === "OWNER")
+      || selectedMembers.find(m => Boolean(m.user_id))
+      || selectedMembers[0];
+
+    const now = new Date().toISOString();
+    await db
+      .prepare("UPDATE event_members SET linked_payer_member_id = NULL WHERE id = ?")
+      .bind(headMember.id)
+      .run();
+
+    for (const member of selectedMembers) {
+      if (member.id === headMember.id) continue;
+      await db
+        .prepare("UPDATE event_members SET linked_payer_member_id = ? WHERE event_id = ? AND linked_payer_member_id = ?")
+        .bind(headMember.id, eventId, member.id)
+        .run();
+      await db
+        .prepare("UPDATE event_members SET linked_payer_member_id = ? WHERE id = ?")
+        .bind(headMember.id, member.id)
+        .run();
+    }
+
+    const walletLabel = selectedMembers.map(m => m.member_name).join(" + ");
+    await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
+    await appendAuditLog(db, eventId, user.id, "WALLET_MERGED", {
+      head_member_id: headMember.id,
+      member_ids: selectedMembers.map(m => m.id),
+      text: `Создан единый кошелёк «${walletLabel}»`
+    });
+
+    const eventDetail = await loadFullEventDetail(db, eventId, user.id);
+    return json({ ok: true, event: eventDetail });
+  }
+
+  const walletItemMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/wallets\/([A-Za-z0-9_-]+)$/);
+  if (walletItemMatch && method === "DELETE") {
+    const [, eventId, headMemberId] = walletItemMatch;
+    const { members } = await requireEventAccess(db, eventId, user.id);
+    const head = members.find(m => m.id === headMemberId);
+    if (!head) {
+      throw new ExpensesApiError(404, "Wallet not found");
+    }
+    const now = new Date().toISOString();
+
+    await db
+      .prepare("UPDATE event_members SET linked_payer_member_id = NULL WHERE event_id = ? AND (id = ? OR linked_payer_member_id = ?)")
+      .bind(eventId, headMemberId, headMemberId)
+      .run();
+
+    await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
+    await appendAuditLog(db, eventId, user.id, "WALLET_UNMERGED", {
+      head_member_id: headMemberId,
+      text: `Единый кошелёк с главой «${head.member_name}» разъединён`
+    });
+
+    const eventDetail = await loadFullEventDetail(db, eventId, user.id);
+    return json({ ok: true, event: eventDetail });
+  }
+
+  return null;
+}
