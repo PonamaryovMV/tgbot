@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
 const BOT_TOKEN = "123456789:TEST_BOT_TOKEN_FOR_BROWSER_E2E_123456";
+const PROTO = ["http", "s://"].join("");
 
 function buildSignedInitData(user, authDate = Math.floor(Date.now() / 1000)) {
   const params = new URLSearchParams();
@@ -19,229 +20,83 @@ function buildSignedInitData(user, authDate = Math.floor(Date.now() / 1000)) {
   return params.toString();
 }
 
-function createInitialDbState() {
-  const ownerId = 1001;
-  const guest1Id = 2002;
-  const guest2Id = 3003;
-  const makeUrl = (slug) => `${"http"}${"s://"}item.local/${slug}`;
+export default async (page, baseUrl) => {
+  const results = [];
+  const pageErrors = [];
+  const imageAuthHeaders = [];
+  const copiedGiftPayloads = [];
+  let startParam = "list_1001_occ_bday01";
+  let bookedBy = null;
+  let reusableGivers = [];
+  let failApi = false;
+  const subscriptions = [];
+  const coreProfile = {
+    id: "usr_2002",
+    telegram_id: 2002,
+    display_name: "Анна",
+    username: "anna1",
+    payment_phone: "",
+    preferred_banks: [],
+    default_currency: "RUB"
+  };
+  const groups = [
+    { id: "family", name: "Семья", members: [] },
+    { id: "close", name: "Близкие", members: [] },
+    { id: "friends", name: "Друзья", members: [] },
+    { id: "colleagues", name: "Коллеги", members: [] }
+  ];
+  const occasions = [
+    { id: "occ_bday01", title: "День рождения" },
+    { id: "occ_ny2027", title: "Новый год" }
+  ];
+  const jpeg = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAIAAgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCpRRRX3xxn/9k=";
+  page.on("pageerror", error => pageErrors.push(error.message));
 
-  const ownerGifts = [
+  const giftsList = () => ([
     {
-      id: "gift_initial_1",
-      title: "Механическая клавиатура 75%",
-      price: 9500,
-      link: makeUrl("keyboard"),
-      image: "",
-      comment: "Тихие тактильные переключатели",
-      desire: "high",
+      id: 1731672009000,
+      title: "Подарок через боевой API",
+      link: `${PROTO}shop.local/`,
+      image: "/api/img/0123456789abcdef",
+      price: 5000,
       category: "Техника",
-      tags: ["для дома", "настольный сетап"],
-      occasionIds: ["occ_birthday"],
-      groupIds: ["grp_close"],
-      crowdfund: false,
-      reusable: false,
-      gifted: false,
-      takenBy: [],
-      createdAt: "2026-04-01T10:00:00.000Z"
-    },
-    {
-      id: "gift_initial_2",
-      title: "Сертификат на мастер-класс керамики",
-      price: 4200,
-      link: makeUrl("ceramics"),
-      image: "",
-      comment: "На двоих в выходные",
+      comment: "",
+      priority: false,
       desire: "medium",
-      category: "Впечатления",
-      tags: ["на выходные"],
-      occasionIds: ["occ_new_year"],
-      groupIds: [],
-      crowdfund: true,
-      reusable: false,
-      gifted: false,
-      takenBy: [{ id: guest1Id, name: "Анна Волкова", username: "anna_v" }],
-      createdAt: "2026-04-02T10:00:00.000Z"
-    }
-  ];
-
-  const guest1Gifts = [
+      tags: [],
+      group_ids: [],
+      occasion_ids: ["occ_bday01"],
+      is_crowdfund: false,
+      is_reusable: false,
+      booked_by: bookedBy === null ? null : bookedBy === 2002 ? 2002 : -1,
+      participants: [],
+      reusable_givers: [],
+      is_gifted: false
+    },
     {
-      id: "gift_guest1_1",
-      title: "Книга по архитектуре систем",
-      price: 2800,
-      link: makeUrl("book"),
+      id: 1731672009050,
+      title: "Многоразовый сертификат",
+      link: `${PROTO}shop.local/cert`,
       image: "",
-      comment: "Твёрдый переплёт",
-      desire: "high",
+      price: 3000,
       category: "Хобби",
-      tags: ["чтение"],
-      occasionIds: [],
-      groupIds: [],
-      crowdfund: false,
-      reusable: false,
-      gifted: false,
-      takenBy: [],
-      createdAt: "2026-04-02T12:00:00.000Z"
+      comment: "",
+      priority: false,
+      desire: "medium",
+      tags: [],
+      group_ids: [],
+      occasion_ids: ["occ_ny2027"],
+      is_crowdfund: false,
+      is_reusable: true,
+      booked_by: null,
+      participants: [],
+      reusable_givers: reusableGivers.map(id => (id === 2002 ? 2002 : -1)),
+      is_gifted: false
     }
-  ];
+  ]);
+  const socialData = () => ({ subscriptions, groups });
 
-  const wishlists = {
-    [ownerId]: {
-      userId: ownerId,
-      ownerName: "Максим Соколов",
-      ownerUsername: "max_sokolov",
-      occasions: [
-        { id: "occ_birthday", title: "День рождения" },
-        { id: "occ_new_year", title: "Новый год" }
-      ],
-      gifts: ownerGifts
-    },
-    [guest1Id]: {
-      userId: guest1Id,
-      ownerName: "Анна Волкова",
-      ownerUsername: "anna_v",
-      occasions: [{ id: "occ_spring", title: "Весна" }],
-      gifts: guest1Gifts
-    },
-    [guest2Id]: {
-      userId: guest2Id,
-      ownerName: "Илья Морозов",
-      ownerUsername: "ilya_m",
-      occasions: [],
-      gifts: []
-    }
-  };
-
-  const groupsByOwner = {
-    [ownerId]: [
-      { id: "grp_close", name: "Близкие", memberIds: [guest1Id] },
-      { id: "grp_uni", name: "Универ", memberIds: [] }
-    ],
-    [guest1Id]: [],
-    [guest2Id]: []
-  };
-
-  const subscriptionsByUser = {
-    [ownerId]: [
-      { userId: guest1Id, name: "Анна Волкова", username: "anna_v" }
-    ],
-    [guest1Id]: [
-      { userId: ownerId, name: "Максим Соколов", username: "max_sokolov" }
-    ],
-    [guest2Id]: []
-  };
-
-  const usersById = {
-    [ownerId]: { id: ownerId, name: "Максим Соколов", username: "max_sokolov" },
-    [guest1Id]: { id: guest1Id, name: "Анна Волкова", username: "anna_v" },
-    [guest2Id]: { id: guest2Id, name: "Илья Морозов", username: "ilya_m" }
-  };
-
-  return {
-    wishlists,
-    groupsByOwner,
-    subscriptionsByUser,
-    usersById,
-    coreProfiles: {},
-    images: {},
-    nextGiftNum: 10,
-    nextGroupNum: 10,
-    nextOccasionNum: 10
-  };
-}
-
-function getActorFromInitData(initData, db) {
-  const params = new URLSearchParams(initData);
-  const rawUser = params.get("user");
-  const parsed = rawUser ? JSON.parse(rawUser) : { id: 1001, first_name: "Максим", username: "max_sokolov" };
-  const id = Number(parsed.id);
-  if (!db.usersById[id]) {
-    db.usersById[id] = {
-      id,
-      name: [parsed.first_name, parsed.last_name].filter(Boolean).join(" ") || "Пользователь",
-      username: String(parsed.username || "").toLowerCase()
-    };
-  }
-  if (!db.wishlists[id]) {
-    db.wishlists[id] = {
-      userId: id,
-      ownerName: db.usersById[id].name,
-      ownerUsername: db.usersById[id].username,
-      occasions: [],
-      gifts: []
-    };
-  }
-  if (!db.groupsByOwner[id]) db.groupsByOwner[id] = [];
-  if (!db.subscriptionsByUser[id]) db.subscriptionsByUser[id] = [];
-  if (!db.coreProfiles[id]) {
-    db.coreProfiles[id] = {
-      id: `usr_${id}`,
-      telegram_id: id,
-      display_name: db.usersById[id].name,
-      username: db.usersById[id].username,
-      payment_phone: "",
-      preferred_banks: [],
-      default_currency: "RUB"
-    };
-  }
-  return db.usersById[id];
-}
-
-function canViewGift(gift, ownerId, viewerId, db) {
-  if (Number(ownerId) === Number(viewerId)) return true;
-  const groupIds = Array.isArray(gift.groupIds) ? gift.groupIds : [];
-  if (!groupIds.length) return true;
-  const ownerGroups = db.groupsByOwner[ownerId] || [];
-  return groupIds.some((gid) => {
-    const grp = ownerGroups.find((g) => g.id === gid);
-    return grp && Array.isArray(grp.memberIds) && grp.memberIds.includes(Number(viewerId));
-  });
-}
-
-function serializeWishlistForViewer(ownerId, viewerId, db, occasionId = "") {
-  const wl = db.wishlists[ownerId] || {
-    userId: ownerId,
-    ownerName: "Пользователь",
-    ownerUsername: "",
-    occasions: [],
-    gifts: []
-  };
-  const isOwner = Number(ownerId) === Number(viewerId);
-  const visibleGifts = wl.gifts
-    .filter((g) => canViewGift(g, ownerId, viewerId, db))
-    .filter((g) => (!occasionId ? true : Array.isArray(g.occasionIds) && g.occasionIds.includes(occasionId)))
-    .map((g) => {
-      const takenBy = Array.isArray(g.takenBy) ? g.takenBy : [];
-      const isMine = takenBy.some((t) => Number(t.id) === Number(viewerId));
-      if (isOwner) {
-        return {
-          ...g,
-          isMine,
-          takenCount: takenBy.length,
-          takenBy: g.crowdfund || g.reusable ? takenBy : []
-        };
-      }
-      return {
-        ...g,
-        isMine,
-        takenCount: takenBy.length,
-        takenBy
-      };
-    });
-
-  return {
-    ownerId: Number(ownerId),
-    ownerName: wl.ownerName,
-    ownerUsername: wl.ownerUsername,
-    isOwner,
-    occasions: wl.occasions || [],
-    gifts: visibleGifts
-  };
-}
-
-function attachMockBackend(page, db) {
-  const tgAppUrl = `${"http"}${"s://"}t.me/test_wishlist_bot/app`;
-  return page.route("**/*", async (route) => {
+  await page.route("**/*", async route => {
     const request = route.request();
     const url = new URL(request.url());
     const isLocalOrigin = url.hostname === "127.0.0.1" || url.hostname === "localhost";
@@ -251,473 +106,331 @@ function attachMockBackend(page, db) {
         await route.continue();
         return;
       }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/javascript; charset=utf-8",
-        body: ""
-      });
+      await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
       return;
     }
 
-    const initData = request.headers()["x-telegram-init-data"] || "";
-    if (!initData.includes("hash=")) {
-      await route.fulfill({
-        status: 401,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Missing Telegram initData" })
-      });
-      return;
-    }
-
-    const actor = getActorFromInitData(initData, db);
-    const method = request.method();
-    const path = url.pathname;
-
-    const sendJson = (payload, status = 200) =>
+    const fulfillJson = (payload, status = 200) =>
       route.fulfill({
         status,
-        contentType: "application/json; charset=utf-8",
+        contentType: "application/json",
+        headers: { "Access-Control-Allow-Origin": "*" },
         body: JSON.stringify(payload)
       });
 
-    if (path === "/api/core/bootstrap" && method === "GET") {
-      return sendJson({
+    if (request.method() === "OPTIONS") {
+      return route.fulfill({
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data"
+        }
+      });
+    }
+
+    if (url.pathname === "/api/config") {
+      return fulfillJson({ botUsername: "wishlist_test_bot" });
+    }
+
+    if (url.pathname === "/api/core/bootstrap") {
+      return fulfillJson({
         ok: true,
         module: "superapp_core",
         d1_bound: true,
-        user: db.coreProfiles[actor.id]
-      });
-    }
-
-    if (path === "/api/core/profile" && method === "POST") {
-      const body = JSON.parse(request.postData() || "{}");
-      db.coreProfiles[actor.id] = {
-        ...db.coreProfiles[actor.id],
-        ...(body.display_name !== undefined ? { display_name: String(body.display_name).trim() } : {}),
-        ...(body.payment_phone !== undefined ? { payment_phone: String(body.payment_phone).trim() } : {}),
-        ...(Array.isArray(body.preferred_banks) ? { preferred_banks: body.preferred_banks } : {}),
-        ...(body.default_currency !== undefined ? { default_currency: String(body.default_currency).toUpperCase() } : {})
-      };
-      return sendJson({ ok: true, user: db.coreProfiles[actor.id] });
-    }
-
-    if (path === "/api/wishlist" && method === "GET") {
-      const targetId = Number(url.searchParams.get("ownerId") || actor.id);
-      const occasionId = url.searchParams.get("occasionId") || "";
-      return sendJson(serializeWishlistForViewer(targetId, actor.id, db, occasionId));
-    }
-
-    if (path === "/api/gifts" && method === "POST") {
-      const body = JSON.parse(request.postData() || "{}");
-      const wl = db.wishlists[actor.id];
-      const newGift = {
-        id: `gift_e2e_${db.nextGiftNum++}`,
-        title: String(body.title || "").trim(),
-        price: Number(body.price || 0),
-        link: String(body.link || "").trim(),
-        image: String(body.image || "").trim(),
-        comment: String(body.comment || "").trim(),
-        desire: body.desire || "medium",
-        category: String(body.category || "").trim(),
-        tags: Array.isArray(body.tags) ? body.tags : [],
-        occasionIds: Array.isArray(body.occasionIds) ? body.occasionIds : [],
-        groupIds: Array.isArray(body.groupIds) ? body.groupIds : [],
-        crowdfund: Boolean(body.crowdfund),
-        reusable: Boolean(body.reusable),
-        gifted: false,
-        takenBy: [],
-        createdAt: new Date().toISOString()
-      };
-      wl.gifts.unshift(newGift);
-      return sendJson({ gift: newGift, wishlist: serializeWishlistForViewer(actor.id, actor.id, db) }, 201);
-    }
-
-    const giftMatch = path.match(/^\/api\/gifts\/([^/]+)$/);
-    if (giftMatch && method === "PATCH") {
-      const giftId = giftMatch[1];
-      const body = JSON.parse(request.postData() || "{}");
-      const wl = db.wishlists[actor.id];
-      const gift = wl.gifts.find((g) => g.id === giftId);
-      if (!gift) return sendJson({ error: "Not found" }, 404);
-      Object.assign(gift, {
-        ...(body.title !== undefined ? { title: String(body.title).trim() } : {}),
-        ...(body.price !== undefined ? { price: Number(body.price || 0) } : {}),
-        ...(body.link !== undefined ? { link: String(body.link).trim() } : {}),
-        ...(body.image !== undefined ? { image: String(body.image).trim() } : {}),
-        ...(body.comment !== undefined ? { comment: String(body.comment).trim() } : {}),
-        ...(body.desire !== undefined ? { desire: body.desire } : {}),
-        ...(body.category !== undefined ? { category: String(body.category).trim() } : {}),
-        ...(body.tags !== undefined ? { tags: body.tags } : {}),
-        ...(body.occasionIds !== undefined ? { occasionIds: body.occasionIds } : {}),
-        ...(body.groupIds !== undefined ? { groupIds: body.groupIds } : {}),
-        ...(body.crowdfund !== undefined ? { crowdfund: Boolean(body.crowdfund) } : {}),
-        ...(body.reusable !== undefined ? { reusable: Boolean(body.reusable) } : {}),
-        ...(body.gifted !== undefined ? { gifted: Boolean(body.gifted) } : {})
-      });
-      return sendJson({ gift, wishlist: serializeWishlistForViewer(actor.id, actor.id, db) });
-    }
-
-    if (giftMatch && method === "DELETE") {
-      const giftId = giftMatch[1];
-      const wl = db.wishlists[actor.id];
-      wl.gifts = wl.gifts.filter((g) => g.id !== giftId);
-      return sendJson({ ok: true, wishlist: serializeWishlistForViewer(actor.id, actor.id, db) });
-    }
-
-    const takeMatch = path.match(/^\/api\/gifts\/([^/]+)\/take$/);
-    if (takeMatch && method === "POST") {
-      const giftId = takeMatch[1];
-      const ownerId = Number(url.searchParams.get("ownerId") || 1001);
-      const wl = db.wishlists[ownerId];
-      const gift = wl?.gifts.find((g) => g.id === giftId);
-      if (!gift) return sendJson({ error: "Gift not found" }, 404);
-      const exists = gift.takenBy.some((t) => Number(t.id) === Number(actor.id));
-      if (exists) {
-        gift.takenBy = gift.takenBy.filter((t) => Number(t.id) !== Number(actor.id));
-      } else if (gift.crowdfund || gift.reusable) {
-        gift.takenBy.push({ id: actor.id, name: actor.name, username: actor.username });
-      } else {
-        gift.takenBy = [{ id: actor.id, name: actor.name, username: actor.username }];
-      }
-      return sendJson({ gift, wishlist: serializeWishlistForViewer(ownerId, actor.id, db) });
-    }
-
-    if (path === "/api/participations" && method === "GET") {
-      const items = [];
-      for (const [oidStr, wl] of Object.entries(db.wishlists)) {
-        const oid = Number(oidStr);
-        for (const g of wl.gifts) {
-          const takenBy = Array.isArray(g.takenBy) ? g.takenBy : [];
-          if (takenBy.some((t) => Number(t.id) === Number(actor.id))) {
-            items.push({
-              ...g,
-              ownerId: oid,
-              ownerName: wl.ownerName,
-              ownerUsername: wl.ownerUsername,
-              isMine: true,
-              takenCount: takenBy.length,
-              takenBy
-            });
-          }
+        user: coreProfile,
+        dashboard: {
+          active_events: [],
+          archived_events: [],
+          summary_by_currency: { RUB: { you_owe_minor: 0, owed_to_you_minor: 0 } }
         }
-      }
-      return sendJson({ items });
-    }
-
-    if (path === "/api/social" && method === "GET") {
-      return sendJson({
-        subscriptions: db.subscriptionsByUser[actor.id] || [],
-        groups: db.groupsByOwner[actor.id] || []
       });
     }
 
-    if (path === "/api/subscriptions" && method === "POST") {
-      const body = JSON.parse(request.postData() || "{}");
-      const cleanHandle = String(body.username || "").replace(/^@+/, "").trim().toLowerCase();
-      const targetUser = Object.values(db.usersById).find((u) => u.username.toLowerCase() === cleanHandle);
-      if (!targetUser) {
-        return sendJson({ error: "User not found", code: "USER_NOT_FOUND" }, 404);
-      }
-      const list = db.subscriptionsByUser[actor.id] || [];
-      if (!list.some((item) => Number(item.userId) === Number(targetUser.id))) {
-        list.push({ userId: targetUser.id, name: targetUser.name, username: targetUser.username });
-      }
-      db.subscriptionsByUser[actor.id] = list;
-      return sendJson({ subscriptions: list }, 201);
+    if (url.pathname === "/api/core/profile" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      Object.assign(coreProfile, body);
+      return fulfillJson({ ok: true, user: coreProfile });
     }
 
-    const subDeleteMatch = path.match(/^\/api\/subscriptions\/(\d+)$/);
-    if (subDeleteMatch && method === "DELETE") {
-      const targetId = Number(subDeleteMatch[1]);
-      db.subscriptionsByUser[actor.id] = (db.subscriptionsByUser[actor.id] || []).filter(
-        (item) => Number(item.userId) !== targetId
-      );
-      return sendJson({ subscriptions: db.subscriptionsByUser[actor.id] });
-    }
-
-    if (path === "/api/groups" && method === "POST") {
-      const body = JSON.parse(request.postData() || "{}");
-      const name = String(body.name || "").trim();
-      const groups = db.groupsByOwner[actor.id] || [];
-      const created = { id: `grp_${db.nextGroupNum++}`, name, memberIds: [] };
-      groups.push(created);
-      db.groupsByOwner[actor.id] = groups;
-      return sendJson({ group: created, groups }, 201);
-    }
-
-    const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
-    if (groupMatch && method === "PATCH") {
-      const groupId = groupMatch[1];
-      const body = JSON.parse(request.postData() || "{}");
-      const groups = db.groupsByOwner[actor.id] || [];
-      const grp = groups.find((g) => g.id === groupId);
-      if (!grp) return sendJson({ error: "Group not found" }, 404);
-      if (body.name !== undefined) grp.name = String(body.name).trim();
-      if (Array.isArray(body.memberIds)) grp.memberIds = body.memberIds.map(Number);
-      return sendJson({ group: grp, groups });
-    }
-
-    if (groupMatch && method === "DELETE") {
-      const groupId = groupMatch[1];
-      db.groupsByOwner[actor.id] = (db.groupsByOwner[actor.id] || []).filter((g) => g.id !== groupId);
-      for (const g of db.wishlists[actor.id]?.gifts || []) {
-        g.groupIds = (g.groupIds || []).filter((id) => id !== groupId);
-      }
-      return sendJson({ groups: db.groupsByOwner[actor.id] });
-    }
-
-    if (path === "/api/occasions" && method === "POST") {
-      const body = JSON.parse(request.postData() || "{}");
-      const title = String(body.title || "").trim();
-      const wl = db.wishlists[actor.id];
-      const created = { id: `occ_${db.nextOccasionNum++}`, title };
-      wl.occasions.push(created);
-      return sendJson({ occasion: created, occasions: wl.occasions }, 201);
-    }
-
-    const occasionMatch = path.match(/^\/api\/occasions\/([^/]+)$/);
-    if (occasionMatch && method === "DELETE") {
-      const occId = occasionMatch[1];
-      const wl = db.wishlists[actor.id];
-      wl.occasions = (wl.occasions || []).filter((o) => o.id !== occId);
-      for (const g of wl.gifts || []) {
-        g.occasionIds = (g.occasionIds || []).filter((id) => id !== occId);
-      }
-      return sendJson({ occasions: wl.occasions });
-    }
-
-    if (path === "/api/share" && method === "POST") {
-      const body = JSON.parse(request.postData() || "{}");
-      const occ = body.occasionId ? `?startapp=list_1001__${body.occasionId}` : "?startapp=list_1001";
-      return sendJson({ ok: true, shareUrl: `${tgAppUrl}${occ}` });
-    }
-
-    if (path === "/api/images" && method === "POST") {
-      const body = JSON.parse(request.postData() || "{}");
-      const id = `img_e2e_${Object.keys(db.images).length + 1}`;
-      db.images[id] = { ownerId: actor.id, dataUrl: body.dataUrl };
-      return sendJson({ id, url: `${url.origin}/api/images/${id}` }, 201);
-    }
-
-    const imageMatch = path.match(/^\/api\/images\/([^/]+)$/);
-    if (imageMatch && method === "GET") {
-      const rec = db.images[imageMatch[1]];
-      if (!rec) return sendJson({ error: "Image not found" }, 404);
-      const base64 = String(rec.dataUrl).split(",")[1] || "";
+    if (url.pathname === "/api/img/0123456789abcdef") {
+      imageAuthHeaders.push(request.headers()["x-telegram-init-data"] || "");
       return route.fulfill({
         status: 200,
-        contentType: "image/png",
-        body: Buffer.from(base64, "base64")
+        contentType: "image/jpeg",
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: Buffer.from(jpeg, "base64")
       });
     }
 
-    return sendJson({ error: "Unhandled mock route" }, 404);
-  });
-}
-
-async function openMiniAppWithTelegramSdk(page, baseUrl, user, startParam = "") {
-  const initData = buildSignedInitData(user);
-  await page.addInitScript(
-    ({ signedInitData, tgUser, startParamValue }) => {
-      const listeners = new Map();
-      const sentMessages = [];
-      let copiedText = "";
-
-      window.__tgTestState = {
-        sentMessages,
-        getCopiedText: () => copiedText,
-        triggerEvent: (eventName, payload) => {
-          const handlers = listeners.get(eventName) || [];
-          for (const fn of handlers) fn(payload);
-        }
-      };
-
-      Object.defineProperty(navigator, "clipboard", {
-        configurable: true,
-        value: {
-          writeText: async (txt) => {
-            copiedText = String(txt);
-          }
-        }
+    if (url.pathname === "/api/img/broken0123456789ab") {
+      imageAuthHeaders.push(request.headers()["x-telegram-init-data"] || "");
+      return route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({ error: "Image not found" })
       });
+    }
 
-      window.Telegram = {
-        WebApp: {
-          initData: signedInitData,
-          initDataUnsafe: {
-            user: tgUser,
-            start_param: startParamValue
-          },
-          version: "7.10",
-          platform: "android",
-          colorScheme: "dark",
-          themeParams: {
-            bg_color: "#0f172a",
-            text_color: "#f8fafc",
-            hint_color: "#94a3b8",
-            button_color: "#6366f1",
-            button_text_color: "#ffffff",
-            secondary_bg_color: "#1e293b"
-          },
-          isExpanded: true,
-          viewportHeight: 844,
-          viewportStableHeight: 844,
-          ready: () => {},
-          expand: () => {},
-          sendData: (data) => {
-            sentMessages.push(data);
-          },
-          openTelegramLink: (url) => {
-            sentMessages.push(url);
-          },
-          onEvent: (eventName, cb) => {
-            if (!listeners.has(eventName)) listeners.set(eventName, []);
-            listeners.get(eventName).push(cb);
-          },
-          offEvent: (eventName, cb) => {
-            const list = listeners.get(eventName) || [];
-            listeners.set(eventName, list.filter((item) => item !== cb));
-          },
-          HapticFeedback: {
-            impactOccurred: () => {},
-            notificationOccurred: () => {},
-            selectionChanged: () => {}
-          },
-          showPopup: (_params, cb) => {
-            if (typeof cb === "function") cb("ok");
-          },
-          showAlert: (_msg, cb) => {
-            if (typeof cb === "function") cb();
-          },
-          showConfirm: (_msg, cb) => {
-            if (typeof cb === "function") cb(true);
-          }
+    if (url.pathname === "/api/participations") {
+      const items = [];
+      if (bookedBy === 2002) {
+        items.push({
+          type: "book",
+          updatedAt: "2026-04-12T10:00:00.000Z",
+          owner: { id: 1001, first_name: "Максим" },
+          gift: giftsList()[0]
+        });
+      }
+      if (reusableGivers.includes(2002)) {
+        items.push({
+          type: "reusable",
+          updatedAt: "2026-04-12T10:05:00.000Z",
+          owner: { id: 1001, first_name: "Максим" },
+          gift: { ...giftsList()[1], reusableCount: reusableGivers.length }
+        });
+      }
+      return fulfillJson({ items });
+    }
+
+    if (url.pathname === "/api/social") {
+      if (request.method() === "GET") return fulfillJson(socialData());
+      const { action, payload } = request.postDataJSON();
+      if (action === "subscribe") {
+        if (payload.username === "unknown_user") {
+          return route.fulfill({
+            status: 202,
+            contentType: "application/json",
+            headers: { "Access-Control-Allow-Origin": "*" },
+            body: JSON.stringify({ status: "selection_required", requestId: "req1", botUsername: "wishlist_test_bot" })
+          });
         }
-      };
-    },
-    { signedInitData: initData, tgUser: user, startParamValue: startParam }
-  );
+        const profile = payload.user_id === 1001
+          ? { id: 1001, first_name: "Максим", username: "maxim" }
+          : { id: 3003, first_name: "Дима", username: "dima1" };
+        if (!subscriptions.some(item => item.id === profile.id)) subscriptions.push(profile);
+      } else if (action === "unsubscribe") {
+        const index = subscriptions.findIndex(item => item.id === payload.user_id);
+        if (index >= 0) subscriptions.splice(index, 1);
+      } else if (action === "add_group_member") {
+        const group = groups.find(item => item.id === payload.group_id);
+        if (group && !group.members.some(member => member.id === 3003)) {
+          group.members.push({ id: 3003, first_name: "Дима", username: "dima1" });
+        }
+      } else if (action === "create_group") {
+        groups.push({ id: "grp_test0001", name: payload.name, members: [] });
+      } else if (action === "rename_group") {
+        const group = groups.find(item => item.id === payload.group_id);
+        if (group) group.name = payload.name;
+      } else if (action === "delete_group") {
+        const idx = groups.findIndex(item => item.id === payload.group_id);
+        if (idx >= 0) groups.splice(idx, 1);
+      }
+      return fulfillJson(socialData());
+    }
 
-  await page.goto(baseUrl, { waitUntil: "networkidle" });
-  await page.waitForSelector("#giftsGrid .gift-card, #giftsGrid .empty-state-card", { timeout: 10000 });
-}
+    if (url.pathname === "/api/data" || url.pathname === "/api/gifts") {
+      if (failApi) return fulfillJson({ error: "Test outage" }, 500);
+      if (request.method() === "POST") {
+        const body = request.postDataJSON();
+        if (body.action === "copy_gift") {
+          copiedGiftPayloads.push(body);
+          return fulfillJson({ ok: true, gift: { id: 999999, title: "Подарок через боевой API" } }, 201);
+        }
+        if (body.owner_id !== 1001 || body.action !== "toggle_book") {
+          return fulfillJson({ error: "Unexpected mutation" }, 400);
+        }
+        if (body.payload.id === 1731672009050) {
+          reusableGivers = reusableGivers.includes(2002) ? [] : [2002];
+        } else {
+          bookedBy = bookedBy === null ? 2002 : null;
+        }
+      }
+      const ownerId = Number(url.searchParams.get("owner_id") || 1001);
+      if (ownerId === 2002) {
+        return fulfillJson({
+          owner: { id: 2002, first_name: "Анна" },
+          gifts: [],
+          occasions,
+          groups,
+          is_subscribed: false
+        });
+      }
+      return fulfillJson({
+        owner: { id: 1001, first_name: "Максим", username: "maxim" },
+        gifts: giftsList(),
+        occasions,
+        is_subscribed: subscriptions.some(profile => profile.id === 1001)
+      });
+    }
 
-export default async function runTelegramScenario(page, baseUrl) {
-  const db = createInitialDbState();
-  await attachMockBackend(page, db);
-
-  const consoleErrors = [];
-  const pageErrors = [];
-  page.on("console", (msg) => {
-    if (msg.type() === "error") consoleErrors.push(msg.text());
+    return fulfillJson({ error: "Unexpected API route" }, 404);
   });
-  page.on("pageerror", (err) => {
-    pageErrors.push(String(err));
+
+  const user = { id: 2002, first_name: "Анна", username: "anna1" };
+  const signedInitData = buildSignedInitData(user);
+  await page.addInitScript(({ initData, userObj, start }) => {
+    window.__openedTelegramLink = "";
+    window.Telegram = {
+      WebApp: {
+        initData,
+        initDataUnsafe: { user: userObj, start_param: start },
+        colorScheme: "dark",
+        ready() {},
+        expand() {},
+        openTelegramLink(url) { window.__openedTelegramLink = url; },
+        openLink(url) { window.__openedLink = url; },
+        HapticFeedback: { impactOccurred() {}, notificationOccurred() {} }
+      }
+    };
+  }, { initData: signedInitData, userObj: user, start: startParam });
+
+  await page.goto(`${baseUrl}/`);
+  await page.waitForFunction(() => state.isLoading === false);
+  assert(await page.evaluate(() => isTelegramSession && state.viewerId === 2002 && state.ownerId === 1001), "Telegram start_param must open shared list");
+  assert(await page.locator("#occasionBanner").isVisible(), "Occasion banner must be visible for deep link with occasion");
+  assert((await page.locator("#occasionBannerTitle").textContent()).includes("День рождения"), "Occasion title must be rendered");
+  assert(await page.locator("#giftsGrid .gift-card").count() === 1, "Occasion filter must show only matching gift");
+  await page.locator("#showAllWishlistBtn").click();
+  assert(await page.locator("#occasionBanner").isHidden(), "Banner must hide after resetting occasion filter");
+  assert(await page.locator("#giftsGrid .gift-card").count() === 2, "All visible gifts must render after clearing occasion");
+  results.push("occasion deep link banner and reset");
+
+  assert(await page.locator(".demo-dock-wrapper").isHidden(), "Demo dock must be hidden in Telegram");
+  assert(await page.locator("#ownerAddSection").isHidden(), "Guest cannot see owner form");
+  assert((await page.locator("#headerTitle").textContent()).includes("Максим"), "Real owner name must be rendered");
+  assert((await page.locator("#headerSubtitle").textContent()).includes("@maxim"), "Real owner username must be rendered");
+  assert((await page.locator("#roleBadge").textContent()).includes("Анна"), "Real guest name must be rendered");
+  results.push("telegram session, real names and start_param");
+
+  // Verify Superapp Hub navigation and unlocked Wishlists card
+  await page.locator("#openSuperappHubFromWishlistBtn").click();
+  assert(await page.locator("#superappHubScreen").isVisible(), "Superapp hub must open from wishlist menu button");
+  const wishlistHubText = await page.locator("#hubModuleWishlistBtn").textContent();
+  assert(!wishlistHubText.includes("Скоро"), "Wishlists hub card must not have Скоро placeholder");
+  await page.locator("#hubModuleExpensesBtn").click();
+  assert(await page.locator("#expensesAppShell").isVisible(), "Expenses module screen must open from hub");
+  await page.locator("#backFromExpensesBtn").click();
+  await page.locator("#hubModuleWishlistBtn").click();
+  assert(await page.locator("#wishlistAppShell").isVisible(), "Wishlists module must open from hub");
+  results.push("superapp hub navigation with unlocked wishlists and expenses");
+
+  await page.evaluate(() => {
+    applyServerData({
+      owner: { id: 1001, first_name: "Пользователь", username: "maxim" },
+      gifts: state.gifts,
+      occasions: state.occasions,
+      is_subscribed: state.isSubscribed
+    });
+    renderAll();
   });
+  assert((await page.locator("#headerTitle").textContent()).includes("@maxim"), "Username fallback must replace generic owner name");
+  results.push("username fallback when first name is missing");
 
-  const ownerUser = { id: 1001, first_name: "Максим", last_name: "Соколов", username: "max_sokolov" };
-  const guest1User = { id: 2002, first_name: "Анна", last_name: "Волкова", username: "anna_v" };
-  const guest2User = { id: 3003, first_name: "Илья", last_name: "Морозов", username: "ilya_m" };
+  const cardImage = page.locator("#giftsGrid .gift-card img").first();
+  await cardImage.waitFor({ state: "visible" });
+  assert((await cardImage.getAttribute("src")).startsWith("blob:"), "Internal KV image must load via Blob URL");
+  assert(imageAuthHeaders.length >= 1 && imageAuthHeaders[0].includes("hash="), "Protected image request must send initData");
+  results.push("authorized KV image loading");
 
-  await openMiniAppWithTelegramSdk(page, baseUrl, ownerUser);
-
-  const demoDockVisible = await page.locator(".demo-dock-wrapper").isVisible();
-  assert.equal(demoDockVisible, false, "Demo Studio dock must be hidden inside Telegram WebApp session");
-
-  const wishlistMenuVisible = await page.locator("#hubModuleWishlistBtn").isVisible();
-  const expensesMenuVisible = await page.locator("#hubModuleExpensesBtn").isVisible();
-  assert.equal(wishlistMenuVisible, true, "Superapp hub wishlist menu item must be visible");
-  assert.equal(expensesMenuVisible, true, "Superapp hub expenses menu item must be visible");
-
-  await page.click("#hubModuleExpensesBtn");
-  const wishlistStillVisible = await page.locator("#wishlistWorkspace").isVisible();
-  assert.equal(wishlistStillVisible, true, "Locked expenses button must keep user in wishlist workspace");
-
-  await page.fill("#addTitleInput", "Беспроводная колонка");
-  await page.click("#addSubmitBtn");
-  await page.waitForSelector('#giftsGrid .gift-card:has-text("Беспроводная колонка")');
-
-  const tinyPngBase64 =
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-  await page.click("#toggleDetailsBtn");
-  await page.fill("#addTitleInput", "Портативный проектор");
-  await page.setInputFiles("#addFileInput", {
-    name: "projector.png",
-    mimeType: "image/png",
-    buffer: Buffer.from(tinyPngBase64, "base64")
+  await page.evaluate(() => {
+    applyServerData({
+      owner: { id: 1001, first_name: "Максим", username: "maxim" },
+      gifts: [{ ...state.gifts[0], image: "/api/img/broken0123456789ab" }],
+      occasions: state.occasions,
+      is_subscribed: state.isSubscribed
+    });
+    renderAll();
   });
-  await page.waitForSelector("#addPhotoPreviewBox.visible", { timeout: 10000 });
-  await page.click('#addDetailsPanel button[type="submit"]');
-  await page.waitForSelector('#giftsGrid .gift-card:has-text("Портативный проектор")');
+  await page.waitForFunction(() => document.querySelector("#giftsGrid .gift-card img")?.style.display === "none");
+  assert(await page.locator("#giftsGrid .card-art-placeholder").isVisible(), "Broken protected image must show placeholder");
+  await page.evaluate(() => fetchGifts());
+  await page.waitForFunction(() => state.gifts[0]?.id === 1731672009000 && !state.isLoading);
+  results.push("protected image failure placeholder");
 
-  const projectorCard = page.locator('#giftsGrid .gift-card:has-text("Портативный проектор")');
-  await projectorCard.locator(".btn-card-edit").click();
-  await page.waitForSelector("#editModalBackdrop.open");
-  await page.fill("#editTitleInput", "Портативный проектор 4K");
-  await page.click('#editGiftForm button[type="submit"]');
-  await page.waitForSelector('#giftsGrid .gift-card:has-text("Портативный проектор 4K")');
+  const firstCard = page.locator("#giftsGrid .gift-card", { hasText: "Подарок через боевой API" });
+  await firstCard.locator(".btn-guest-book").click();
+  await page.waitForFunction(() => state.gifts[0]?.booked_by === 2002);
+  assert(await page.evaluate(() => state.gifts[0]?.is_gifted === false), "Booking must not mark the gift as gifted");
+  const bookedCardText = await firstCard.textContent();
+  assert(bookedCardText.includes("Вы забронировали"), "Booking badge must explicitly describe a reservation");
+  assert((await firstCard.locator(".card-actions-footer").textContent()).includes("Отменить бронь"), "Guest must see the cancellation action");
+  results.push("API booking remains a reservation, not a gifted status");
 
-  const cardToDelete = page.locator('#giftsGrid .gift-card:has-text("Беспроводная колонка")');
-  await cardToDelete.locator(".btn-card-delete").click();
-  await page.waitForSelector("#deleteConfirmBackdrop.open");
-  await page.click("#confirmDeleteBtn");
-  await page.waitForFunction(() => !document.body.innerText.includes("Беспроводная колонка"));
+  const reusableCard = page.locator("#giftsGrid .gift-card", { hasText: "Многоразовый сертификат" });
+  await reusableCard.locator(".btn-guest-book").click();
+  await page.waitForFunction(() => state.gifts[1]?.reusable_givers?.includes(2002));
+  assert((await reusableCard.textContent()).includes("Вы выбрали этот подарок"), "Reusable badge must confirm guest selection");
+  await reusableCard.locator(".btn-guest-unbook").click();
+  await page.waitForFunction(() => (state.gifts[1]?.reusable_givers || []).length === 0);
+  results.push("reusable gift selection and cancellation");
 
-  await page.click("#friendsViewBtn");
-  await page.waitForSelector("#friendsWorkspace:not([hidden])");
-  await page.fill("#newGroupNameInput", "Коллеги");
-  await page.click("#createGroupSubmitBtn");
-  await page.waitForSelector('#groupsList .social-card:has-text("Коллеги")');
+  await firstCard.locator(".btn-guest-copy").click();
+  await page.waitForFunction(() => state.copiedGiftIds.has(1731672009000));
+  assert(copiedGiftPayloads.length === 1 && copiedGiftPayloads[0].action === "copy_gift", "Copy button must send copy_gift action");
+  assert((await firstCard.locator(".btn-guest-copy").textContent()).includes("В вашем списке"), "Copy button must update state after copying");
+  results.push("copy gift to own wishlist");
 
-  await page.click("#wishlistViewBtn");
-  await page.waitForSelector("#wishlistWorkspace:not([hidden])");
+  await page.locator("#subscribeListBtn").click();
+  await page.waitForFunction(() => state.isSubscribed && state.subscriptions.length === 1);
+  await page.locator("#subscribeListBtn").click();
+  await page.waitForFunction(() => !state.isSubscribed && state.subscriptions.length === 0);
+  results.push("subscribe and unsubscribe from shared list");
 
-  const guest1Context = await page.context().browser().newContext({ viewport: { width: 390, height: 844 } });
-  const guest1Page = await guest1Context.newPage();
-  await attachMockBackend(guest1Page, db);
-  await openMiniAppWithTelegramSdk(guest1Page, baseUrl, guest1User, "list_1001");
+  await page.locator("#participationsViewBtn").click();
+  await page.locator("#participationsWorkspace").waitFor({ state: "visible" });
+  assert((await page.locator("#participationsGrid").textContent()).includes("Подарок через боевой API"), "Participations tab must render booked item");
+  results.push("participations tab");
 
-  const guest1CanSeeKeyboard = await guest1Page
-    .locator('#giftsGrid .gift-card:has-text("Механическая клавиатура 75%")')
-    .isVisible();
-  assert.equal(guest1CanSeeKeyboard, true, "Guest 1 (in Близкие) should see restricted gift");
+  await page.locator("#friendsViewBtn").click();
+  await page.locator("#friendsWorkspace").waitFor({ state: "visible" });
+  await page.locator("#subscribeUsernameInput").fill("@unknown_user");
+  await page.locator("#subscribeSubmitBtn").click();
+  await page.locator("#selectionHelp").waitFor({ state: "visible" });
+  await page.locator("#openBotSelectionBtn").click();
+  assert((await page.evaluate(() => window.__openedTelegramLink)) === `${PROTO}t.me/wishlist_test_bot`, "Selection button must open bot chat");
 
-  const guest1ProjectorCard = guest1Page.locator('#giftsGrid .gift-card:has-text("Портативный проектор 4K")');
-  await guest1ProjectorCard.locator(".btn-take-gift").click();
-  await guest1Page.waitForTimeout(300);
+  await page.locator("#subscribeUsernameInput").fill("@dima1");
+  await page.locator("#subscribeSubmitBtn").click();
+  await page.waitForFunction(() => state.subscriptions.some(profile => profile.id === 3003));
+  assert((await page.locator("#subscriptionsList").textContent()).includes("Дима"), "Subscribed friend must appear");
 
-  await guest1Page.click("#participationsViewBtn");
-  await guest1Page.waitForSelector("#participationsWorkspace:not([hidden])");
-  const participationVisible = await guest1Page
-    .locator('#participationsGrid .gift-card:has-text("Портативный проектор 4K")')
-    .isVisible();
-  assert.equal(participationVisible, true, "Taken gift should appear in Guest 1 participations tab");
-  await guest1Context.close();
+  const familyGroup = page.locator("#groupsList .access-group", { hasText: "Семья" });
+  await familyGroup.locator("input").fill("@dima1");
+  await familyGroup.getByRole("button", { name: "Добавить" }).click();
+  await page.waitForFunction(() => state.groups.find(g => g.id === "family").members.some(m => m.id === 3003));
+  assert((await familyGroup.textContent()).includes("Дима"), "Group member must appear");
+  results.push("subscriptions, groups and unknown user selection");
 
-  const guest2Context = await page.context().browser().newContext({ viewport: { width: 390, height: 844 } });
-  const guest2Page = await guest2Context.newPage();
-  await attachMockBackend(guest2Page, db);
-  await openMiniAppWithTelegramSdk(guest2Page, baseUrl, guest2User, "list_1001");
+  await page.locator("#wishlistViewBtn").click();
+  await page.locator("#backToOwnListBtn").click();
+  await page.waitForFunction(() => state.ownerId === 2002 && state.gifts.length === 0);
+  assert(await page.evaluate(() => state.gifts.length === 0), "Own empty API response must be used");
+  results.push("return to own wishlist");
 
-  const guest2RestrictedCount = await guest2Page
-    .locator('#giftsGrid .gift-card:has-text("Механическая клавиатура 75%")')
-    .count();
-  assert.equal(guest2RestrictedCount, 0, "Guest 2 (outside Близкие) must not see restricted gift");
-  await guest2Context.close();
+  await page.locator("#shareListBtn").click();
+  await page.locator("#shareModalBackdrop.open").waitFor();
+  assert((await page.locator("#shareUrlPreview").textContent()).trim() === `${PROTO}t.me/wishlist_test_bot?start=list_2002`, "Default share URL must target full wishlist");
+  await page.locator("#shareOccasionOptions [data-share-occ=\"occ_bday01\"]").click();
+  assert((await page.locator("#shareUrlPreview").textContent()).trim() === `${PROTO}t.me/wishlist_test_bot?start=list_2002_occ_bday01`, "Occasion share URL must include occasion ID");
+  await page.locator("#confirmShareBtn").click();
+  await page.waitForFunction(() => {
+    const value = window.__openedTelegramLink || "";
+    return value.includes("t.me/share/url");
+  });
+  const shared = await page.evaluate(() => new URL(window.__openedTelegramLink).searchParams.get("url"));
+  assert(shared === `${PROTO}t.me/wishlist_test_bot?start=list_2002_occ_bday01`, `Unexpected share URL: ${shared}`);
+  results.push("flexible share modal with occasion deep link");
 
-  assert.equal(consoleErrors.length, 0, `Unexpected console errors: ${consoleErrors.join("; ")}`);
-  assert.equal(pageErrors.length, 0, `Unexpected page errors: ${pageErrors.join("; ")}`);
+  failApi = true;
+  await page.evaluate(() => fetchGifts());
+  await page.waitForFunction(() => state.loadError.includes("Test outage") && !state.isLoading);
+  assert((await page.locator("#giftsGrid").textContent()).includes("Test outage"), "API error state must be shown");
+  assert(await page.evaluate(() => state.gifts.length === 0), "API outage must not load demo gifts");
+  results.push("no demo fallback on API outage");
 
-  return {
-    scenario: "telegram-e2e",
-    demoDockHidden: !demoDockVisible,
-    verifiedFlows: [
-      "telegram-session-init",
-      "superapp-hub-menu",
-      "create-edit-delete-gift-with-upload",
-      "custom-groups",
-      "deep-link-and-privacy-filtering",
-      "take-gift-and-participations"
-    ]
-  };
-}
+  assert(pageErrors.length === 0, `Uncaught browser errors: ${pageErrors.join(" | ")}`);
+  results.push("no uncaught JavaScript errors");
+  return { results, protectedImageRequests: imageAuthHeaders.length };
+};
