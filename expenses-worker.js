@@ -44,7 +44,8 @@ import {
   handleParticipationsGet,
   serializeWishlist,
   handleTelegramWebhook,
-  handleSharedUserSelection
+  handleSharedUserSelection,
+  verifyTelegramInitData
 } from "./worker.js";
 
 const EXPENSE_CURRENCIES = Object.freeze(["RUB", "USD", "EUR", "KZT", "TRY", "GEL"]);
@@ -368,9 +369,6 @@ function buildUnifiedWalletsFromMembers(members) {
   return wallets;
 }
 
-/* ==========================================================================
-   ДВИЖОК РАСПРЕДЕЛЕНИЯ ДОЛЕЙ (MINOR UNITS — КОПЕЙКИ/ЦЕНТЫ)
-   ========================================================================== */
 export function distributeExactMinor(totalMinor, items) {
   const total = Math.round(Number(totalMinor) || 0);
   if (!Array.isArray(items) || items.length === 0 || total <= 0) return [];
@@ -624,9 +622,6 @@ export function computeOperationSplits({
   };
 }
 
-/* ==========================================================================
-   ДВИЖОК РАСЧЁТА ДОЛГОВ, ГРАФ ПЕРЕВОДОВ И КРОСС-СОБЫТИЙНЫЙ ЗАЧЁТ (ЭТАП 4)
-   ========================================================================== */
 function getUnitHeadId(members, memberId) {
   const byId = new Map(members.map(m => [m.id, m]));
   const m = byId.get(memberId);
@@ -780,9 +775,6 @@ export function computeEventSettlementPlan(members, operations, confirmedSettlem
   return { units, unit_balances_minor: unitBalancesMinor, edges: directEdges };
 }
 
-/* ==========================================================================
-   ЭТАП 5: ЦЕЛЕВЫЕ СБОРЫ И CSV-ЭКСПОРТ ВЕДОМОСТИ
-   ========================================================================== */
 export function buildEventCsvExport(eventDetail) {
   const ev = eventDetail || {};
   const members = Array.isArray(ev.members) ? ev.members : [];
@@ -1400,7 +1392,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     });
   }
 
-  // POST /api/expenses/events
   if (path === "/api/expenses/events" && method === "POST") {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
@@ -1506,7 +1497,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements, goal) }, 201);
   }
 
-  // GET /api/expenses/invite/:token
   const inviteGetMatch = path.match(/^\/api\/expenses\/invite\/([A-Za-z0-9_-]+)$/);
   if (inviteGetMatch && method === "GET") {
     const token = inviteGetMatch[1];
@@ -1539,7 +1529,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     });
   }
 
-  // POST /api/expenses/invite/:token/claim
   const inviteClaimMatch = path.match(/^\/api\/expenses\/invite\/([A-Za-z0-9_-]+)\/claim$/);
   if (inviteClaimMatch && method === "POST") {
     const token = inviteClaimMatch[1];
@@ -1623,7 +1612,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     });
   }
 
-  // GET /api/expenses/events/:id/export.csv
   const exportCsvMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/export\.csv$/);
   if (exportCsvMatch && method === "GET") {
     const eventId = exportCsvMatch[1];
@@ -1642,7 +1630,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     });
   }
 
-  // GET / PATCH /api/expenses/events/:id
   const eventMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)$/);
   if (eventMatch && method === "GET") {
     const eventId = eventMatch[1];
@@ -1712,7 +1699,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
-  // POST /api/expenses/events/:id/goals
   const goalsMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/goals$/);
   if (goalsMatch && method === "POST") {
     const eventId = goalsMatch[1];
@@ -1768,7 +1754,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements, goal) }, 201);
   }
 
-  // PATCH /api/expenses/events/:id/goals/:goalId/contributions/:memberId
   const goalContribMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/goals\/([A-Za-z0-9_-]+)\/contributions\/([A-Za-z0-9_-]+)$/);
   if (goalContribMatch && method === "PATCH") {
     const [, eventId, goalId, memberId] = goalContribMatch;
@@ -1803,7 +1788,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements, goal) });
   }
 
-  // POST /api/expenses/events/:id/members
   const membersCollectionMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/members$/);
   if (membersCollectionMatch && method === "POST") {
     const eventId = membersCollectionMatch[1];
@@ -1859,7 +1843,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) }, 201);
   }
 
-  // PATCH / DELETE /api/expenses/events/:id/members/:memberId
   const memberItemMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/members\/([A-Za-z0-9_-]+)$/);
   if (memberItemMatch && method === "PATCH") {
     const [, eventId, memberId] = memberItemMatch;
@@ -1938,7 +1921,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
-  // POST / DELETE /api/expenses/events/:id/wallets
   const walletsCollectionMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/wallets$/);
   if (walletsCollectionMatch && method === "POST") {
     const eventId = walletsCollectionMatch[1];
@@ -2025,7 +2007,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
-  // POST /api/expenses/events/:id/operations
   const opsCollectionMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/operations$/);
   if (opsCollectionMatch && method === "POST") {
     const eventId = opsCollectionMatch[1];
@@ -2148,7 +2129,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     }, 201);
   }
 
-  // PATCH / DELETE /api/expenses/events/:id/operations/:opId
   const opItemMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/operations\/([A-Za-z0-9_-]+)$/);
   if (opItemMatch && method === "PATCH") {
     const [, eventId, opId] = opItemMatch;
@@ -2305,7 +2285,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
-  // POST /api/expenses/settlements
   if (path === "/api/expenses/settlements" && method === "POST") {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
@@ -2399,7 +2378,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, settlement_id: settlementId, dashboard }, 201);
   }
 
-  // POST /api/expenses/settlements/:id/confirm
   const settleConfirmMatch = path.match(/^\/api\/expenses\/settlements\/([A-Za-z0-9_-]+)\/confirm$/);
   if (settleConfirmMatch && method === "POST") {
     const settlementId = settleConfirmMatch[1];
@@ -2439,7 +2417,6 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, status: "CONFIRMED", dashboard });
   }
 
-  // POST /api/expenses/settlements/:id/reject
   const settleRejectMatch = path.match(/^\/api\/expenses\/settlements\/([A-Za-z0-9_-]+)\/reject$/);
   if (settleRejectMatch && method === "POST") {
     const settlementId = settleRejectMatch[1];
@@ -2661,7 +2638,6 @@ export default {
       }
 
       try {
-        const { verifyTelegramInitData } = await import("./worker.js");
         const viewer = await verifyTelegramInitData(
           request.headers.get("X-Telegram-Init-Data") || "",
           env?.BOT_TOKEN || ""
