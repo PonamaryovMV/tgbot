@@ -39,17 +39,17 @@ function createMockD1() {
         return { results: [] };
       },
       async run() {
-        const q = this._sql.trim().toLowerCase();
+        const q = this._sql.trim().toLowerCase().replace(/\s+/g, " ");
         if (q.startsWith("insert into users")) {
-          const [id, telegramId, username, displayName, paymentPhone, preferredBanksJson, defaultCurrency, createdAt, updatedAt] = this._params;
+          const [id, telegramId, username, displayName, createdAt, updatedAt] = this._params;
           const record = {
             id: String(id),
             telegram_id: Number(telegramId),
             username: username ? String(username) : "",
             display_name: String(displayName),
-            payment_phone: paymentPhone ? String(paymentPhone) : "",
-            preferred_banks_json: String(preferredBanksJson || "[]"),
-            default_currency: String(defaultCurrency || "RUB"),
+            payment_phone: "",
+            preferred_banks_json: "[]",
+            default_currency: "RUB",
             created_at: String(createdAt),
             updated_at: String(updatedAt)
           };
@@ -156,7 +156,7 @@ test("Stage 1 expenses health and dashboard respond cleanly", async () => {
   assert.equal(healthRes.status, 200);
   const healthData = await healthRes.json();
   assert.equal(healthData.ok, true);
-  assert.equal(healthData.stage, 1);
+  assert.equal(healthData.stage, 5);
   assert.equal(healthData.tables_count, 9);
 
   const dashReq = new Request(`${baseOrigin}/api/expenses/dashboard`, { method: "GET" });
