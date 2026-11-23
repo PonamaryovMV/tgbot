@@ -51,6 +51,7 @@ const EXPENSE_CURRENCIES = Object.freeze(["RUB", "USD", "EUR", "KZT", "TRY", "GE
 const EVENT_STATUSES = Object.freeze(["ACTIVE", "SETTLING", "ARCHIVED"]);
 const OPERATION_TYPES = Object.freeze(["EXPENSE", "PREPAYMENT", "TRANSFER"]);
 const SPLIT_TYPES = Object.freeze(["EQUAL", "SHARES", "EXACT", "PERCENT", "MANUAL_ITEMS"]);
+const CONTRIBUTION_STATUSES = Object.freeze(["UNPAID", "PENDING", "PAID"]);
 
 const EXPENSE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS users (
@@ -636,7 +637,6 @@ function getUnitHeadId(members, memberId) {
 }
 
 export function buildSettlementUnits(members) {
-  const byId = new Map(members.map(m => [m.id, m]));
   const groups = new Map();
   for (const m of members) {
     const headId = getUnitHeadId(members, m.id);
@@ -669,7 +669,6 @@ export function computeEventSettlementPlan(members, operations, confirmedSettlem
   const unitBalancesMinor = {};
   for (const u of units) unitBalancesMinor[u.id] = 0;
 
-  // Матрица прямых долгов (fromUnit -> toUnit) в минорных единицах
   const pairMatrix = new Map();
   const addPair = (fromUnit, toUnit, amtMinor) => {
     if (!fromUnit || !toUnit || fromUnit === toUnit || !amtMinor) return;
@@ -779,6 +778,134 @@ export function computeEventSettlementPlan(members, operations, confirmedSettlem
     }
   }
   return { units, unit_balances_minor: unitBalancesMinor, edges: directEdges };
+}
+
+/* ==========================================================================
+   ЭТАП 5: ЦЕЛЕВЫЕ СБОРЫ И CSV-ЭКСПОРТ ВЕДОМОСТИ
+   ========================================================================== */
+export function buildEventCsvExport(eventDetail) {
+  const ev = eventDetail || {};
+  const members = Array.isArray(ev.members) ? ev.members : [];
+  const units = Array.isArray(ev.units) ? ev.units : [];
+  const ops = Array.isArray(ev.operations) ? ev.operations : [];
+  const edges = Array.isArray(ev.settlement_edges) ? ev.settlement_edges : [];
+  const balances = ev.unit_balances_minor || {};
+  const cur = ev.base_currency || "RUB";
+
+  const memberName = id => (members.find(m => m.id === id) || { member_name: id }).member_name;
+  const unitName = id => (units.find(u => u.id === id) || { name: id }).name;
+  const fmtMoney = minor => ((Number(minor) || 0) / 100).toFixed(2);
+
+  const rows = [];
+  rows.push(["Событие", ev.title || ""]);
+  rows.push(["Базовая валюта", cur]);
+  rows.push(["Статус", ev.status || "ACTIVE"]);
+  rows.push([]);
+  rows.push(["Дата", "Тип", "Название", "Категория", "Сумма", "Валюта", "Курс", "В базовой валюте", "Плательщики", "Доли"]);
+
+  for (const op of ops) {
+    const typeLabel = op.operation_type === "TRANSFER"
+      ? "Перевод"
+      : op.operation_type === "PREPAYMENT"
+        ? "В котёл"
+        : "Расход";
+    const payersText = (op.payers || []).map(memberName).join(" + ");
+    const sharesText = Object.entries(op.shares_minor || {})
+      .map(([mid, v]) => `${memberName(mid)}: ${fmtMoney(v)}`)
+      .join("; ");
+    rows.push([
+      op.expense_date || "",
+      typeLabel,
+      op.title || "",
+      op.category || "",
+      fmtMoney(op.original_amount_minor),
+      op.original_currency || cur,
+      String(op.exchange_rate ?? 1),
+      fmtMoney(op.base_amount_minor),
+      payersText,
+      sharesText
+    ]);
+  }
+
+  rows.push([]);
+  rows.push(["Итоговые балансы юнитов"]);
+  rows.push(["Участник / Кошелёк", "Тип", `Баланс (${cur})`]);
+  for (const u of units) {
+    rows.push([
+      u.name,
+      u.is_wallet ? "Единый кошелёк" : "Участник",
+      fmtMoney(balances[u.id] || 0)
+    ]);
+  }
+
+  rows.push([]);
+  rows.push(["Схема переводов"]);
+  rows.push(["От кого", "Кому", `Сумма (${cur})`, "Статус"]);
+  for (const e of edges) {
+    rows.push([
+      unitName(e.from_unit_id),
+      unitName(e.to_unit_id),
+      fmtMoney(e.amount_minor),
+      e.pending ? "Ожидает подтверждения" : "К переводу"
+    ]);
+  }
+
+  return "\uFEFF" + rows
+    .map(r => r.map(cell => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(";"))
+    .join("\r\n");
+}
+
+async function loadEventGoals(db, eventId, members) {
+  const goalRow = await db
+    .prepare(
+      `SELECT id, event_id, title, target_per_member_minor, receiver_member_id, status
+       FROM event_goals
+       WHERE event_id = ? AND status != 'CANCELLED'
+       ORDER BY rowid DESC
+       LIMIT 1`
+    )
+    .bind(eventId)
+    .first();
+
+  if (!goalRow) return null;
+
+  const contribRes = await db
+    .prepare(
+      `SELECT id, goal_id, member_id, status, settlement_id
+       FROM goal_contributions
+       WHERE goal_id = ?`
+    )
+    .bind(goalRow.id)
+    .all();
+
+  const contribRows = Array.isArray(contribRes?.results) ? contribRes.results : [];
+  const byMember = new Map(contribRows.map(c => [c.member_id, c]));
+
+  const contributions = members.map(m => {
+    const existing = byMember.get(m.id);
+    return {
+      id: existing?.id || null,
+      member_id: m.id,
+      member_name: m.member_name,
+      status: existing?.status || "UNPAID"
+    };
+  });
+
+  const paidCount = contributions.filter(c => c.status === "PAID").length;
+  const perMemberMinor = Number(goalRow.target_per_member_minor) || 0;
+  return {
+    id: goalRow.id,
+    event_id: goalRow.event_id,
+    title: goalRow.title,
+    target_per_member_minor: perMemberMinor,
+    receiver_member_id: goalRow.receiver_member_id,
+    status: goalRow.status || "ACTIVE",
+    collected_minor: paidCount * perMemberMinor,
+    total_target_minor: members.length * perMemberMinor,
+    paid_count: paidCount,
+    total_members: members.length,
+    contributions
+  };
 }
 
 async function loadEventMembers(db, eventId) {
@@ -981,7 +1108,7 @@ async function requireEventAccess(db, eventId, userProfileId, { requireAdmin = f
   return { eventRow, members, viewerMember };
 }
 
-function serializeEventDetail(eventRow, members, viewerMember, operations = [], auditLog = [], settlements = []) {
+function serializeEventDetail(eventRow, members, viewerMember, operations = [], auditLog = [], settlements = [], activeGoal = null) {
   const totalSpentMinor = operations
     .filter(op => op.operation_type !== "TRANSFER")
     .reduce((sum, op) => sum + (Number(op.base_amount_minor) || 0), 0);
@@ -1017,6 +1144,7 @@ function serializeEventDetail(eventRow, members, viewerMember, operations = [], 
     net_balance_minor: netBalanceMinor,
     operations,
     settlements,
+    goal: activeGoal,
     audit_log: auditLog
   };
 }
@@ -1109,16 +1237,15 @@ async function listUserEventsSummary(db, userProfileId) {
         if (toU === viewerUnitId) summaryByCurrency[cur].pending_incoming_minor += st.allocated_amount_minor;
       }
 
-      // Кросс-событийная агрегация по людям/кошелькам в разрезе валюты
       for (const edge of plan.edges) {
         let otherUnitId = null;
         let sign = 0;
         if (edge.from_unit_id === viewerUnitId) {
           otherUnitId = edge.to_unit_id;
-          sign = -1; // я должен
+          sign = -1;
         } else if (edge.to_unit_id === viewerUnitId) {
           otherUnitId = edge.from_unit_id;
-          sign = 1; // мне должны
+          sign = 1;
         }
         if (!otherUnitId) continue;
         const otherUnit = plan.units.find(u => u.id === otherUnitId);
@@ -1254,14 +1381,14 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({
       ok: true,
       module: "expenses",
-      stage: 4,
+      stage: 5,
       tables_count: 9
     });
   }
 
   if (path === "/api/expenses/dashboard" && method === "GET") {
     const dashboard = await listUserEventsSummary(db, user.id);
-    return json({ ok: true, stage: 4, user, ...dashboard });
+    return json({ ok: true, stage: 5, user, ...dashboard });
   }
 
   if (path === "/api/expenses/events" && method === "GET") {
@@ -1374,8 +1501,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const { eventRow, members, viewerMember } = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements) }, 201);
+    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements, goal) }, 201);
   }
 
   // GET /api/expenses/invite/:token
@@ -1429,12 +1557,13 @@ export async function handleExpensesApi(request, env, viewer, url) {
     if (alreadyMember) {
       const operations = await loadEventOperations(db, eventRow.id);
       const settlements = await loadEventSettlements(db, eventRow.id);
+      const goal = await loadEventGoals(db, eventRow.id, members);
       const auditLog = await loadEventAuditLog(db, eventRow.id);
       return json({
         ok: true,
         claimed: false,
         already_joined: true,
-        event: serializeEventDetail(eventRow, members, alreadyMember, operations, auditLog, settlements)
+        event: serializeEventDetail(eventRow, members, alreadyMember, operations, auditLog, settlements, goal)
       });
     }
 
@@ -1485,11 +1614,31 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updatedAccess = await requireEventAccess(db, eventRow.id, user.id);
     const operations = await loadEventOperations(db, eventRow.id);
     const settlements = await loadEventSettlements(db, eventRow.id);
+    const goal = await loadEventGoals(db, eventRow.id, updatedAccess.members);
     const auditLog = await loadEventAuditLog(db, eventRow.id);
     return json({
       ok: true,
       claimed: Boolean(targetMemberId && targetMemberId !== "__new"),
-      event: serializeEventDetail(updatedAccess.eventRow, updatedAccess.members, updatedAccess.viewerMember, operations, auditLog, settlements)
+      event: serializeEventDetail(updatedAccess.eventRow, updatedAccess.members, updatedAccess.viewerMember, operations, auditLog, settlements, goal)
+    });
+  }
+
+  // GET /api/expenses/events/:id/export.csv
+  const exportCsvMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/export\.csv$/);
+  if (exportCsvMatch && method === "GET") {
+    const eventId = exportCsvMatch[1];
+    const { eventRow, members, viewerMember } = await requireEventAccess(db, eventId, user.id);
+    const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
+    const detail = serializeEventDetail(eventRow, members, viewerMember, operations, [], settlements, null);
+    const csv = buildEventCsvExport(detail);
+    return new Response(csv, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="event_${eventId}.csv"`,
+        "Access-Control-Allow-Origin": "*"
+      }
     });
   }
 
@@ -1500,8 +1649,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const { eventRow, members, viewerMember } = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements) });
+    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements, goal) });
   }
 
   if (eventMatch && method === "PATCH") {
@@ -1557,8 +1707,100 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, updated.members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
+  }
+
+  // POST /api/expenses/events/:id/goals — создание целевого сбора фиксированной суммы
+  const goalsMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/goals$/);
+  if (goalsMatch && method === "POST") {
+    const eventId = goalsMatch[1];
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw new ExpensesApiError(400, "Invalid JSON payload");
+    }
+    const { eventRow, members, viewerMember } = await requireEventAccess(db, eventId, user.id);
+    const title = cleanPlainText(body.title, 100);
+    if (!title) throw new ExpensesApiError(400, "Goal title is required");
+    const targetMinor = Math.round(Number(body.target_per_member_minor) || 0);
+    if (targetMinor <= 0) throw new ExpensesApiError(400, "Target amount per member must be positive");
+    const receiverMemberId = members.some(m => m.id === body.receiver_member_id)
+      ? body.receiver_member_id
+      : viewerMember.id;
+
+    await db
+      .prepare("UPDATE event_goals SET status = 'CANCELLED' WHERE event_id = ? AND status = 'ACTIVE'")
+      .bind(eventId)
+      .run();
+
+    const goalId = crypto.randomUUID();
+    await db
+      .prepare(
+        `INSERT INTO event_goals (id, event_id, title, target_per_member_minor, receiver_member_id, status)
+         VALUES (?, ?, ?, ?, ?, 'ACTIVE')`
+      )
+      .bind(goalId, eventId, title, targetMinor, receiverMemberId)
+      .run();
+
+    for (const m of members) {
+      const initialStatus = m.id === receiverMemberId ? "PAID" : "UNPAID";
+      await db
+        .prepare(
+          `INSERT INTO goal_contributions (id, goal_id, member_id, status, settlement_id)
+           VALUES (?, ?, ?, ?, NULL)`
+        )
+        .bind(crypto.randomUUID(), goalId, m.id, initialStatus)
+        .run();
+    }
+
+    const now = new Date().toISOString();
+    await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
+    await appendAuditLog(db, eventId, user.id, "GOAL_CREATED", {
+      goal_id: goalId,
+      text: `${viewerMember.member_name} открыл(а) целевой сбор «${title}» по ${Math.round(targetMinor / 100)} ${eventRow.base_currency || "RUB"}`
+    });
+
+    const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, members);
+    const auditLog = await loadEventAuditLog(db, eventId);
+    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements, goal) }, 201);
+  }
+
+  // PATCH /api/expenses/events/:id/goals/:goalId/contributions/:memberId
+  const goalContribMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/goals\/([A-Za-z0-9_-]+)\/contributions\/([A-Za-z0-9_-]+)$/);
+  if (goalContribMatch && method === "PATCH") {
+    const [, eventId, goalId, memberId] = goalContribMatch;
+    const body = await request.json().catch(() => null);
+    const nextStatus = String(body?.status || "").trim().toUpperCase();
+    if (!CONTRIBUTION_STATUSES.includes(nextStatus)) {
+      throw new ExpensesApiError(400, "Invalid contribution status");
+    }
+    const { eventRow, members, viewerMember } = await requireEventAccess(db, eventId, user.id);
+    const targetMember = members.find(m => m.id === memberId);
+    if (!targetMember) throw new ExpensesApiError(404, "Member not found");
+
+    await db
+      .prepare("UPDATE goal_contributions SET status = ? WHERE goal_id = ? AND member_id = ?")
+      .bind(nextStatus, goalId, memberId)
+      .run();
+
+    const now = new Date().toISOString();
+    const labelMap = { UNPAID: "не сдал(а)", PENDING: "отметил(а) перевод", PAID: "сдал(а)" };
+    await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
+    await appendAuditLog(db, eventId, user.id, "GOAL_CONTRIBUTION_UPDATED", {
+      goal_id: goalId,
+      member_id: memberId,
+      status: nextStatus,
+      text: `${targetMember.member_name}: статус сбора «${labelMap[nextStatus]}»`
+    });
+
+    const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, members);
+    const auditLog = await loadEventAuditLog(db, eventId);
+    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements, goal) });
   }
 
   // POST /api/expenses/events/:id/members
@@ -1612,8 +1854,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, updated.members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) }, 201);
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) }, 201);
   }
 
   // PATCH / DELETE /api/expenses/events/:id/members/:memberId
@@ -1655,8 +1898,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, updated.members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
   if (memberItemMatch && method === "DELETE") {
@@ -1689,8 +1933,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, updated.members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
   // POST / DELETE /api/expenses/events/:id/wallets
@@ -1746,8 +1991,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, updated.members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
   const walletItemMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/wallets\/([A-Za-z0-9_-]+)$/);
@@ -1774,8 +2020,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, updated.members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
   // POST /api/expenses/events/:id/operations
@@ -1892,11 +2139,12 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, updated.members);
     const auditLog = await loadEventAuditLog(db, eventId);
     return json({
       ok: true,
       operation_id: opId,
-      event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements)
+      event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal)
     }, 201);
   }
 
@@ -2016,8 +2264,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, updated.members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
   if (opItemMatch && method === "DELETE") {
@@ -2051,11 +2300,12 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
     const settlements = await loadEventSettlements(db, eventId);
+    const goal = await loadEventGoals(db, eventId, updated.members);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
-  // POST /api/expenses/settlements — фиксация отправки перевода (PENDING) по одному или нескольким событиям
+  // POST /api/expenses/settlements
   if (path === "/api/expenses/settlements" && method === "POST") {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
@@ -2149,7 +2399,7 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, settlement_id: settlementId, dashboard }, 201);
   }
 
-  // POST /api/expenses/settlements/:id/confirm — получатель подтверждает получение
+  // POST /api/expenses/settlements/:id/confirm
   const settleConfirmMatch = path.match(/^\/api\/expenses\/settlements\/([A-Za-z0-9_-]+)\/confirm$/);
   if (settleConfirmMatch && method === "POST") {
     const settlementId = settleConfirmMatch[1];
@@ -2189,7 +2439,7 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, status: "CONFIRMED", dashboard });
   }
 
-  // POST /api/expenses/settlements/:id/reject — получатель отмечает «Деньги не пришли»
+  // POST /api/expenses/settlements/:id/reject
   const settleRejectMatch = path.match(/^\/api\/expenses\/settlements\/([A-Za-z0-9_-]+)\/reject$/);
   if (settleRejectMatch && method === "POST") {
     const settlementId = settleRejectMatch[1];
