@@ -30,6 +30,7 @@ export default async (page, baseUrl) => {
   let reusableGivers = [];
   let failApi = false;
   const subscriptions = [];
+  const expenseEvents = [];
   const coreProfile = {
     id: "usr_2002",
     telegram_id: 2002,
@@ -123,7 +124,7 @@ export default async (page, baseUrl) => {
         status: 204,
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data"
         }
       });
@@ -140,8 +141,8 @@ export default async (page, baseUrl) => {
         d1_bound: true,
         user: coreProfile,
         dashboard: {
-          active_events: [],
-          archived_events: [],
+          active_events: expenseEvents.filter(e => e.status !== "ARCHIVED"),
+          archived_events: expenseEvents.filter(e => e.status === "ARCHIVED"),
           summary_by_currency: { RUB: { you_owe_minor: 0, owed_to_you_minor: 0 } }
         }
       });
@@ -151,6 +152,88 @@ export default async (page, baseUrl) => {
       const body = request.postDataJSON();
       Object.assign(coreProfile, body);
       return fulfillJson({ ok: true, user: coreProfile });
+    }
+
+    if (url.pathname === "/api/expenses/dashboard" && request.method() === "GET") {
+      return fulfillJson({
+        ok: true,
+        stage: 2,
+        user: coreProfile,
+        active_events: expenseEvents.filter(e => e.status !== "ARCHIVED").map(e => ({ ...e, members_count: e.members.length })),
+        archived_events: expenseEvents.filter(e => e.status === "ARCHIVED").map(e => ({ ...e, members_count: e.members.length })),
+        summary_by_currency: { RUB: { you_owe_minor: 0, owed_to_you_minor: 0 } },
+        cross_event_debts: []
+      });
+    }
+
+    if (url.pathname === "/api/expenses/events" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      const ghosts = String(body.ghost_names || "").split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+      const evId = `ev_${expenseEvents.length + 1}`;
+      const members = [
+        {
+          id: `${evId}_m1`,
+          event_id: evId,
+          user_id: "usr_2002",
+          telegram_id: 2002,
+          username: "anna1",
+          member_name: "Анна",
+          is_ghost: false,
+          role: "OWNER",
+          default_weight: 1,
+          linked_payer_member_id: null
+        },
+        ...ghosts.map((name, idx) => ({
+          id: `${evId}_g${idx + 1}`,
+          event_id: evId,
+          user_id: null,
+          telegram_id: null,
+          username: "",
+          member_name: name,
+          is_ghost: true,
+          role: "MEMBER",
+          default_weight: 1,
+          linked_payer_member_id: null
+        }))
+      ];
+      const created = {
+        id: evId,
+        title: body.title,
+        icon: body.icon || "🎉",
+        base_currency: body.base_currency || "RUB",
+        simplify_debts: body.simplify_debts !== false,
+        status: "ACTIVE",
+        invite_token: `exp_${evId}_tok`,
+        viewer_member_id: `${evId}_m1`,
+        viewer_role: "OWNER",
+        members,
+        wallets: [],
+        total_spent_minor: 0,
+        net_balance_minor: 0,
+        audit_log: [{ id: "log_1", action: "EVENT_CREATED", text: `Анна создала событие «${body.title}»`, created_at: new Date().toISOString() }]
+      };
+      expenseEvents.unshift(created);
+      return fulfillJson({ ok: true, event: created }, 201);
+    }
+
+    const evDetailMatch = url.pathname.match(/^\/api\/expenses\/events\/([^/]+)$/);
+    if (evDetailMatch && request.method() === "GET") {
+      const found = expenseEvents.find(e => e.id === evDetailMatch[1]);
+      return found ? fulfillJson({ ok: true, event: found }) : fulfillJson({ error: "Not found" }, 404);
+    }
+
+    const walletMergeMatch = url.pathname.match(/^\/api\/expenses\/events\/([^/]+)\/wallets$/);
+    if (walletMergeMatch && request.method() === "POST") {
+      const found = expenseEvents.find(e => e.id === walletMergeMatch[1]);
+      const { member_ids } = request.postDataJSON();
+      const headId = member_ids[0];
+      for (const m of found.members) {
+        if (member_ids.includes(m.id) && m.id !== headId) {
+          m.linked_payer_member_id = headId;
+        }
+      }
+      found.wallets = [{ id: headId, head_member_id: headId, name: member_ids.map(id => found.members.find(m => m.id === id)?.member_name).join(" + "), member_ids }];
+      return fulfillJson({ ok: true, event: found });
     }
 
     if (url.pathname === "/api/img/0123456789abcdef") {
@@ -304,17 +387,39 @@ export default async (page, baseUrl) => {
   assert((await page.locator("#roleBadge").textContent()).includes("Анна"), "Real guest name must be rendered");
   results.push("telegram session, real names and start_param");
 
-  // Verify Superapp Hub navigation and unlocked Wishlists card
+  // Verify Superapp Hub navigation and Stage 2 Expenses event + unified wallet flow
   await page.locator("#openSuperappHubFromWishlistBtn").click();
   assert(await page.locator("#superappHubScreen").isVisible(), "Superapp hub must open from wishlist menu button");
   const wishlistHubText = await page.locator("#hubModuleWishlistBtn").textContent();
   assert(!wishlistHubText.includes("Скоро"), "Wishlists hub card must not have Скоро placeholder");
   await page.locator("#hubModuleExpensesBtn").click();
   assert(await page.locator("#expensesAppShell").isVisible(), "Expenses module screen must open from hub");
+
+  await page.locator("#openNewEventHeaderBtn").click();
+  await page.locator("#newEventModalBackdrop.open").waitFor();
+  await page.locator("#newEventTitleInput").fill("Поездка в Сочи");
+  await page.locator("#newEventGhostsInput").fill("Гоша\nЛена");
+  await page.locator("#submitCreateEventBtn").click();
+  await page.locator("#expenseEventDetailView").waitFor({ state: "visible" });
+  assert((await page.locator("#expDetailTitle").textContent()).includes("Поездка в Сочи"), "Created event title must render");
+
+  await page.locator("#expParticipantsBtn").click();
+  await page.locator("#eventParticipantsModalBackdrop.open").waitFor();
+  const mergeChecks = page.locator("#eventParticipantsModalBody .exp-merge-check");
+  await mergeChecks.nth(0).click();
+  await mergeChecks.nth(1).click();
+  await page.locator("#eventParticipantsModalBody").getByRole("button", { name: /Объединить в единый кошелёк/ }).click();
+  await page.waitForFunction(() => document.querySelector("#eventParticipantsModalBody")?.textContent.includes("Единые кошельки"));
+  await page.locator("#eventParticipantsModalBackdrop .btn-close-circle").click();
+
+  await page.locator("#backToExpensesDashBtn").click();
+  await page.locator("#expensesDashboardView").waitFor({ state: "visible" });
+  assert((await page.locator("#expensesActiveEventsList").textContent()).includes("Поездка в Сочи"), "Created event must appear in dashboard");
+
   await page.locator("#backFromExpensesBtn").click();
   await page.locator("#hubModuleWishlistBtn").click();
   assert(await page.locator("#wishlistAppShell").isVisible(), "Wishlists module must open from hub");
-  results.push("superapp hub navigation with unlocked wishlists and expenses");
+  results.push("superapp hub and Stage 2 expenses event + unified wallet flow");
 
   await page.evaluate(() => {
     applyServerData({
