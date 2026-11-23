@@ -1,39 +1,54 @@
 # Архитектура проекта
 
 Telegram Mini App состоит из статического клиентского приложения (GitHub Pages), Cloudflare Worker и двух хранилищ:
-- **Cloudflare KV (`env.DB`)** — хранит профили вишлистов, желания, подписки, кастомные группы доступа, подборки по поводам, участия и бинарные изображения.
-- **Cloudflare D1 (`env.EXPENSES_DB`, база `tg_expenses`)** — хранит глобальный профиль и реквизиты СБП (`users`), события (`events`), участников и виртуальные профили (`event_members`), операции и доли (`expenses`, `expense_splits`), погашения по СБП (`settlements`, `settlement_allocations`), целевые сборы (`event_goals`, `goal_contributions`) и аудит (`event_audit_log`).
+- **Cloudflare KV (`env.DB`)** — профили вишлистов, желания, подписки, группы доступа, поводы, участия и бинарные изображения.
+- **Cloudflare D1 (`env.EXPENSES_DB`, база `tg_expenses`)** — профиль и реквизиты СБП (`users`), события (`events`), участники (`event_members`), операции и доли (`expenses`, `expense_splits`), расчёты (`settlements`, `settlement_allocations`), цели (`event_goals`, `goal_contributions`) и аудит (`event_audit_log`).
 
 ## Карта файлов
 
 ```text
-├── index.html                        # HTML-каркас супераппа, модальные окна и конфиг API_BASE_URL
-├── styles.css                        # Стили, темы (Dark/Light/Amethyst), Bento-сетки и SVG-граф расчётов
-├── app-state.js                      # Инициализация Telegram WebApp, deep links, API-запросы, загрузка/кеш KV-изображений
-├── app-social.js                     # Кастомные группы приватности, подписки, подборки по поводам и гибкий шаринг
-├── app-render.js                     # Отрисовка карточек подарков, фильтров и обработчики форм вишлиста
-├── expenses-hub.js                   # Главное меню супераппа (Hub), маршрутизация модулей и профиль СБП
-├── expenses-app.js                   # Модуль «Совместные расходы»: события, участники/веса, Единый кошелёк, Claim Profile, 5 режимов сплита, SVG-граф, погашение СБП, целевые сборы и CSV-экспорт
-├── expenses-worker.js                # Точка входа Cloudflare Worker: API /api/core/* и /api/expenses/* (D1), /start выбор раздела и делегирование в worker.js
-├── worker.js                         # Backend вишлиста и Telegram-бота: проверка initData, права доступа, KV-операции, уведомления
-├── migrations/0001_expenses_schema.sql # Базовая SQL-схема 9+ таблиц модуля расходов в D1
-├── migrations/0002_expenses_stage3.sql # Миграция Этапа 3 (split_meta_json для редактирования операций)
-├── wrangler.toml                     # Конфигурация Cloudflare Worker (main = "expenses-worker.js", KV + D1 bindings)
+├── index.html                        # HTML-каркас супераппа, модальные окна и точка входа <script type="module" src="./src/ui/main.js">
+├── styles.css                        # Темы (Dark/Light/Amethyst), Bento-сетки и стили компонентов
+├── expenses-worker.js                # Тонкий роутер /api/core/*, /api/expenses/* и реэкспорты для тестов/worker.js
+├── worker.js                         # Тонкий роутер API вишлистов, KV-изображений, webhook и реэкспорты
+├── src/
+│   ├── expenses/
+│   │   ├── schema.js                 # SQL-схема D1, константы, ExpensesApiError, CORS и санитайзеры
+│   │   ├── splits.js                 # Распределение минорных единиц, 5 режимов сплита, кошельки и граф долгов
+│   │   ├── queries.js                # D1-запросы, сериализация событий, кросс-событийные долги и CSV-экспорт
+│   │   ├── core-api.js               # Обработчики /api/core/* и клавиатура выбора модулей по /start
+│   │   ├── events-api.js             # Маршруты событий, инвайты/claim, участники, кошельки, цели и CSV
+│   │   └── operations-api.js         # CRUD операций (/operations/*) и 2-шаговые СБП-расчёты (/settlements/*)
+│   ├── wishlist/
+│   │   ├── utils.js                  # Константы, ApiError, санитайзеры, HMAC verifyTelegramInitData и Telegram API
+│   │   ├── storage.js                # KV CRUD (профили, подписки, группы, вишлисты) и загрузка/доступ к /api/img/*
+│   │   ├── notifications.js          # Уведомления (/notifications), батч-рассылки, request_users и webhook
+│   │   ├── gifts-api.js              # Приватность подарков, /api/participations, CRUD желаний/поводов и копирование
+│   │   └── social-api.js             # Подписки и управление группами доступа (/api/social)
+│   └── ui/
+│       ├── state.js                  # Telegram WebApp SDK, deep links, state, API-клиент, KV-фото, Canvas-сжатие
+│       ├── wishlist-social.js        # Группы доступа, подписки, поводы и модалка гибкого шаринга
+│       ├── wishlist-render.js        # Формы желаний, теги, фильтры, карточки и раздел «Я участвую»
+│       ├── hub.js                    # Главное меню супераппа (Hub), переключение модулей и профиль СБП
+│       ├── expenses-state.js         # Состояние модуля расходов, демо-данные и расчёт графа долгов
+│       ├── expenses-views.js         # Дашборд событий, карточка события, операции и SVG-граф переводов
+│       ├── expenses-modals.js        # Модалки событий, участников/кошельков, операций и СБП-переводов
+│       └── main.js                   # Инициализация DOMContentLoaded и привязка обработчиков к window
+├── migrations/
+│   ├── 0001_expenses_schema.sql      # Базовая SQL-схема модуля расходов в D1
+│   └── 0002_expenses_stage3.sql      # Миграция split_meta_json для операций
+├── wrangler.toml                     # Конфигурация Cloudflare Worker (KV + D1 + Secrets Store)
 ├── package.json                      # Скрипты запуска backend- и браузерных тестов
 └── tests/
-    ├── worker.test.mjs               # Unit-тесты вишлиста, групп, поводов, уведомлений и изоляции KV
-    ├── expenses-stage1.test.mjs      # Unit-тесты схемы D1, профиля СБП и клавиатуры /start
-    ├── expenses-stage2.test.mjs      # Unit-тесты событий, Ghost Profiles, весов, Единого кошелька и Claim Profile
-    ├── expenses-stage3.test.mjs      # Unit-тесты операций, 5 режимов сплита, мультивалютности и заморозки трат
-    ├── expenses-stage4.test.mjs      # Unit-тесты Simplify Debts, кросс-событийных долгов и 2-шагового погашения по СБП
-    ├── expenses-stage5.test.mjs      # Unit-тесты целевых сборов и экспорта ведомости в CSV
-    ├── browser-runner.mjs            # Локальный HTTP-сервер и запуск Playwright-тестов
-    ├── browser-telegram.js           # E2E-проверка Telegram-сессии, шаринга и навигации супераппа
-    └── browser-demo.js               # E2E-проверка демо-режима, групп, тегов, поводов и адаптивности
+    ├── worker.test.mjs               # Unit-тесты вишлиста, групп, поводов, уведомлений и KV
+    ├── expenses-stage1..5.test.mjs   # Unit-тесты модуля расходов по этапам 1–5
+    ├── browser-runner.mjs            # Локальный HTTP-сервер статики и запуск Playwright-сценариев
+    ├── browser-telegram.js           # E2E-сценарий Telegram-сессии и навигации супераппа
+    └── browser-demo.js               # E2E-сценарий демо-режима, групп, поводов и адаптивности
 ```
 
 ## Потоки данных
 
-1. **Авторизация и запуск:** клиент читает `window.Telegram.WebApp.initData`, передаёт его в заголовке `X-Telegram-Init-Data`, а `expenses-worker.js` / `worker.js` проверяют подпись HMAC-SHA256 на каждом запросе. При команде `/start` бот показывает выбор между вишлистами (`?module=wishlist`), расходами (`?module=expenses`) и главным меню супераппа, либо открывает конкретное событие (`exp_<token>`) или вишлист (`list_<id>`).
-2. **Вишлисты (KV):** состояние хранится в ключе `user:<ownerId>` (`owner`, `occasions`, `gifts`), приватность проверяется на сервере до выдачи JSON и при обращении к `/api/img/<imageId>`.
-3. **Совместные расходы (D1):** все денежные суммы хранятся в целых минорных единицах (`*_minor`). Расчётные юниты группируют участников с общим `linked_payer_member_id` («Единый кошелёк»), поверх которых движок строит граф упрощённых (`Simplify Debts`) или прямых переводов, агрегирует кросс-событийные балансы и проводит 2-шаговое подтверждение переводов по СБП.
+1. **Авторизация и запуск:** клиент передаёт `X-Telegram-Init-Data`, воркер проверяет HMAC-SHA256 на каждом запросе; `/start` направляет в вишлист (`?module=wishlist`), расходы (`?module=expenses`), событие (`exp_<token>`) или вишлист (`list_<id>`).
+2. **Вишлисты (KV):** состояние хранится в `user:<ownerId>`, проверка прав видимости выполняется на сервере для JSON-ответов и `/api/img/<imageId>`.
+3. **Совместные расходы (D1):** суммы хранятся в минорных единицах (`*_minor`), участники с общим `linked_payer_member_id` объединяются в расчётные юниты для графа переводов, кросс-событийного зачёта и 2-шагового подтверждения СБП.
