@@ -1081,6 +1081,60 @@ button {
 }
 
 /* ==========================================================================
+   3.4 ЦЕЛЕВЫЕ СБОРЫ (ЭТАП 5)
+   ========================================================================== */
+.exp-goal-card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-xl);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--specular-inset), var(--shadow-sm);
+}
+
+.exp-goal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.exp-goal-title {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.exp-goal-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-input);
+  overflow: hidden;
+  margin: 8px 0 12px;
+}
+
+.exp-goal-progress-fill {
+  height: 100%;
+  background: var(--accent-gradient);
+  border-radius: 999px;
+  transition: width 0.28s ease;
+}
+
+.exp-goal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border-hairline);
+  font-size: 13.5px;
+}
+
+.exp-goal-row:first-of-type {
+  border-top: 0;
+}
+
+/* ==========================================================================
    4. ОСНОВНОЙ КОНТЕЙНЕР И BENTO HERO HEADER
    ========================================================================== */
 .app-shell {
