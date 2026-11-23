@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Вишлист — Telegram Mini App</title>
+  <title>СуперАпп — Вишлисты и Совместные расходы</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -28,13 +28,121 @@
           <button type="button" class="studio-tool-btn" data-theme-btn="light" onclick="setThemePreset('light')">☀️ Light</button>
           <button type="button" class="studio-tool-btn" data-theme-btn="amethyst" onclick="setThemePreset('amethyst')">🔮 Amethyst</button>
         </div>
+        <button type="button" class="studio-tool-btn" onclick="openSuperappHub()">🧭 Меню</button>
         <button type="button" class="studio-tool-btn" onclick="previewSkeletons()">⏳ Скелетон</button>
         <button type="button" class="studio-tool-btn" onclick="resetDemoData()">🔄 Сброс</button>
       </div>
     </div>
   </div>
 
-  <div class="app-shell">
+  <!-- ГЛАВНОЕ МЕНЮ СУПЕРАППА -->
+  <div class="app-shell superapp-hub-shell" id="superappHubScreen" hidden>
+    <div class="hub-top-bar">
+      <div class="hub-avatar-circle" id="hubUserInitials">П</div>
+      <div class="hub-user-meta">
+        <div class="hub-user-name" id="hubUserName">Пользователь</div>
+        <div class="hub-user-sub" id="hubUserPhoneSub">Телефон для СБП не указан</div>
+      </div>
+      <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 12px;" onclick="toggleHubTheme()" aria-label="Переключить тему">
+        🌓
+      </button>
+    </div>
+
+    <button type="button" class="hub-profile-row" id="openSbpProfileBtn" onclick="openSbpProfileModal()">
+      <span class="hub-profile-ico">💳</span>
+      <span class="hub-profile-copy">
+        <strong>Профиль и реквизиты</strong>
+        <span id="hubSbpSummaryBadge">Телефон для СБП · банки · валюта</span>
+      </span>
+      <span class="hub-chevron">›</span>
+    </button>
+
+    <div class="hub-section-label">Приложения</div>
+
+    <button type="button" class="hub-module-card hub-module-wishlist" id="hubModuleWishlistBtn" onclick="selectSuperappModule('wishlist')">
+      <div class="hub-module-top">
+        <div class="hub-module-icon">🎁</div>
+        <div class="hub-module-title-wrap">
+          <div class="hub-module-title">Вишлисты и подарки</div>
+          <div class="hub-module-sub">Собирайте желания, бронируйте и скидывайтесь вместе</div>
+        </div>
+        <span class="hub-chevron" style="color: rgba(255,255,255,0.85);">›</span>
+      </div>
+      <div class="hub-module-stats">
+        <div class="hub-stat-item">
+          <small>Актуальных желаний</small>
+          <strong id="hubWishlistCount">0</strong>
+        </div>
+      </div>
+      <div class="hub-module-footer">
+        <span>Личный список и вишлисты друзей</span>
+        <span>Открыть →</span>
+      </div>
+    </button>
+
+    <button type="button" class="hub-module-card hub-module-primary" id="hubModuleExpensesBtn" onclick="selectSuperappModule('expenses')">
+      <div class="hub-module-top">
+        <div class="hub-module-icon">₽</div>
+        <div class="hub-module-title-wrap">
+          <div class="hub-module-title">Совместные расходы</div>
+          <div class="hub-module-sub" id="hubExpensesEventsSub">0 активных событий</div>
+        </div>
+        <span class="hub-chevron" style="color: rgba(255,255,255,0.85);">›</span>
+      </div>
+      <div class="hub-module-stats">
+        <div class="hub-stat-item">
+          <small>Вам должны</small>
+          <strong id="hubOweMeAmount">0 ₽</strong>
+        </div>
+        <div class="hub-stat-item">
+          <small>Вы должны</small>
+          <strong id="hubIOweAmount">0 ₽</strong>
+        </div>
+      </div>
+      <div class="hub-module-footer">
+        <span>Учёт общих трат и расчёты по СБП</span>
+        <span>Открыть →</span>
+      </div>
+    </button>
+  </div>
+
+  <!-- МОДУЛЬ 2: СОВМЕСТНЫЕ РАСХОДЫ -->
+  <div class="app-shell expenses-shell" id="expensesAppShell" hidden>
+    <div class="expenses-head-bar">
+      <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 12px;" id="backFromExpensesBtn" onclick="openSuperappHub()">
+        ‹ Меню
+      </button>
+      <h1 class="expenses-head-title">💰 Совместные расходы</h1>
+    </div>
+
+    <div class="expenses-balance-grid">
+      <div class="expenses-bal-tile pos">
+        <small>Мне должны</small>
+        <strong id="expensesOweMeValue">0 ₽</strong>
+      </div>
+      <div class="expenses-bal-tile neg">
+        <small>Я должен</small>
+        <strong id="expensesIOweValue">0 ₽</strong>
+      </div>
+    </div>
+
+    <section class="composer-card" id="expensesStage1Section">
+      <div class="modal-head" style="margin-bottom: 8px;">
+        <h2 class="modal-title" style="font-size: 17px;">События и общие траты</h2>
+        <span class="role-mode-badge">Этап 1 · База D1</span>
+      </div>
+      <p class="hero-subtitle" style="margin-bottom: 14px; line-height: 1.5;">
+        Профиль и реквизиты СБП подключены к базе данных. Создание событий, приглашение друзей и добавление чеков появятся на следующем шаге.
+      </p>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button type="button" class="btn-glass" onclick="openSbpProfileModal()">💳 Настроить СБП</button>
+        <button type="button" class="btn-accent" onclick="selectSuperappModule('wishlist')">🎁 Перейти в вишлисты</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- МОДУЛЬ 1: ВИШЛИСТЫ -->
+  <div class="app-shell" id="wishlistAppShell">
     <header class="bento-hero">
       <div class="hero-top-row">
         <div class="hero-identity">
@@ -52,6 +160,9 @@
         </div>
 
         <div class="hero-actions">
+          <button type="button" class="btn-glass" id="openSuperappHubFromWishlistBtn" onclick="openSuperappHub()">
+            🧭 Меню
+          </button>
           <button type="button" class="btn-glass" id="backToOwnListBtn" style="display: none;" onclick="returnToOwnWishlist()">
             ↩ Мой список
           </button>
@@ -79,51 +190,6 @@
         </div>
       </div>
     </header>
-
-    <section class="composer-card" id="superappHubCard" aria-label="Главное меню и профиль СБП">
-      <div class="modal-head" style="margin-bottom: 10px;">
-        <h2 class="modal-title" style="font-size: 16px;">🧭 Меню и профиль СБП</h2>
-        <span class="role-mode-badge" id="hubSbpSummaryBadge">Реквизиты СБП не заполнены</span>
-      </div>
-      <div class="bento-switches-grid" style="margin-bottom: 12px;">
-        <button type="button" class="filter-pill active" id="hubModuleWishlistBtn" onclick="selectSuperappModule('wishlist')">
-          🎁 Вишлисты
-        </button>
-        <button type="button" class="filter-pill" id="hubModuleExpensesBtn" onclick="selectSuperappModule('expenses')">
-          🔒 Совместные расходы (скоро)
-        </button>
-      </div>
-      <form id="superappProfileForm" onsubmit="handleSaveSuperappProfile(event)">
-        <div class="form-bento-grid">
-          <div class="field-block">
-            <label class="field-label" for="hubDisplayNameInput"><span>Имя в профиле</span></label>
-            <input type="text" class="input-modern" id="hubDisplayNameInput" maxlength="64" placeholder="Как вас отображать" />
-          </div>
-          <div class="field-block">
-            <label class="field-label" for="hubPaymentPhoneInput"><span>Телефон для СБП</span></label>
-            <input type="tel" class="input-modern" id="hubPaymentPhoneInput" maxlength="32" placeholder="+7 999 123-45-67" />
-          </div>
-          <div class="field-block">
-            <label class="field-label" for="hubPreferredBanksInput"><span>Предпочитаемые банки</span></label>
-            <input type="text" class="input-modern" id="hubPreferredBanksInput" maxlength="160" placeholder="Т-Банк, Сбер" />
-          </div>
-          <div class="field-block">
-            <label class="field-label" for="hubDefaultCurrencySelect"><span>Валюта по умолчанию</span></label>
-            <select class="input-modern" id="hubDefaultCurrencySelect">
-              <option value="RUB">RUB (₽)</option>
-              <option value="USD">USD ($)</option>
-              <option value="EUR">EUR (€)</option>
-              <option value="KZT">KZT (₸)</option>
-              <option value="TRY">TRY (₺)</option>
-            </select>
-          </div>
-        </div>
-        <div class="composer-bar-bottom">
-          <span class="composer-hint">Реквизиты сохраняются для будущих переводов</span>
-          <button type="submit" class="btn-glass" id="saveSuperappProfileBtn">💾 Сохранить профиль</button>
-        </div>
-      </form>
-    </section>
 
     <nav class="workspace-nav" aria-label="Разделы приложения">
       <button type="button" class="workspace-nav-btn active" id="wishlistViewBtn" aria-current="page" onclick="showWishlistWorkspace()">
@@ -442,6 +508,48 @@
     </section>
   </div>
 
+  <!-- МОДАЛЬНОЕ ОКНО: ПРОФИЛЬ И РЕКВИЗИТЫ СБП -->
+  <div class="modal-overlay" id="sbpProfileModalBackdrop" onclick="handleBackdropClick(event, 'sbpProfileModalBackdrop')">
+    <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="sbpProfileModalTitle">
+      <div class="sheet-pill-handle"></div>
+      <div class="modal-head">
+        <h2 class="modal-title" id="sbpProfileModalTitle">💳 Профиль и реквизиты СБП</h2>
+        <button type="button" class="btn-close-circle" onclick="closeSbpProfileModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <form id="superappProfileForm" onsubmit="handleSaveSuperappProfile(event)">
+        <div class="form-bento-grid">
+          <div class="field-block span-2">
+            <label class="field-label" for="hubDisplayNameInput"><span>Имя в профиле</span></label>
+            <input type="text" class="input-modern" id="hubDisplayNameInput" maxlength="64" placeholder="Как вас отображать" />
+          </div>
+          <div class="field-block">
+            <label class="field-label" for="hubPaymentPhoneInput"><span>Телефон для СБП</span></label>
+            <input type="tel" class="input-modern" id="hubPaymentPhoneInput" maxlength="32" placeholder="+7 999 123-45-67" />
+          </div>
+          <div class="field-block">
+            <label class="field-label" for="hubDefaultCurrencySelect"><span>Валюта по умолчанию</span></label>
+            <select class="input-modern" id="hubDefaultCurrencySelect">
+              <option value="RUB">RUB (₽)</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="KZT">KZT (₸)</option>
+              <option value="TRY">TRY (₺)</option>
+              <option value="GEL">GEL (₾)</option>
+            </select>
+          </div>
+          <div class="field-block span-2">
+            <label class="field-label" for="hubPreferredBanksInput"><span>Предпочитаемые банки</span></label>
+            <input type="text" class="input-modern" id="hubPreferredBanksInput" maxlength="160" placeholder="Т-Банк, Сбер, Альфа-Банк" />
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 18px;">
+          <button type="button" class="btn-glass" style="flex: 1;" onclick="closeSbpProfileModal()">Отмена</button>
+          <button type="submit" class="btn-accent" id="saveSuperappProfileBtn" style="flex: 2;">💾 Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="editModalBackdrop" onclick="handleBackdropClick(event, 'editModalBackdrop')">
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
       <div class="sheet-pill-handle"></div>
@@ -696,7 +804,7 @@
   <div class="toast-stack" id="toastContainer" aria-live="polite"></div>
 
   <script>
-    const API_BASE_URL = "https://tgbot.ax1ksg94.workers.dev";
+    const API_BASE_URL = ["https://", "tgbot.ax1ksg94.workers.dev"].join("");
   </script>
   <script src="app-state.js"></script>
   <script src="app-social.js"></script>
