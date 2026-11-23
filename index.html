@@ -131,6 +131,8 @@
         </div>
       </div>
 
+      <div id="expensesCrossPeopleSection"></div>
+
       <div class="hub-section-label">Активные события</div>
       <div id="expensesActiveEventsList"></div>
 
@@ -551,6 +553,14 @@
         </section>
       </div>
     </section>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: ПОГАШЕНИЕ ДОЛГА / НАПОМИНАНИЕ ПО СБП (ЭТАП 4) -->
+  <div class="modal-overlay" id="settleTransferModalBackdrop" onclick="handleBackdropClick(event, 'settleTransferModalBackdrop')">
+    <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="settleTransferModalTitle">
+      <div class="sheet-pill-handle"></div>
+      <div id="settleTransferModalBody"></div>
+    </div>
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО: ОПЕРАЦИЯ РАСХОДОВ (ЭТАП 3) -->
