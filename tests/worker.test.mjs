@@ -39,14 +39,16 @@ class MemoryKV {
   async get(key, options = {}) {
     const entry = this.entries.get(key);
     if (!entry) return null;
-    return this.#readValue(entry, options.type);
+    const type = typeof options === "string" ? options : options.type;
+    return this.#readValue(entry, type);
   }
 
   async getWithMetadata(key, options = {}) {
     const entry = this.entries.get(key);
     if (!entry) return { value: null, metadata: null };
+    const type = typeof options === "string" ? options : options.type;
     return {
-      value: this.#readValue(entry, options.type),
+      value: this.#readValue(entry, type),
       metadata: entry.metadata
     };
   }
@@ -230,7 +232,7 @@ test("Owner CRUD, validation and access control", async () => {
     body: {
       owner_id: OWNER.id,
       action: "update",
-      payload: giftPayload({ id: giftId, title: "Обновлённый подарок", priority: true })
+      payload: giftPayload({ id: giftId, title: "Обновлённый подарок", desire: "high", priority: true })
     }
   }), env);
   assert.equal(response.status, 200);
