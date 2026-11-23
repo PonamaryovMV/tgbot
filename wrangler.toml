@@ -2,6 +2,9 @@ name = "tgbot"
 main = "expenses-worker.js"
 compatibility_date = "2025-01-01"
 
+[vars]
+WEBAPP_URL = "https://ponamaryovmv.github.io/tgbot/"
+
 [[kv_namespaces]]
 binding = "DB"
 id = "1406ebcd7f43433a89671b7b010757bc"
