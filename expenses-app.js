@@ -1,9 +1,23 @@
 /**
- * Модуль 4: Этап 2 «Совместные расходы» — дашборд событий, создание события,
- * виртуальные участники (Ghost Profiles), веса, «Единый кошелёк» и Claim Profile.
+ * Модуль 4: «Совместные расходы» (Этап 2 + Этап 3) — дашборд событий, создание события,
+ * виртуальные участники (Ghost Profiles), веса, «Единый кошелёк», Claim Profile,
+ * а также операции (Расход / В котёл / Перевод), 5 режимов сплита и мультивалютность.
  */
-const EXPENSES_DEMO_STORAGE_KEY = "tg_expenses_stage2_demo_v1";
+const EXPENSES_DEMO_STORAGE_KEY = "tg_expenses_stage3_demo_v1";
 const EXPENSE_ICONS = ["🎉", "🎄", "🍸", "🏖", "🎂", "🚗", "🏕", "🏙", "⚽", "🎮"];
+const EXPENSE_CATEGORIES = [
+  { id: "food", label: "Еда", icon: "🍽" },
+  { id: "grocery", label: "Продукты", icon: "🛒" },
+  { id: "home", label: "Жильё", icon: "🏠" },
+  { id: "taxi", label: "Транспорт", icon: "🚕" },
+  { id: "fun", label: "Развлечения", icon: "🎉" },
+  { id: "other", label: "Другое", icon: "📦" }
+];
+
+function getCategoryIconByLabel(label) {
+  const found = EXPENSE_CATEGORIES.find(c => c.label === label || c.id === label);
+  return found ? found.icon : "📦";
+}
 
 function getExpensesCurrencySymbol(code) {
   const map = { RUB: "₽", USD: "$", EUR: "€", KZT: "₸", TRY: "₺", GEL: "₾" };
@@ -12,8 +26,12 @@ function getExpensesCurrencySymbol(code) {
 
 function formatExpenseMinor(minor, currency = "RUB") {
   const sym = getExpensesCurrencySymbol(currency);
-  const val = Math.round((Number(minor) || 0) / 100);
-  return `${new Intl.NumberFormat("ru-RU").format(val)} ${sym}`;
+  const val = Math.round((Number(minor) || 0)) / 100;
+  const formatted = new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(val);
+  return `${formatted} ${sym}`;
 }
 
 function getInitialDemoExpensesData() {
@@ -35,8 +53,8 @@ function getInitialDemoExpensesData() {
         updated_at: now,
         viewer_member_id: "mem_1",
         viewer_role: "OWNER",
-        total_spent_minor: 0,
-        net_balance_minor: 0,
+        total_spent_minor: 3600000,
+        net_balance_minor: 900000,
         members: [
           {
             id: "mem_1",
@@ -75,11 +93,69 @@ function getInitialDemoExpensesData() {
             linked_payer_member_id: null
           }
         ],
+        operations: [
+          {
+            id: "demo_op_1",
+            event_id: "demo_ev_1",
+            created_by_member_id: "mem_1",
+            operation_type: "EXPENSE",
+            title: "Аренда коттеджа",
+            category: "Жильё",
+            original_amount_minor: 2400000,
+            original_currency: "RUB",
+            exchange_rate: 1,
+            base_amount_minor: 2400000,
+            split_type: "EQUAL",
+            items: [],
+            split_meta: { included_member_ids: ["mem_1", "mem_2", "mem_3"] },
+            comment: "Дом с баней на двое суток",
+            expense_date: new Date().toISOString().slice(0, 10),
+            created_at: now,
+            payers: ["mem_1"],
+            shares_minor: { mem_1: 800000, mem_2: 800000, mem_3: 800000 },
+            splits: [
+              { member_id: "mem_1", paid_amount_minor: 2400000, owed_amount_minor: 800000, share_value: 1 },
+              { member_id: "mem_2", paid_amount_minor: 0, owed_amount_minor: 800000, share_value: 1 },
+              { member_id: "mem_3", paid_amount_minor: 0, owed_amount_minor: 800000, share_value: 1 }
+            ]
+          },
+          {
+            id: "demo_op_2",
+            event_id: "demo_ev_1",
+            created_by_member_id: "mem_2",
+            operation_type: "EXPENSE",
+            title: "Продукты и напитки",
+            category: "Продукты",
+            original_amount_minor: 1200000,
+            original_currency: "RUB",
+            exchange_rate: 1,
+            base_amount_minor: 1200000,
+            split_type: "EQUAL",
+            items: [],
+            split_meta: { included_member_ids: ["mem_1", "mem_2", "mem_3"] },
+            comment: "",
+            expense_date: new Date().toISOString().slice(0, 10),
+            created_at: now,
+            payers: ["mem_2"],
+            shares_minor: { mem_1: 400000, mem_2: 400000, mem_3: 400000 },
+            splits: [
+              { member_id: "mem_1", paid_amount_minor: 0, owed_amount_minor: 400000, share_value: 1 },
+              { member_id: "mem_2", paid_amount_minor: 1200000, owed_amount_minor: 400000, share_value: 1 },
+              { member_id: "mem_3", paid_amount_minor: 0, owed_amount_minor: 400000, share_value: 1 }
+            ]
+          }
+        ],
         audit_log: [
           {
+            id: "log_2",
+            action: "OPERATION_ADDED",
+            text: `Анна добавил(а) трату «Продукты и напитки» — 12 000 ₽`,
+            created_at: now
+          },
+          {
             id: "log_1",
-            action: "EVENT_CREATED",
-            text: `${meName} создал(а) событие «Новый год 2027»`,
+            action: "OPERATION_ADDED",
+            text: `${meName} добавил(а) трату «Аренда коттеджа» — 24 000 ₽`,
             created_at: now
           }
         ]
@@ -132,6 +208,41 @@ function computeWalletsFromClientMembers(members) {
   return wallets;
 }
 
+function recalculateDemoEventSummary(ev) {
+  const ops = Array.isArray(ev.operations) ? ev.operations : [];
+  const members = Array.isArray(ev.members) ? ev.members : [];
+  ev.total_spent_minor = ops
+    .filter(o => o.operation_type !== "TRANSFER")
+    .reduce((sum, o) => sum + (Number(o.base_amount_minor) || 0), 0);
+
+  const memberBal = {};
+  for (const m of members) memberBal[m.id] = 0;
+  for (const op of ops) {
+    for (const s of op.splits || []) {
+      memberBal[s.member_id] = (memberBal[s.member_id] || 0) + ((Number(s.paid_amount_minor) || 0) - (Number(s.owed_amount_minor) || 0));
+    }
+  }
+
+  const byId = new Map(members.map(m => [m.id, m]));
+  const viewer = byId.get(ev.viewer_member_id) || members[0];
+  if (!viewer) {
+    ev.net_balance_minor = 0;
+    return;
+  }
+  const headId = viewer.linked_payer_member_id && byId.has(viewer.linked_payer_member_id)
+    ? viewer.linked_payer_member_id
+    : viewer.id;
+
+  let net = 0;
+  for (const m of members) {
+    const mHead = m.linked_payer_member_id && byId.has(m.linked_payer_member_id)
+      ? m.linked_payer_member_id
+      : m.id;
+    if (mHead === headId) net += memberBal[m.id] || 0;
+  }
+  ev.net_balance_minor = net;
+}
+
 function getExpensesState() {
   if (!state.expenses) {
     state.expenses = {
@@ -144,8 +255,7 @@ function getExpensesState() {
       mergeSelection: [],
       newEventIcon: "🎉",
       newEventSimplify: true,
-      invitePreview: null,
-      inviteToken: ""
+      opDraft: null
     };
   }
   return state.expenses;
@@ -197,6 +307,8 @@ async function loadExpensesDashboard() {
   }
 
   const demo = loadDemoExpensesStore();
+  for (const ev of demo.events) recalculateDemoEventSummary(ev);
+  saveDemoExpensesStore(demo);
   exp.activeEvents = demo.events
     .filter(e => e.status !== "ARCHIVED")
     .map(e => ({ ...e, members_count: (e.members || []).length }));
@@ -249,6 +361,7 @@ function renderExpensesDashboard() {
 
   const renderCard = (ev) => {
     const count = Number(ev.members_count || ev.members?.length || 1);
+    const totalSpent = Number(ev.total_spent_minor) || 0;
     const bal = Number(ev.net_balance_minor) || 0;
     const balText = bal > 0
       ? `+${formatExpenseMinor(bal, ev.base_currency)}`
@@ -261,7 +374,7 @@ function renderExpensesDashboard() {
         <div class="exp-event-icon">${escapeHtml(ev.icon || "🎉")}</div>
         <div class="exp-event-info">
           <div class="exp-event-title">${escapeHtml(ev.title)}</div>
-          <div class="exp-event-meta">${count} уч. · ${escapeHtml(ev.base_currency || "RUB")}</div>
+          <div class="exp-event-meta">${count} уч. · ${formatExpenseMinor(totalSpent, ev.base_currency)}</div>
         </div>
         <div class="exp-event-right">
           <div class="exp-event-bal ${balCls}">${balText}</div>
@@ -320,6 +433,7 @@ async function openExpenseEvent(eventId) {
   const found = demo.events.find(e => e.id === eventId);
   if (found) {
     found.wallets = computeWalletsFromClientMembers(found.members || []);
+    recalculateDemoEventSummary(found);
     exp.currentEvent = found;
     exp.view = "event";
     exp.activeTab = "ops";
@@ -340,6 +454,20 @@ function switchExpenseEventTab(tabName) {
   exp.activeTab = tabName;
   if (typeof triggerHaptic === "function") triggerHaptic("light");
   renderExpenseEventDetail();
+}
+
+function buildOperationPersonalLabel(ev, op) {
+  const viewerId = ev.viewer_member_id;
+  if (!viewerId) return { cls: "none", text: "" };
+  const mySplit = (op.splits || []).find(s => s.member_id === viewerId);
+  const paid = Number(mySplit?.paid_amount_minor) || 0;
+  const owed = Number(mySplit?.owed_amount_minor) || 0;
+  if (paid === 0 && owed === 0) return { cls: "none", text: "Не участвуете" };
+  const diff = paid - owed;
+  const cur = ev.base_currency || "RUB";
+  if (Math.abs(diff) < 1) return { cls: "none", text: "Без долга" };
+  if (diff > 0) return { cls: "pos", text: `Вам должны +${formatExpenseMinor(diff, cur)}` };
+  return { cls: "neg", text: `Ваша доля −${formatExpenseMinor(Math.abs(diff), cur)}` };
 }
 
 function renderExpenseEventDetail() {
@@ -383,25 +511,48 @@ function renderExpenseEventDetail() {
 
   if (exp.activeTab === "ops") {
     const isFrozen = ev.status === "SETTLING" || ev.status === "ARCHIVED";
+    const operations = Array.isArray(ev.operations) ? ev.operations : [];
+    const nameById = new Map(members.map(m => [m.id, m.member_name]));
+
+    const opsHtml = operations.length
+      ? operations.map(op => {
+          const payersNames = (op.payers || []).map(id => nameById.get(id) || "Участник").join(", ");
+          const personal = buildOperationPersonalLabel(ev, op);
+          const foreign = op.original_currency && op.original_currency !== cur;
+          const ico = op.operation_type === "TRANSFER"
+            ? "🔁"
+            : op.operation_type === "PREPAYMENT"
+              ? "🫙"
+              : getCategoryIconByLabel(op.category);
+          return `
+            <button type="button" class="exp-op-card" data-op-id="${escapeHtml(op.id)}" onclick="openExpenseOperationModal('${escapeHtml(op.id)}')">
+              <div class="exp-op-icon">${ico}</div>
+              <div class="exp-op-main">
+                <div class="exp-op-title">${escapeHtml(op.title || "Без названия")}</div>
+                <div class="exp-op-meta">${escapeHtml(payersNames || "—")} · ${escapeHtml(op.expense_date || "")}${foreign ? ` · ${formatExpenseMinor(op.base_amount_minor, cur)}` : ""}</div>
+              </div>
+              <div class="exp-op-right">
+                <div class="exp-op-amt">${formatExpenseMinor(op.original_amount_minor, op.original_currency || cur)}</div>
+                <div class="exp-op-sub ${personal.cls}">${personal.text}</div>
+              </div>
+            </button>
+          `;
+        }).join("")
+      : `<div class="composer-card" style="text-align: center; color: var(--tg-theme-hint-color);">Пока нет операций. Нажмите «＋ Добавить операцию», чтобы внести первую трату.</div>`;
+
     bodyEl.innerHTML = `
-      <div class="composer-card" style="margin-top: 12px;">
-        <div class="modal-head" style="margin-bottom: 8px;">
-          <h3 class="modal-title" style="font-size: 16px;">Участники события (${members.length})</h3>
-          <button type="button" class="btn-glass" style="min-height: 36px; padding: 0 12px; font-size: 13px;" onclick="openEventParticipantsModal()">
-            👥 Настроить
-          </button>
-        </div>
-        <div class="audience-editor" style="margin-bottom: 12px;">
-          ${members.map(m => `
-            <span class="audience-chip active">
-              ${escapeHtml(m.member_name)}${m.is_ghost ? " (вирт.)" : ""}${Number(m.default_weight) !== 1 ? ` · ${m.default_weight}x` : ""}
-            </span>
-          `).join("")}
-        </div>
-        ${isFrozen
-          ? `<div class="composer-hint">❄️ Добавление трат заблокировано (${ev.status === "ARCHIVED" ? "событие в архиве" : "идут расчёты"}).</div>`
-          : `<div class="composer-hint">Участники готовы. Добавление чеков и 5 режимов сплита подключаются на Этапе 3.</div>`}
+      <div class="hub-section-label" style="display: flex; align-items: center; justify-content: space-between;">
+        <span>Операции (${operations.length})</span>
+        <button type="button" class="btn-mini" onclick="openEventParticipantsModal()">👥 Участники (${members.length})</button>
       </div>
+      ${opsHtml}
+      ${isFrozen
+        ? `<div class="composer-card" style="text-align: center; color: var(--tg-theme-hint-color); margin-top: 10px;">
+             ❄️ Траты заморожены (${ev.status === "ARCHIVED" ? "событие в архиве" : "идут расчёты"}). Разморозьте событие в меню «⋯».
+           </div>`
+        : `<button type="button" class="btn-accent" style="width: 100%; margin-top: 8px;" id="openAddExpenseOpBtn" onclick="openExpenseOperationModal(null)">
+             ＋ Добавить операцию
+           </button>`}
     `;
     return;
   }
@@ -422,14 +573,13 @@ function renderExpenseEventDetail() {
         <div class="composer-hint">
           ${wallets.length
             ? `Активны единые кошельки: ${wallets.map(w => escapeHtml(w.name)).join(", ")}. При расчёте их доли объединяются.`
-            : "Пока нет задолженностей. Граф переводов и погашение по СБП появятся после добавления операций."}
+            : "Граф переводов и погашение по СБП подключаются на Этапе 4."}
         </div>
       </div>
     `;
     return;
   }
 
-  // Вкладка «История»
   const logs = Array.isArray(ev.audit_log) ? ev.audit_log : [];
   bodyEl.innerHTML = `
     <div class="composer-card" style="margin-top: 12px;">
@@ -447,6 +597,728 @@ function renderExpenseEventDetail() {
           `).join("")}
     </div>
   `;
+}
+
+/* ==========================================================================
+   ЭТАП 3: ДОБАВЛЕНИЕ И РЕДАКТИРОВАНИЕ ОПЕРАЦИЙ + 5 РЕЖИМОВ СПЛИТА
+   ========================================================================== */
+function createDefaultOperationDraft(ev, existingOp) {
+  const members = Array.isArray(ev.members) ? ev.members : [];
+  const defaultPayer = ev.viewer_member_id || members[0]?.id || "";
+  const secondMember = members.find(m => m.id !== defaultPayer)?.id || defaultPayer;
+
+  if (existingOp) {
+    const meta = existingOp.split_meta || {};
+    const includedMap = {};
+    const weightsMap = {};
+    const exactMap = {};
+    const percentMap = {};
+
+    const incList = Array.isArray(meta.included_member_ids) && meta.included_member_ids.length
+      ? meta.included_member_ids
+      : Object.keys(existingOp.shares_minor || {});
+
+    for (const m of members) {
+      includedMap[m.id] = incList.includes(m.id);
+      weightsMap[m.id] = meta.weights_map?.[m.id] !== undefined
+        ? String(meta.weights_map[m.id])
+        : String(m.default_weight || 1);
+      exactMap[m.id] = meta.exact_minor_map?.[m.id] !== undefined
+        ? String(Math.round(Number(meta.exact_minor_map[m.id]) / 100 * 100) / 100)
+        : existingOp.shares_minor?.[m.id]
+          ? String(Math.round(Number(existingOp.shares_minor[m.id])) / 100)
+          : "";
+      percentMap[m.id] = meta.percent_map?.[m.id] !== undefined ? String(meta.percent_map[m.id]) : "";
+    }
+
+    const items = Array.isArray(existingOp.items)
+      ? existingOp.items.map(it => ({
+          title: it.title || "",
+          amount: it.amount_minor ? String(Math.round(Number(it.amount_minor)) / 100) : "",
+          member_ids: Array.isArray(it.member_ids) ? [...it.member_ids] : []
+        }))
+      : [];
+
+    return {
+      id: existingOp.id,
+      operation_type: existingOp.operation_type || "EXPENSE",
+      title: existingOp.title || "",
+      category: existingOp.category || "Еда",
+      date: existingOp.expense_date || new Date().toISOString().slice(0, 10),
+      amount: existingOp.original_amount_minor ? String(Math.round(Number(existingOp.original_amount_minor)) / 100) : "",
+      currency: existingOp.original_currency || ev.base_currency || "RUB",
+      rate: String(existingOp.exchange_rate || 1),
+      payers: Array.isArray(existingOp.payers) && existingOp.payers.length ? [...existingOp.payers] : [defaultPayer],
+      transfer_from_id: meta.transfer_from_id || existingOp.payers?.[0] || defaultPayer,
+      transfer_to_id: meta.transfer_to_id || Object.keys(existingOp.shares_minor || {})[0] || secondMember,
+      split_type: existingOp.split_type || "EQUAL",
+      included: includedMap,
+      weights: weightsMap,
+      exact: exactMap,
+      percent: percentMap,
+      items,
+      comment: existingOp.comment || ""
+    };
+  }
+
+  const included = {};
+  const weights = {};
+  for (const m of members) {
+    included[m.id] = true;
+    weights[m.id] = String(m.default_weight || 1);
+  }
+
+  return {
+    id: null,
+    operation_type: "EXPENSE",
+    title: "",
+    category: "Еда",
+    date: new Date().toISOString().slice(0, 10),
+    amount: "",
+    currency: ev.base_currency || "RUB",
+    rate: "1",
+    payers: defaultPayer ? [defaultPayer] : [],
+    transfer_from_id: defaultPayer,
+    transfer_to_id: secondMember,
+    split_type: "EQUAL",
+    included,
+    weights,
+    exact: {},
+    percent: {},
+    items: [],
+    comment: ""
+  };
+}
+
+function openExpenseOperationModal(opId) {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  if (!ev) return;
+
+  if (!opId && (ev.status === "SETTLING" || ev.status === "ARCHIVED")) {
+    if (typeof showToast === "function") showToast("❄️ Траты заморожены");
+    return;
+  }
+
+  const existing = opId ? (ev.operations || []).find(o => o.id === opId) : null;
+  exp.opDraft = createDefaultOperationDraft(ev, existing);
+  renderExpenseOperationModal();
+
+  const backdrop = document.getElementById("expenseOperationModalBackdrop");
+  if (backdrop) backdrop.classList.add("open");
+  if (typeof triggerHaptic === "function") triggerHaptic("light");
+}
+
+function closeExpenseOperationModal() {
+  const backdrop = document.getElementById("expenseOperationModalBackdrop");
+  if (backdrop) backdrop.classList.remove("open");
+}
+
+function renderExpenseOperationModal() {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  const d = exp.opDraft;
+  const body = document.getElementById("expenseOperationModalBody");
+  if (!ev || !d || !body) return;
+
+  const members = Array.isArray(ev.members) ? ev.members : [];
+  const baseCur = ev.base_currency || "RUB";
+  const isForeign = d.currency !== baseCur;
+  const isFrozen = ev.status === "SETTLING" || ev.status === "ARCHIVED";
+
+  body.innerHTML = `
+    <div class="modal-head">
+      <h2 class="modal-title" id="expenseOperationModalTitle">${d.id ? "Изменить операцию" : "Новая операция"}</h2>
+      <div style="display: flex; gap: 6px; align-items: center;">
+        ${d.id && !isFrozen ? `<button type="button" class="btn-mini danger" id="deleteExpenseOpBtn" onclick="deleteCurrentExpenseOperation()">Удалить</button>` : ""}
+        <button type="button" class="btn-close-circle" onclick="closeExpenseOperationModal()" aria-label="Закрыть">✕</button>
+      </div>
+    </div>
+
+    <div class="desire-segment" style="margin-bottom: 14px;">
+      <button type="button" class="desire-btn ${d.operation_type === "EXPENSE" ? "active" : ""}" onclick="setDraftOperationType('EXPENSE')">Расход</button>
+      <button type="button" class="desire-btn ${d.operation_type === "PREPAYMENT" ? "active" : ""}" onclick="setDraftOperationType('PREPAYMENT')">В котёл</button>
+      <button type="button" class="desire-btn ${d.operation_type === "TRANSFER" ? "active" : ""}" onclick="setDraftOperationType('TRANSFER')">Перевод</button>
+    </div>
+
+    <div class="form-bento-grid">
+      <div class="field-block span-2">
+        <label class="field-label" for="expOpTitleInput">Название</label>
+        <input type="text" class="input-modern" id="expOpTitleInput" maxlength="100" placeholder="Например, Ужин в ресторане" value="${escapeHtml(d.title)}" oninput="getExpensesState().opDraft.title=this.value" />
+      </div>
+
+      ${d.operation_type !== "TRANSFER" ? `
+        <div class="field-block span-2">
+          <span class="field-label">Категория</span>
+          <div class="category-preset-row">
+            ${EXPENSE_CATEGORIES.map(c => `
+              <button type="button" class="cat-preset-btn ${d.category === c.label ? "selected" : ""}" onclick="setDraftOperationCategory('${escapeHtml(c.label)}')">${c.icon} ${escapeHtml(c.label)}</button>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+
+      <div class="field-block">
+        <label class="field-label" for="expOpAmountInput">Сумма</label>
+        <div style="display: flex; gap: 6px;">
+          <input type="number" step="0.01" min="0" class="input-modern tabular-nums" id="expOpAmountInput" placeholder="0" value="${escapeHtml(d.amount)}" oninput="getExpensesState().opDraft.amount=this.value; refreshOperationSplitPreview()" />
+          <select class="input-modern" style="width: 92px; flex-shrink: 0;" id="expOpCurrencySelect" onchange="setDraftOperationCurrency(this.value)">
+            ${["RUB", "USD", "EUR", "KZT", "TRY", "GEL"].map(c => `<option value="${c}" ${d.currency === c ? "selected" : ""}>${c}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+
+      <div class="field-block">
+        <label class="field-label" for="expOpDateInput">Дата</label>
+        <input type="date" class="input-modern" id="expOpDateInput" value="${escapeHtml(d.date)}" onchange="getExpensesState().opDraft.date=this.value" />
+      </div>
+
+      ${isForeign ? `
+        <div class="field-block span-2">
+          <label class="field-label" for="expOpRateInput">Курс (${escapeHtml(baseCur)} за 1 ${escapeHtml(d.currency)})</label>
+          <input type="number" step="0.0001" min="0.0001" class="input-modern tabular-nums" id="expOpRateInput" value="${escapeHtml(d.rate)}" oninput="getExpensesState().opDraft.rate=this.value; refreshOperationSplitPreview()" />
+        </div>
+      ` : ""}
+
+      ${d.operation_type === "TRANSFER" ? `
+        <div class="field-block">
+          <label class="field-label" for="expTransferFromSelect">От кого</label>
+          <select class="input-modern" id="expTransferFromSelect" onchange="getExpensesState().opDraft.transfer_from_id=this.value">
+            ${members.map(m => `<option value="${escapeHtml(m.id)}" ${d.transfer_from_id === m.id ? "selected" : ""}>${escapeHtml(m.member_name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field-block">
+          <label class="field-label" for="expTransferToSelect">Кому</label>
+          <select class="input-modern" id="expTransferToSelect" onchange="getExpensesState().opDraft.transfer_to_id=this.value">
+            ${members.map(m => `<option value="${escapeHtml(m.id)}" ${d.transfer_to_id === m.id ? "selected" : ""}>${escapeHtml(m.member_name)}</option>`).join("")}
+          </select>
+        </div>
+      ` : `
+        <div class="field-block span-2">
+          <span class="field-label">Кто платил</span>
+          <div class="audience-editor">
+            ${members.map(m => `
+              <button type="button" class="audience-chip ${d.payers.includes(m.id) ? "active" : ""}" onclick="toggleDraftOperationPayer('${escapeHtml(m.id)}')">
+                ${escapeHtml(m.member_name)}
+              </button>
+            `).join("")}
+          </div>
+        </div>
+
+        <div class="field-block span-2">
+          <span class="field-label">Как делим</span>
+          <div class="exp-split-mode-bar">
+            ${[
+              ["EQUAL", "Поровну"],
+              ["SHARES", "Веса"],
+              ["EXACT", "Суммы"],
+              ["PERCENT", "%"],
+              ["MANUAL_ITEMS", "Позиции"]
+            ].map(([code, label]) => `
+              <button type="button" class="exp-split-mode-btn ${d.split_type === code ? "active" : ""}" onclick="setDraftOperationSplitMode('${code}')">${label}</button>
+            `).join("")}
+          </div>
+          <div id="expOperationSplitEditorBody"></div>
+          <div class="exp-split-summary-bar" id="expOperationSplitSummary"></div>
+        </div>
+      `}
+
+      <div class="field-block span-2">
+        <label class="field-label" for="expOpCommentInput">Комментарий</label>
+        <input type="text" class="input-modern" id="expOpCommentInput" maxlength="240" placeholder="Необязательно" value="${escapeHtml(d.comment)}" oninput="getExpensesState().opDraft.comment=this.value" />
+      </div>
+    </div>
+
+    ${!isFrozen ? `
+      <div style="display: flex; gap: 10px; margin-top: 16px;">
+        <button type="button" class="btn-glass" style="flex: 1;" onclick="closeExpenseOperationModal()">Отмена</button>
+        <button type="button" class="btn-accent" id="saveExpenseOperationBtn" style="flex: 2;" onclick="submitExpenseOperation()">
+          ${d.id ? "Сохранить изменения" : "Добавить"}
+        </button>
+      </div>
+    ` : ""}
+  `;
+
+  if (d.operation_type !== "TRANSFER") {
+    renderOperationSplitEditor();
+    refreshOperationSplitPreview();
+  }
+}
+
+function setDraftOperationType(type) {
+  const d = getExpensesState().opDraft;
+  if (!d) return;
+  d.operation_type = type;
+  renderExpenseOperationModal();
+}
+
+function setDraftOperationCategory(cat) {
+  const d = getExpensesState().opDraft;
+  if (!d) return;
+  d.category = cat;
+  renderExpenseOperationModal();
+}
+
+function setDraftOperationCurrency(cur) {
+  const exp = getExpensesState();
+  const d = exp.opDraft;
+  if (!d) return;
+  d.currency = cur;
+  if (cur === (exp.currentEvent?.base_currency || "RUB")) d.rate = "1";
+  renderExpenseOperationModal();
+}
+
+function toggleDraftOperationPayer(memberId) {
+  const d = getExpensesState().opDraft;
+  if (!d) return;
+  const idx = d.payers.indexOf(memberId);
+  if (idx >= 0) {
+    if (d.payers.length > 1) d.payers.splice(idx, 1);
+  } else {
+    d.payers.push(memberId);
+  }
+  renderExpenseOperationModal();
+}
+
+function setDraftOperationSplitMode(mode) {
+  const d = getExpensesState().opDraft;
+  if (!d) return;
+  d.split_type = mode;
+  renderOperationSplitEditor();
+  refreshOperationSplitPreview();
+}
+
+function renderOperationSplitEditor() {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  const d = exp.opDraft;
+  const box = document.getElementById("expOperationSplitEditorBody");
+  if (!ev || !d || !box) return;
+
+  const members = Array.isArray(ev.members) ? ev.members : [];
+  const mode = d.split_type;
+
+  if (mode === "EQUAL" || mode === "SHARES") {
+    box.innerHTML = members.map(m => {
+      const checked = Boolean(d.included[m.id]);
+      return `
+        <div class="exp-split-row">
+          <div style="flex: 1; min-width: 0; font-size: 14px; font-weight: 600;">${escapeHtml(m.member_name)}</div>
+          ${mode === "SHARES" ? `
+            <input type="number" step="0.5" min="0.5" class="exp-split-num-input" value="${escapeHtml(d.weights[m.id] ?? "1")}"
+                   oninput="getExpensesState().opDraft.weights['${escapeHtml(m.id)}']=this.value; refreshOperationSplitPreview()" />
+          ` : ""}
+          <button type="button" class="exp-merge-check ${checked ? "on" : ""}" onclick="toggleDraftSplitMember('${escapeHtml(m.id)}')">
+            ${checked ? "✓" : ""}
+          </button>
+          <span class="exp-split-share-hint" data-op-share="${escapeHtml(m.id)}"></span>
+        </div>
+      `;
+    }).join("");
+    return;
+  }
+
+  if (mode === "EXACT") {
+    box.innerHTML = members.map(m => `
+      <div class="exp-split-row">
+        <div style="flex: 1; min-width: 0; font-size: 14px; font-weight: 600;">${escapeHtml(m.member_name)}</div>
+        <input type="number" step="0.01" min="0" class="exp-split-num-input" placeholder="0" value="${escapeHtml(d.exact[m.id] ?? "")}"
+               oninput="getExpensesState().opDraft.exact['${escapeHtml(m.id)}']=this.value; refreshOperationSplitPreview()" />
+      </div>
+    `).join("");
+    return;
+  }
+
+  if (mode === "PERCENT") {
+    box.innerHTML = members.map(m => `
+      <div class="exp-split-row">
+        <div style="flex: 1; min-width: 0; font-size: 14px; font-weight: 600;">${escapeHtml(m.member_name)}</div>
+        <input type="number" step="0.1" min="0" max="100" class="exp-split-num-input" placeholder="0" value="${escapeHtml(d.percent[m.id] ?? "")}"
+               oninput="getExpensesState().opDraft.percent['${escapeHtml(m.id)}']=this.value; refreshOperationSplitPreview()" />
+        <span style="font-size: 12px; color: var(--tg-theme-hint-color);">%</span>
+        <span class="exp-split-share-hint" data-op-share="${escapeHtml(m.id)}"></span>
+      </div>
+    `).join("");
+    return;
+  }
+
+  // MANUAL_ITEMS
+  box.innerHTML = `
+    ${d.items.map((it, idx) => `
+      <div class="exp-receipt-item-card">
+        <div class="exp-receipt-item-top">
+          <input type="text" class="input-modern" style="min-height: 36px; padding: 6px 10px; font-size: 13.5px;" placeholder="Позиция" value="${escapeHtml(it.title)}"
+                 oninput="getExpensesState().opDraft.items[${idx}].title=this.value" />
+          <input type="number" step="0.01" min="0" class="exp-split-num-input" placeholder="0" value="${escapeHtml(it.amount)}"
+                 oninput="getExpensesState().opDraft.items[${idx}].amount=this.value; refreshOperationSplitPreview()" />
+          <button type="button" class="btn-mini danger" onclick="removeDraftReceiptItem(${idx})">✕</button>
+        </div>
+        <div class="audience-editor">
+          ${members.map(m => `
+            <button type="button" class="audience-chip ${it.member_ids.includes(m.id) ? "active" : ""}" style="min-height: 32px; padding: 4px 10px;" onclick="toggleDraftReceiptItemMember(${idx}, '${escapeHtml(m.id)}')">
+              ${escapeHtml(m.member_name)}
+            </button>
+          `).join("")}
+        </div>
+      </div>
+    `).join("")}
+    <button type="button" class="btn-glass" style="width: 100%; min-height: 38px; font-size: 13px; margin-bottom: 8px;" onclick="addDraftReceiptItem()">
+      ＋ Добавить позицию
+    </button>
+    ${members.map(m => `
+      <div class="exp-split-row">
+        <div style="flex: 1; font-size: 13.5px;">${escapeHtml(m.member_name)}</div>
+        <span class="exp-split-share-hint" data-op-share="${escapeHtml(m.id)}"></span>
+      </div>
+    `).join("")}
+  `;
+}
+
+function toggleDraftSplitMember(memberId) {
+  const d = getExpensesState().opDraft;
+  if (!d) return;
+  d.included[memberId] = !d.included[memberId];
+  renderOperationSplitEditor();
+  refreshOperationSplitPreview();
+}
+
+function addDraftReceiptItem() {
+  const d = getExpensesState().opDraft;
+  if (!d) return;
+  d.items.push({ title: "", amount: "", member_ids: [] });
+  renderOperationSplitEditor();
+  refreshOperationSplitPreview();
+}
+
+function removeDraftReceiptItem(idx) {
+  const d = getExpensesState().opDraft;
+  if (!d) return;
+  d.items.splice(idx, 1);
+  renderOperationSplitEditor();
+  refreshOperationSplitPreview();
+}
+
+function toggleDraftReceiptItemMember(idx, memberId) {
+  const d = getExpensesState().opDraft;
+  const item = d?.items?.[idx];
+  if (!item) return;
+  const pos = item.member_ids.indexOf(memberId);
+  if (pos >= 0) item.member_ids.splice(pos, 1);
+  else item.member_ids.push(memberId);
+  renderOperationSplitEditor();
+  refreshOperationSplitPreview();
+}
+
+function computeClientDraftPreview(ev, d) {
+  const members = Array.isArray(ev.members) ? ev.members : [];
+  const baseCur = ev.base_currency || "RUB";
+  const rate = d.currency === baseCur ? 1 : (Number(d.rate) || 0);
+
+  let origMinor = 0;
+  if (d.split_type === "MANUAL_ITEMS" && d.operation_type !== "TRANSFER") {
+    origMinor = Math.round(d.items.reduce((s, it) => s + (Number(it.amount) || 0), 0) * 100);
+  } else {
+    origMinor = Math.round((Number(d.amount) || 0) * 100);
+  }
+  const baseMinor = Math.round(origMinor * rate);
+  const sharesMinor = {};
+
+  if (d.operation_type === "TRANSFER") {
+    if (d.transfer_to_id && baseMinor > 0) sharesMinor[d.transfer_to_id] = baseMinor;
+    return { origMinor, baseMinor, sharesMinor, distributedMinor: baseMinor, valid: baseMinor > 0 && d.transfer_from_id !== d.transfer_to_id };
+  }
+
+  if (d.split_type === "EQUAL") {
+    const inc = members.filter(m => d.included[m.id]);
+    if (inc.length && baseMinor > 0) {
+      const each = Math.floor(baseMinor / inc.length);
+      let rem = baseMinor - each * inc.length;
+      inc.forEach(m => {
+        sharesMinor[m.id] = each + (rem > 0 ? 1 : 0);
+        if (rem > 0) rem -= 1;
+      });
+    }
+  } else if (d.split_type === "SHARES") {
+    const inc = members.filter(m => d.included[m.id] && (Number(d.weights[m.id]) || 0) > 0);
+    const totalW = inc.reduce((s, m) => s + (Number(d.weights[m.id]) || 0), 0);
+    if (inc.length && totalW > 0 && baseMinor > 0) {
+      let sum = 0;
+      inc.forEach((m, idx) => {
+        const val = idx === inc.length - 1
+          ? baseMinor - sum
+          : Math.round(baseMinor * (Number(d.weights[m.id]) || 0) / totalW);
+        sharesMinor[m.id] = val;
+        sum += val;
+      });
+    }
+  } else if (d.split_type === "EXACT") {
+    for (const m of members) {
+      const v = Math.round((Number(d.exact[m.id]) || 0) * 100);
+      if (v > 0) sharesMinor[m.id] = v;
+    }
+  } else if (d.split_type === "PERCENT") {
+    const active = members.filter(m => (Number(d.percent[m.id]) || 0) > 0);
+    let sum = 0;
+    active.forEach((m, idx) => {
+      const pct = Number(d.percent[m.id]) || 0;
+      const val = idx === active.length - 1 && Math.abs(active.reduce((s, x) => s + (Number(d.percent[x.id]) || 0), 0) - 100) < 0.05
+        ? baseMinor - sum
+        : Math.round(baseMinor * pct / 100);
+      sharesMinor[m.id] = val;
+      sum += val;
+    });
+  } else if (d.split_type === "MANUAL_ITEMS") {
+    for (const it of d.items) {
+      const itemMinor = Math.round((Number(it.amount) || 0) * rate * 100);
+      if (itemMinor <= 0 || !it.member_ids.length) continue;
+      const each = Math.floor(itemMinor / it.member_ids.length);
+      let rem = itemMinor - each * it.member_ids.length;
+      it.member_ids.forEach(id => {
+        sharesMinor[id] = (sharesMinor[id] || 0) + each + (rem > 0 ? 1 : 0);
+        if (rem > 0) rem -= 1;
+      });
+    }
+  }
+
+  const distributedMinor = Object.values(sharesMinor).reduce((s, v) => s + v, 0);
+  const valid = baseMinor > 0 && Math.abs(baseMinor - distributedMinor) <= 1;
+  return { origMinor, baseMinor, sharesMinor, distributedMinor, valid };
+}
+
+function refreshOperationSplitPreview() {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  const d = exp.opDraft;
+  if (!ev || !d) return;
+
+  const baseCur = ev.base_currency || "RUB";
+  const preview = computeClientDraftPreview(ev, d);
+
+  document.querySelectorAll("[data-op-share]").forEach(el => {
+    const mid = el.getAttribute("data-op-share");
+    const minor = preview.sharesMinor[mid] || 0;
+    el.textContent = minor > 0 ? formatExpenseMinor(minor, baseCur) : "";
+  });
+
+  const summaryEl = document.getElementById("expOperationSplitSummary");
+  if (summaryEl) {
+    const diff = preview.baseMinor - preview.distributedMinor;
+    const statusText = preview.valid
+      ? "Готово"
+      : diff > 0
+        ? `Осталось ${formatExpenseMinor(diff, baseCur)}`
+        : `Перебор ${formatExpenseMinor(Math.abs(diff), baseCur)}`;
+    summaryEl.innerHTML = `
+      <span>Распределено ${formatExpenseMinor(preview.distributedMinor, baseCur)} из ${formatExpenseMinor(preview.baseMinor, baseCur)}</span>
+      <span class="${preview.valid ? "ok" : "bad"}">${statusText}</span>
+    `;
+  }
+}
+
+async function submitExpenseOperation() {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  const d = exp.opDraft;
+  if (!ev || !d) return;
+
+  const title = String(d.title || "").trim();
+  if (!title) {
+    if (typeof showToast === "function") showToast("⚠️ Введите название операции");
+    return;
+  }
+
+  const preview = computeClientDraftPreview(ev, d);
+  if (preview.origMinor <= 0) {
+    if (typeof showToast === "function") showToast("⚠️ Укажите сумму больше нуля");
+    return;
+  }
+  if (!preview.valid) {
+    if (typeof showToast === "function") showToast("⚠️ Проверьте распределение долей");
+    return;
+  }
+
+  const baseCur = ev.base_currency || "RUB";
+  const rate = d.currency === baseCur ? 1 : (Number(d.rate) || 1);
+  const includedMemberIds = Object.entries(d.included || {})
+    .filter(([, on]) => Boolean(on))
+    .map(([id]) => id);
+  const weightsMap = {};
+  for (const [k, v] of Object.entries(d.weights || {})) weightsMap[k] = Number(v) || 1;
+  const exactMinorMap = {};
+  for (const [k, v] of Object.entries(d.exact || {})) exactMinorMap[k] = Math.round((Number(v) || 0) * 100);
+  const percentMap = {};
+  for (const [k, v] of Object.entries(d.percent || {})) percentMap[k] = Number(v) || 0;
+  const itemsPayload = (d.items || []).map(it => ({
+    title: String(it.title || "").trim() || "Позиция",
+    amount_minor: Math.round((Number(it.amount) || 0) * 100),
+    member_ids: [...(it.member_ids || [])]
+  }));
+
+  const payload = {
+    operation_type: d.operation_type,
+    title,
+    category: d.operation_type === "TRANSFER" ? "Другое" : d.category,
+    original_amount_minor: preview.origMinor,
+    original_currency: d.currency,
+    exchange_rate: rate,
+    split_type: d.operation_type === "TRANSFER" ? "EXACT" : d.split_type,
+    payers: d.operation_type === "TRANSFER" ? [d.transfer_from_id] : [...d.payers],
+    transfer_from_id: d.transfer_from_id,
+    transfer_to_id: d.transfer_to_id,
+    included_member_ids: includedMemberIds,
+    weights_map: weightsMap,
+    exact_minor_map: exactMinorMap,
+    percent_map: percentMap,
+    items: itemsPayload,
+    comment: String(d.comment || "").trim(),
+    expense_date: d.date || new Date().toISOString().slice(0, 10)
+  };
+
+  if (typeof isTelegramSession !== "undefined" && isTelegramSession && typeof API_ORIGIN !== "undefined" && API_ORIGIN) {
+    try {
+      const url = d.id
+        ? `${API_ORIGIN}/api/expenses/events/${encodeURIComponent(ev.id)}/operations/${encodeURIComponent(d.id)}`
+        : `${API_ORIGIN}/api/expenses/events/${encodeURIComponent(ev.id)}/operations`;
+      const response = await fetch(url, {
+        method: d.id ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(typeof getAuthHeaders === "function" ? getAuthHeaders() : {})
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await (typeof readApiResponse === "function" ? readApiResponse(response) : response.json());
+      closeExpenseOperationModal();
+      if (data?.event) {
+        exp.currentEvent = data.event;
+        renderExpenseEventDetail();
+        loadExpensesDashboard();
+      }
+      if (typeof triggerHaptic === "function") triggerHaptic("success");
+      if (typeof showToast === "function") showToast(d.id ? "✓ Операция обновлена" : "✓ Операция добавлена");
+    } catch (error) {
+      if (typeof showToast === "function") showToast(`❌ ${error.message || "Не удалось сохранить операцию"}`);
+    }
+    return;
+  }
+
+  // Демо-режим
+  const demo = loadDemoExpensesStore();
+  const target = demo.events.find(e => e.id === ev.id);
+  if (!target) return;
+
+  const splits = [];
+  if (d.operation_type === "TRANSFER") {
+    splits.push({ member_id: d.transfer_from_id, paid_amount_minor: preview.baseMinor, owed_amount_minor: 0, share_value: 0 });
+    splits.push({ member_id: d.transfer_to_id, paid_amount_minor: 0, owed_amount_minor: preview.baseMinor, share_value: preview.baseMinor });
+  } else {
+    const eachPaid = Math.floor(preview.baseMinor / d.payers.length);
+    let remPaid = preview.baseMinor - eachPaid * d.payers.length;
+    const paidMap = {};
+    d.payers.forEach(pid => {
+      paidMap[pid] = eachPaid + (remPaid > 0 ? 1 : 0);
+      if (remPaid > 0) remPaid -= 1;
+    });
+    const involved = new Set([...Object.keys(paidMap), ...Object.keys(preview.sharesMinor)]);
+    for (const mid of involved) {
+      splits.push({
+        member_id: mid,
+        paid_amount_minor: paidMap[mid] || 0,
+        owed_amount_minor: preview.sharesMinor[mid] || 0,
+        share_value: 1
+      });
+    }
+  }
+
+  const now = new Date().toISOString();
+  const opRecord = {
+    id: d.id || `demo_op_${Date.now()}`,
+    event_id: ev.id,
+    created_by_member_id: target.viewer_member_id,
+    operation_type: payload.operation_type,
+    title: payload.title,
+    category: payload.category,
+    original_amount_minor: payload.original_amount_minor,
+    original_currency: payload.original_currency,
+    exchange_rate: payload.exchange_rate,
+    base_amount_minor: preview.baseMinor,
+    split_type: payload.split_type,
+    items: itemsPayload,
+    split_meta: {
+      included_member_ids: includedMemberIds,
+      weights_map: weightsMap,
+      exact_minor_map: exactMinorMap,
+      percent_map: percentMap,
+      transfer_from_id: d.transfer_from_id,
+      transfer_to_id: d.transfer_to_id
+    },
+    comment: payload.comment,
+    expense_date: payload.expense_date,
+    created_at: now,
+    payers: payload.payers,
+    shares_minor: preview.sharesMinor,
+    splits
+  };
+
+  target.operations = target.operations || [];
+  if (d.id) {
+    const idx = target.operations.findIndex(o => o.id === d.id);
+    if (idx >= 0) target.operations[idx] = opRecord;
+  } else {
+    target.operations.unshift(opRecord);
+  }
+  target.audit_log.unshift({
+    id: `log_${Date.now()}`,
+    action: d.id ? "OPERATION_UPDATED" : "OPERATION_ADDED",
+    text: `${d.id ? "Изменена" : "Добавлена"} операция «${opRecord.title}» — ${formatExpenseMinor(opRecord.original_amount_minor, opRecord.original_currency)}`,
+    created_at: now
+  });
+  recalculateDemoEventSummary(target);
+  saveDemoExpensesStore(demo);
+  exp.currentEvent = target;
+  closeExpenseOperationModal();
+  renderExpenseEventDetail();
+  loadExpensesDashboard();
+  if (typeof showToast === "function") showToast(d.id ? "✓ Операция обновлена" : "✓ Операция добавлена");
+}
+
+async function deleteCurrentExpenseOperation() {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  const d = exp.opDraft;
+  if (!ev || !d?.id) return;
+
+  if (typeof isTelegramSession !== "undefined" && isTelegramSession && typeof API_ORIGIN !== "undefined" && API_ORIGIN) {
+    try {
+      const response = await fetch(`${API_ORIGIN}/api/expenses/events/${encodeURIComponent(ev.id)}/operations/${encodeURIComponent(d.id)}`, {
+        method: "DELETE",
+        headers: typeof getAuthHeaders === "function" ? getAuthHeaders() : {}
+      });
+      const data = await (typeof readApiResponse === "function" ? readApiResponse(response) : response.json());
+      closeExpenseOperationModal();
+      if (data?.event) {
+        exp.currentEvent = data.event;
+        renderExpenseEventDetail();
+        loadExpensesDashboard();
+      }
+      if (typeof showToast === "function") showToast("🗑 Операция удалена");
+    } catch (error) {
+      if (typeof showToast === "function") showToast(`❌ ${error.message || "Не удалось удалить операцию"}`);
+    }
+    return;
+  }
+
+  const demo = loadDemoExpensesStore();
+  const target = demo.events.find(e => e.id === ev.id);
+  if (!target) return;
+  target.operations = (target.operations || []).filter(o => o.id !== d.id);
+  recalculateDemoEventSummary(target);
+  saveDemoExpensesStore(demo);
+  exp.currentEvent = target;
+  closeExpenseOperationModal();
+  renderExpenseEventDetail();
+  loadExpensesDashboard();
+  if (typeof showToast === "function") showToast("🗑 Операция удалена");
 }
 
 /* ==========================================================================
@@ -551,7 +1423,6 @@ async function handleCreateExpenseEventSubmit(event) {
     return;
   }
 
-  // Демо-режим
   const demo = loadDemoExpensesStore();
   const now = new Date().toISOString();
   const meName = typeof DEMO_USERS !== "undefined" ? DEMO_USERS.owner.name : "Максим";
@@ -623,6 +1494,7 @@ async function handleCreateExpenseEventSubmit(event) {
     net_balance_minor: 0,
     members,
     wallets: [],
+    operations: [],
     audit_log: [
       { id: `log_${Date.now()}`, action: "EVENT_CREATED", text: `${meName} создал(а) событие «${title}»`, created_at: now }
     ]
@@ -927,6 +1799,7 @@ async function mergeSelectedIntoUnifiedWallet() {
   for (const m of selected) {
     if (m.id !== head.id) m.linked_payer_member_id = head.id;
   }
+  recalculateDemoEventSummary(target);
   target.audit_log.unshift({
     id: `log_${Date.now()}`,
     action: "WALLET_MERGED",
@@ -973,6 +1846,7 @@ async function unmergeUnifiedWallet(headMemberId) {
       m.linked_payer_member_id = null;
     }
   }
+  recalculateDemoEventSummary(target);
   saveDemoExpensesStore(demo);
   exp.currentEvent = target;
   renderEventParticipantsModal();
