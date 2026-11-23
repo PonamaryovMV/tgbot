@@ -1,10 +1,9 @@
 /**
- * Модуль главного меню супераппа и профиля СБП (Этап 1).
- * В меню два раздела: «Вишлисты» (переводит в интерфейс вишлиста)
- * и «Совместные расходы» (пока заглушка, не открывает рабочий раздел).
+ * Модуль главного меню супераппа и профиля СБП.
+ * Оба раздела («Вишлисты и подарки» и «Совместные расходы») открываются из главного меню
+ * или напрямую по параметру запуска бота (?module=wishlist / ?module=expenses).
  */
 const SUPERAPP_PROFILE_STORAGE_KEY = "tg_superapp_profile_v1";
-const SUPERAPP_ACTIVE_MODULE_KEY = "tg_superapp_active_module_v1";
 
 function getDefaultSuperappProfile() {
   const defaultName = typeof isTelegramSession !== "undefined" && isTelegramSession
@@ -37,7 +36,7 @@ function loadLocalSuperappProfile() {
       preferred_banks: Array.isArray(parsed?.preferred_banks)
         ? parsed.preferred_banks.map(b => String(b || "").trim()).filter(Boolean)
         : [],
-      default_currency: ["RUB", "USD", "EUR", "KZT", "TRY"].includes(String(parsed?.default_currency || "").toUpperCase())
+      default_currency: ["RUB", "USD", "EUR", "KZT", "TRY", "GEL"].includes(String(parsed?.default_currency || "").toUpperCase())
         ? String(parsed.default_currency).toUpperCase()
         : "RUB"
     };
@@ -54,17 +53,40 @@ function saveLocalSuperappProfile(profile) {
   }
 }
 
+function resolveInitialSuperappScreen() {
+  const params = new URLSearchParams(window.location.search);
+  const explicitModule = String(params.get("module") || "").trim().toLowerCase();
+  const rawStartParam = typeof startParam === "string" ? startParam.trim() : "";
+
+  if (explicitModule === "expenses" || rawStartParam === "module_expenses") {
+    return "expenses";
+  }
+  if (explicitModule === "wishlist" || rawStartParam === "module_wishlist") {
+    return "wishlist";
+  }
+  if (explicitModule === "hub") {
+    return "hub";
+  }
+  if ((typeof queryListParam === "string" && queryListParam.trim()) || /^list_\d+/.test(rawStartParam)) {
+    return "wishlist";
+  }
+  if (typeof isBrowserDemo !== "undefined" && isBrowserDemo) {
+    return "wishlist";
+  }
+  return "hub";
+}
+
 function getSuperappState() {
   if (!state.superapp) {
     state.superapp = {
-      activeModule: "wishlist",
+      screen: resolveInitialSuperappScreen(),
       profile: loadLocalSuperappProfile(),
+      activeEventsCount: 0,
+      oweMeMinor: 0,
+      iOweMinor: 0,
       savingProfile: false
     };
   }
-  try {
-    localStorage.setItem(SUPERAPP_ACTIVE_MODULE_KEY, "wishlist");
-  } catch {}
   return state.superapp;
 }
 
@@ -86,15 +108,77 @@ function parseBanksInput(rawText) {
   return unique;
 }
 
+function formatMinorRub(minor, currency = "RUB") {
+  const symbols = { RUB: "₽", USD: "$", EUR: "€", KZT: "₸", TRY: "₺", GEL: "₾" };
+  const val = Math.round((Number(minor) || 0) / 100);
+  return `${new Intl.NumberFormat("ru-RU").format(val)} ${symbols[currency] || currency}`;
+}
+
+function computeInitials(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "П";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
 function renderSuperappHub() {
   const hub = getSuperappState();
   const profile = hub.profile;
+
+  const hubScreen = document.getElementById("superappHubScreen");
+  const expensesScreen = document.getElementById("expensesAppShell");
+  const wishlistScreen = document.getElementById("wishlistAppShell");
+
+  if (hubScreen) hubScreen.hidden = hub.screen !== "hub";
+  if (expensesScreen) expensesScreen.hidden = hub.screen !== "expenses";
+  if (wishlistScreen) wishlistScreen.hidden = hub.screen !== "wishlist";
+
+  const initialsEl = document.getElementById("hubUserInitials");
+  const userNameEl = document.getElementById("hubUserName");
+  const userPhoneSubEl = document.getElementById("hubUserPhoneSub");
+  const sbpPreview = document.getElementById("hubSbpSummaryBadge");
+
+  if (initialsEl) initialsEl.textContent = computeInitials(profile.display_name);
+  if (userNameEl) userNameEl.textContent = profile.display_name || "Пользователь";
+  if (userPhoneSubEl) {
+    userPhoneSubEl.textContent = profile.payment_phone || "Телефон для СБП не указан";
+  }
+  if (sbpPreview) {
+    const banksText = (profile.preferred_banks || []).length
+      ? profile.preferred_banks.join(", ")
+      : "банки не указаны";
+    sbpPreview.textContent = profile.payment_phone
+      ? `СБП: ${profile.payment_phone} · ${banksText} · ${profile.default_currency || "RUB"}`
+      : `Телефон для СБП · банки · ${profile.default_currency || "RUB"}`;
+  }
+
+  const activeGiftsCount = Array.isArray(state.gifts)
+    ? state.gifts.filter(g => !g.is_gifted).length
+    : 0;
+  const hubWishlistCountEl = document.getElementById("hubWishlistCount");
+  if (hubWishlistCountEl) hubWishlistCountEl.textContent = String(activeGiftsCount);
+
+  const hubExpensesSub = document.getElementById("hubExpensesEventsSub");
+  if (hubExpensesSub) {
+    const cnt = Number(hub.activeEventsCount) || 0;
+    hubExpensesSub.textContent = `${cnt} активных событий`;
+  }
+
+  const oweMeFormatted = formatMinorRub(hub.oweMeMinor, profile.default_currency);
+  const iOweFormatted = formatMinorRub(hub.iOweMinor, profile.default_currency);
+  const hubOweMeEl = document.getElementById("hubOweMeAmount");
+  const hubIOweEl = document.getElementById("hubIOweAmount");
+  const expOweMeEl = document.getElementById("expensesOweMeValue");
+  const expIOweEl = document.getElementById("expensesIOweValue");
+  if (hubOweMeEl) hubOweMeEl.textContent = oweMeFormatted;
+  if (hubIOweEl) hubIOweEl.textContent = iOweFormatted;
+  if (expOweMeEl) expOweMeEl.textContent = oweMeFormatted;
+  if (expIOweEl) expIOweEl.textContent = iOweFormatted;
 
   const nameInput = document.getElementById("hubDisplayNameInput");
   const phoneInput = document.getElementById("hubPaymentPhoneInput");
   const banksInput = document.getElementById("hubPreferredBanksInput");
   const currencySelect = document.getElementById("hubDefaultCurrencySelect");
-  const sbpPreview = document.getElementById("hubSbpSummaryBadge");
 
   if (nameInput && document.activeElement !== nameInput) {
     nameInput.value = profile.display_name || "";
@@ -108,51 +192,52 @@ function renderSuperappHub() {
   if (currencySelect) {
     currencySelect.value = profile.default_currency || "RUB";
   }
-  if (sbpPreview) {
-    const banksText = (profile.preferred_banks || []).length
-      ? profile.preferred_banks.join(", ")
-      : "банки не указаны";
-    sbpPreview.textContent = profile.payment_phone
-      ? `СБП: ${profile.payment_phone} · ${banksText}`
-      : "Реквизиты СБП не заполнены";
-  }
-
-  const wishlistCard = document.getElementById("hubModuleWishlistBtn");
-  const expensesCard = document.getElementById("hubModuleExpensesBtn");
-  if (wishlistCard) wishlistCard.classList.add("active");
-  if (expensesCard) {
-    expensesCard.classList.remove("active");
-    expensesCard.setAttribute("aria-disabled", "true");
-  }
-
-  if (typeof updateWorkspaceNav === "function") updateWorkspaceNav();
 }
 
-function focusWishlistMenu() {
-  if (typeof showWishlistWorkspace === "function") {
-    showWishlistWorkspace();
-  }
-  const navEl = document.querySelector(".workspace-nav");
-  if (navEl && typeof navEl.scrollIntoView === "function") {
-    navEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
+function openSuperappHub() {
+  const hub = getSuperappState();
+  hub.screen = "hub";
+  if (typeof triggerHaptic === "function") triggerHaptic("light");
+  renderSuperappHub();
 }
 
 function selectSuperappModule(moduleName) {
   const hub = getSuperappState();
-  hub.activeModule = "wishlist";
   if (typeof triggerHaptic === "function") triggerHaptic("light");
 
-  if (moduleName === "wishlist") {
+  if (moduleName === "expenses") {
+    hub.screen = "expenses";
     renderSuperappHub();
-    focusWishlistMenu();
     return;
   }
 
+  hub.screen = "wishlist";
   renderSuperappHub();
-  if (typeof showToast === "function") {
-    showToast("⏳ Раздел «Совместные расходы» пока не открывается");
+  if (typeof showWishlistWorkspace === "function") {
+    showWishlistWorkspace();
   }
+}
+
+function toggleHubTheme() {
+  const current = document.body.getAttribute("data-theme") || "dark";
+  const next = current === "light" ? "dark" : "light";
+  if (typeof setThemePreset === "function") {
+    setThemePreset(next);
+  } else {
+    document.body.setAttribute("data-theme", next);
+  }
+}
+
+function openSbpProfileModal() {
+  renderSuperappHub();
+  const modal = document.getElementById("sbpProfileModalBackdrop");
+  if (modal) modal.classList.add("open");
+  if (typeof triggerHaptic === "function") triggerHaptic("light");
+}
+
+function closeSbpProfileModal() {
+  const modal = document.getElementById("sbpProfileModalBackdrop");
+  if (modal) modal.classList.remove("open");
 }
 
 async function syncCoreProfileFromServer() {
@@ -175,8 +260,19 @@ async function syncCoreProfileFromServer() {
         default_currency: String(data.user.default_currency || "RUB").toUpperCase()
       };
       saveLocalSuperappProfile(hub.profile);
-      renderSuperappHub();
     }
+    if (data?.dashboard) {
+      hub.activeEventsCount = Array.isArray(data.dashboard.active_events)
+        ? data.dashboard.active_events.length
+        : 0;
+      const cur = hub.profile.default_currency || "RUB";
+      const summary = data.dashboard.summary_by_currency?.[cur] || data.dashboard.summary_by_currency?.RUB;
+      if (summary) {
+        hub.oweMeMinor = Number(summary.owed_to_you_minor) || 0;
+        hub.iOweMinor = Number(summary.you_owe_minor) || 0;
+      }
+    }
+    renderSuperappHub();
   } catch {
     // Сохраняем локальные данные при недоступности сети
   }
@@ -200,7 +296,7 @@ async function handleSaveSuperappProfile(event) {
     display_name: displayName || hub.profile.display_name || "Пользователь",
     payment_phone: paymentPhone,
     preferred_banks: preferredBanks,
-    default_currency: ["RUB", "USD", "EUR", "KZT", "TRY"].includes(defaultCurrency) ? defaultCurrency : "RUB"
+    default_currency: ["RUB", "USD", "EUR", "KZT", "TRY", "GEL"].includes(defaultCurrency) ? defaultCurrency : "RUB"
   };
 
   if (typeof isTelegramSession !== "undefined" && isTelegramSession && typeof API_ORIGIN !== "undefined" && API_ORIGIN) {
@@ -238,8 +334,17 @@ async function handleSaveSuperappProfile(event) {
 
   saveLocalSuperappProfile(hub.profile);
   renderSuperappHub();
+  closeSbpProfileModal();
   if (typeof triggerHaptic === "function") triggerHaptic("success");
   if (typeof showToast === "function") showToast("✓ Профиль и реквизиты СБП сохранены");
+}
+
+if (typeof renderAll === "function") {
+  const originalRenderAll = renderAll;
+  renderAll = function patchedRenderAll() {
+    originalRenderAll();
+    renderSuperappHub();
+  };
 }
 
 window.addEventListener("DOMContentLoaded", () => {
