@@ -17,7 +17,8 @@ const STATIC_FILES = new Map([
   ["/app-state.js", { file: "app-state.js", type: "application/javascript; charset=utf-8" }],
   ["/app-social.js", { file: "app-social.js", type: "application/javascript; charset=utf-8" }],
   ["/app-render.js", { file: "app-render.js", type: "application/javascript; charset=utf-8" }],
-  ["/expenses-hub.js", { file: "expenses-hub.js", type: "application/javascript; charset=utf-8" }]
+  ["/expenses-hub.js", { file: "expenses-hub.js", type: "application/javascript; charset=utf-8" }],
+  ["/expenses-app.js", { file: "expenses-app.js", type: "application/javascript; charset=utf-8" }]
 ]);
 
 const server = createServer(async (request, response) => {
