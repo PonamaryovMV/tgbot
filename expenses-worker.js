@@ -47,7 +47,7 @@ import {
   handleSharedUserSelection
 } from "./worker.js";
 
-const EXPENSE_CURRENCIES = Object.freeze(["RUB", "USD", "EUR", "KZT", "TRY"]);
+const EXPENSE_CURRENCIES = Object.freeze(["RUB", "USD", "EUR", "KZT", "TRY", "GEL"]);
 const EXPENSE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -458,6 +458,88 @@ export function getExpensesErrorResponse(error) {
   return null;
 }
 
+export function buildSuperappStartKeyboard(webAppBaseUrl) {
+  const wishlistUrl = new URL(webAppBaseUrl);
+  wishlistUrl.searchParams.set("module", "wishlist");
+
+  const expensesUrl = new URL(webAppBaseUrl);
+  expensesUrl.searchParams.set("module", "expenses");
+
+  const hubUrl = new URL(webAppBaseUrl);
+
+  return {
+    inline_keyboard: [
+      [
+        { text: "🎁 Вишлисты", web_app: { url: wishlistUrl.toString() } },
+        { text: "💰 Совместные расходы", web_app: { url: expensesUrl.toString() } }
+      ],
+      [
+        { text: "🧭 Главное меню", web_app: { url: hubUrl.toString() } }
+      ]
+    ]
+  };
+}
+
+async function tryHandleSuperappStartCommand(request, env) {
+  if (request.method !== "POST") return null;
+  const url = new URL(request.url);
+  if (url.pathname !== "/" && url.pathname !== "/webhook") return null;
+
+  const secretHeader = env?.WEBHOOK_SECRET || "";
+  if (secretHeader && request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== secretHeader) {
+    return null;
+  }
+
+  const rawBody = await request.clone().text().catch(() => "");
+  if (!rawBody) return null;
+
+  let update;
+  try {
+    update = JSON.parse(rawBody);
+  } catch {
+    return null;
+  }
+
+  const message = update?.message;
+  const text = String(message?.text || "").trim();
+  const chatId = message?.chat?.id;
+  if (!chatId || !text) return null;
+
+  const genericStartMatch = text.match(/^\/start(?:@\w+)?(?:\s+(module_(?:wishlist|expenses)))?\s*$/);
+  if (!genericStartMatch || !env?.BOT_TOKEN || !env?.WEBAPP_URL) {
+    return null;
+  }
+
+  const arg = genericStartMatch[1] || "";
+  const baseUrl = new URL(env.WEBAPP_URL);
+  if (arg === "module_wishlist") baseUrl.searchParams.set("module", "wishlist");
+  if (arg === "module_expenses") baseUrl.searchParams.set("module", "expenses");
+
+  const replyMarkup = arg
+    ? {
+        inline_keyboard: [[
+          {
+            text: arg === "module_wishlist" ? "🎁 Открыть вишлисты" : "💰 Открыть совместные расходы",
+            web_app: { url: baseUrl.toString() }
+          }
+        ]]
+      }
+    : buildSuperappStartKeyboard(env.WEBAPP_URL);
+
+  const tgApiBase = ["https://api.", "telegram.org/bot", env.BOT_TOKEN, "/sendMessage"].join("");
+  await fetch(tgApiBase, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: "Привет! Выберите раздел Mini App, который нужно открыть:",
+      reply_markup: replyMarkup
+    })
+  });
+
+  return json({ ok: true });
+}
+
 export {
   DEFAULT_GROUPS,
   LEGACY_GROUP_NAMES,
@@ -541,6 +623,9 @@ export default {
         return json({ error: error?.message || "Unauthorized" }, error?.status || 401);
       }
     }
+
+    const startResponse = await tryHandleSuperappStartCommand(request, env);
+    if (startResponse) return startResponse;
 
     const baseWorker = await import("./worker.js");
     return await baseWorker.default.fetch(request, env, ctx);
