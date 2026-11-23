@@ -458,7 +458,6 @@ export function computeOperationSplits({
     };
   }
 
-  // Валидация плательщиков
   const validPayers = [...new Set((Array.isArray(payers) ? payers : []).filter(id => memberIds.has(id)))];
   if (validPayers.length === 0) {
     throw new ExpensesApiError(400, "Select at least one payer");
@@ -550,7 +549,6 @@ export function computeOperationSplits({
     if (Math.abs(sumExact - baseMinor) > 1) {
       throw new ExpensesApiError(400, "Sum of exact amounts must equal total amount");
     }
-    // Если разница 1 минорная единица из-за округления, корректируем последнюю долю
     if (sumExact !== baseMinor && owedByMember.size > 0) {
       const lastKey = [...owedByMember.keys()].at(-1);
       owedByMember.set(lastKey, owedByMember.get(lastKey) + (baseMinor - sumExact));
@@ -575,8 +573,6 @@ export function computeOperationSplits({
       shareValByMember.set(d.member_id, d.share_value);
     }
   } else if (mode === "MANUAL_ITEMS") {
-    // Распределяем сумму каждой позиции пропорционально (или поровну между участниками позиции)
-    // с сохранением точной суммы baseMinor
     const rawTotals = new Map();
     for (const item of normalizedItems) {
       const itemBaseMinor = Math.round(item.amount_minor * rate);
@@ -625,6 +621,164 @@ export function computeOperationSplits({
     normalized_items: normalizedItems,
     splits
   };
+}
+
+/* ==========================================================================
+   ДВИЖОК РАСЧЁТА ДОЛГОВ, ГРАФ ПЕРЕВОДОВ И КРОСС-СОБЫТИЙНЫЙ ЗАЧЁТ (ЭТАП 4)
+   ========================================================================== */
+function getUnitHeadId(members, memberId) {
+  const byId = new Map(members.map(m => [m.id, m]));
+  const m = byId.get(memberId);
+  if (!m) return memberId;
+  return m.linked_payer_member_id && byId.has(m.linked_payer_member_id)
+    ? m.linked_payer_member_id
+    : m.id;
+}
+
+export function buildSettlementUnits(members) {
+  const byId = new Map(members.map(m => [m.id, m]));
+  const groups = new Map();
+  for (const m of members) {
+    const headId = getUnitHeadId(members, m.id);
+    if (!groups.has(headId)) groups.set(headId, []);
+    groups.get(headId).push(m);
+  }
+
+  const units = [];
+  for (const [headId, list] of groups.entries()) {
+    const isWallet = list.length >= 2;
+    const primaryRecipient = list.find(m => m.payment_phone)
+      || list.find(m => Boolean(m.user_id))
+      || list[0];
+    units.push({
+      id: headId,
+      name: isWallet ? list.map(m => m.member_name).join(" + ") : list[0].member_name,
+      is_wallet: isWallet,
+      member_ids: list.map(m => m.id),
+      user_ids: list.map(m => m.user_id).filter(Boolean),
+      payment_phone: primaryRecipient?.payment_phone || "",
+      preferred_banks: Array.isArray(primaryRecipient?.preferred_banks) ? primaryRecipient.preferred_banks : [],
+      recipient_user_id: primaryRecipient?.user_id || null
+    });
+  }
+  return units;
+}
+
+export function computeEventSettlementPlan(members, operations, confirmedSettlements = [], pendingSettlements = [], simplify = true) {
+  const units = buildSettlementUnits(members);
+  const unitBalancesMinor = {};
+  for (const u of units) unitBalancesMinor[u.id] = 0;
+
+  // Матрица прямых долгов (fromUnit -> toUnit) в минорных единицах
+  const pairMatrix = new Map();
+  const addPair = (fromUnit, toUnit, amtMinor) => {
+    if (!fromUnit || !toUnit || fromUnit === toUnit || !amtMinor) return;
+    const key = `${fromUnit}|${toUnit}`;
+    pairMatrix.set(key, (pairMatrix.get(key) || 0) + amtMinor);
+  };
+
+  for (const op of operations || []) {
+    const splits = Array.isArray(op.splits) ? op.splits : [];
+    const payers = splits.filter(s => (Number(s.paid_amount_minor) || 0) > 0);
+    const totalPaid = payers.reduce((s, p) => s + (Number(p.paid_amount_minor) || 0), 0);
+
+    for (const s of splits) {
+      const u = getUnitHeadId(members, s.member_id);
+      const paid = Number(s.paid_amount_minor) || 0;
+      const owed = Number(s.owed_amount_minor) || 0;
+      unitBalancesMinor[u] = (unitBalancesMinor[u] || 0) + (paid - owed);
+
+      if (owed > 0 && totalPaid > 0) {
+        const dist = distributeExactMinor(
+          owed,
+          payers.map(p => ({ member_id: p.member_id, weight: Number(p.paid_amount_minor) || 0 }))
+        );
+        for (const d of dist) {
+          const payerUnit = getUnitHeadId(members, d.member_id);
+          addPair(u, payerUnit, d.amount_minor);
+        }
+      }
+    }
+  }
+
+  for (const st of confirmedSettlements || []) {
+    const fromU = getUnitHeadId(members, st.from_member_id);
+    const toU = getUnitHeadId(members, st.to_member_id);
+    const amt = Number(st.allocated_amount_minor ?? st.total_amount_minor) || 0;
+    if (fromU && toU && amt > 0) {
+      unitBalancesMinor[fromU] = (unitBalancesMinor[fromU] || 0) + amt;
+      unitBalancesMinor[toU] = (unitBalancesMinor[toU] || 0) - amt;
+      addPair(toU, fromU, amt);
+    }
+  }
+
+  const isPendingEdge = (fromU, toU) =>
+    (pendingSettlements || []).some(st =>
+      getUnitHeadId(members, st.from_member_id) === fromU &&
+      getUnitHeadId(members, st.to_member_id) === toU
+    );
+
+  if (simplify) {
+    const debtors = [];
+    const creditors = [];
+    for (const [id, bal] of Object.entries(unitBalancesMinor)) {
+      const r = Math.round(bal);
+      if (r < 0) debtors.push({ id, amt: -r });
+      else if (r > 0) creditors.push({ id, amt: r });
+    }
+    debtors.sort((a, b) => (b.amt - a.amt) || a.id.localeCompare(b.id));
+    creditors.sort((a, b) => (b.amt - a.amt) || a.id.localeCompare(b.id));
+
+    const edges = [];
+    let i = 0;
+    let j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const d = debtors[i];
+      const c = creditors[j];
+      const amt = Math.min(d.amt, c.amt);
+      if (amt > 0) {
+        edges.push({
+          from_unit_id: d.id,
+          to_unit_id: c.id,
+          amount_minor: amt,
+          pending: isPendingEdge(d.id, c.id)
+        });
+      }
+      d.amt -= amt;
+      c.amt -= amt;
+      if (d.amt <= 0) i += 1;
+      if (c.amt <= 0) j += 1;
+    }
+    return { units, unit_balances_minor: unitBalancesMinor, edges };
+  }
+
+  const seen = new Set();
+  const directEdges = [];
+  for (const key of pairMatrix.keys()) {
+    if (seen.has(key)) continue;
+    const [a, b] = key.split("|");
+    seen.add(`${a}|${b}`);
+    seen.add(`${b}|${a}`);
+    const ab = pairMatrix.get(`${a}|${b}`) || 0;
+    const ba = pairMatrix.get(`${b}|${a}`) || 0;
+    const net = Math.round(ab - ba);
+    if (net > 0) {
+      directEdges.push({
+        from_unit_id: a,
+        to_unit_id: b,
+        amount_minor: net,
+        pending: isPendingEdge(a, b)
+      });
+    } else if (net < 0) {
+      directEdges.push({
+        from_unit_id: b,
+        to_unit_id: a,
+        amount_minor: -net,
+        pending: isPendingEdge(b, a)
+      });
+    }
+  }
+  return { units, unit_balances_minor: unitBalancesMinor, edges: directEdges };
 }
 
 async function loadEventMembers(db, eventId) {
@@ -744,40 +898,36 @@ async function loadEventOperations(db, eventId) {
   });
 }
 
-function computeMemberNetBalancesMinor(members, operations) {
-  const balances = {};
-  for (const m of members) balances[m.id] = 0;
+async function loadEventSettlements(db, eventId) {
+  const res = await db
+    .prepare(
+      `SELECT s.id, s.from_user_id, s.to_user_id, s.from_member_id, s.to_member_id,
+              s.total_amount_minor, s.currency, s.payment_method, s.comment, s.status,
+              s.created_at, s.confirmed_at, sa.allocated_amount_minor
+       FROM settlements s
+       JOIN settlement_allocations sa ON sa.settlement_id = s.id
+       WHERE sa.event_id = ?
+       ORDER BY s.created_at DESC`
+    )
+    .bind(eventId)
+    .all();
 
-  for (const op of operations) {
-    for (const s of op.splits || []) {
-      const paid = Number(s.paid_amount_minor) || 0;
-      const owed = Number(s.owed_amount_minor) || 0;
-      balances[s.member_id] = (balances[s.member_id] || 0) + (paid - owed);
-    }
-  }
-  return balances;
-}
-
-function computeViewerUnitNetMinor(members, operations, viewerMemberId) {
-  if (!viewerMemberId) return 0;
-  const memberBalances = computeMemberNetBalancesMinor(members, operations);
-  const byId = new Map(members.map(m => [m.id, m]));
-  const viewer = byId.get(viewerMemberId);
-  if (!viewer) return 0;
-  const viewerUnitHead = viewer.linked_payer_member_id && byId.has(viewer.linked_payer_member_id)
-    ? viewer.linked_payer_member_id
-    : viewer.id;
-
-  let sum = 0;
-  for (const m of members) {
-    const head = m.linked_payer_member_id && byId.has(m.linked_payer_member_id)
-      ? m.linked_payer_member_id
-      : m.id;
-    if (head === viewerUnitHead) {
-      sum += memberBalances[m.id] || 0;
-    }
-  }
-  return sum;
+  const rows = Array.isArray(res?.results) ? res.results : [];
+  return rows.map(r => ({
+    id: r.id,
+    from_user_id: r.from_user_id || null,
+    to_user_id: r.to_user_id || null,
+    from_member_id: r.from_member_id,
+    to_member_id: r.to_member_id,
+    total_amount_minor: Number(r.total_amount_minor) || 0,
+    allocated_amount_minor: Number(r.allocated_amount_minor ?? r.total_amount_minor) || 0,
+    currency: r.currency || "RUB",
+    payment_method: r.payment_method || "СБП",
+    comment: r.comment || "",
+    status: r.status || "PENDING",
+    created_at: r.created_at || "",
+    confirmed_at: r.confirmed_at || null
+  }));
 }
 
 async function loadEventAuditLog(db, eventId, limit = 50) {
@@ -831,11 +981,17 @@ async function requireEventAccess(db, eventId, userProfileId, { requireAdmin = f
   return { eventRow, members, viewerMember };
 }
 
-function serializeEventDetail(eventRow, members, viewerMember, operations = [], auditLog = []) {
+function serializeEventDetail(eventRow, members, viewerMember, operations = [], auditLog = [], settlements = []) {
   const totalSpentMinor = operations
     .filter(op => op.operation_type !== "TRANSFER")
     .reduce((sum, op) => sum + (Number(op.base_amount_minor) || 0), 0);
-  const netBalanceMinor = computeViewerUnitNetMinor(members, operations, viewerMember?.id || null);
+
+  const confirmed = settlements.filter(s => s.status === "CONFIRMED");
+  const pending = settlements.filter(s => s.status === "PENDING");
+  const simplify = Boolean(Number(eventRow.simplify_debts ?? 1));
+  const plan = computeEventSettlementPlan(members, operations, confirmed, pending, simplify);
+  const viewerUnitId = viewerMember ? getUnitHeadId(members, viewerMember.id) : null;
+  const netBalanceMinor = viewerUnitId ? (plan.unit_balances_minor[viewerUnitId] || 0) : 0;
 
   return {
     id: eventRow.id,
@@ -844,21 +1000,32 @@ function serializeEventDetail(eventRow, members, viewerMember, operations = [], 
     icon: eventRow.icon || "🎉",
     base_currency: eventRow.base_currency || "RUB",
     creator_id: eventRow.creator_id,
-    simplify_debts: Boolean(Number(eventRow.simplify_debts ?? 1)),
+    simplify_debts: simplify,
     status: eventRow.status || "ACTIVE",
     invite_token: eventRow.invite_token,
     created_at: eventRow.created_at,
     updated_at: eventRow.updated_at,
     viewer_member_id: viewerMember?.id || null,
+    viewer_unit_id: viewerUnitId,
     viewer_role: viewerMember?.role || null,
     members,
     wallets: buildUnifiedWalletsFromMembers(members),
+    units: plan.units,
+    unit_balances_minor: plan.unit_balances_minor,
+    settlement_edges: plan.edges,
     total_spent_minor: totalSpentMinor,
     net_balance_minor: netBalanceMinor,
     operations,
-    settlements: [],
+    settlements,
     audit_log: auditLog
   };
+}
+
+function crossUnitKey(unit) {
+  const tokens = (unit.user_ids && unit.user_ids.length)
+    ? unit.user_ids.map(id => `u:${id}`).sort()
+    : [unit.name.toLocaleLowerCase("ru-RU")];
+  return `${unit.is_wallet ? "w" : "p"}:${tokens.join("|")}`;
 }
 
 async function listUserEventsSummary(db, userProfileId) {
@@ -880,14 +1047,22 @@ async function listUserEventsSummary(db, userProfileId) {
   const activeEvents = [];
   const archivedEvents = [];
   const summaryByCurrency = {};
+  const crossMap = new Map();
 
   for (const row of events) {
     const members = await loadEventMembers(db, row.id);
     const operations = await loadEventOperations(db, row.id);
+    const settlements = await loadEventSettlements(db, row.id);
+    const confirmed = settlements.filter(s => s.status === "CONFIRMED");
+    const pending = settlements.filter(s => s.status === "PENDING");
+    const simplify = Boolean(Number(row.simplify_debts ?? 1));
+    const plan = computeEventSettlementPlan(members, operations, confirmed, pending, simplify);
+
     const totalSpentMinor = operations
       .filter(op => op.operation_type !== "TRANSFER")
       .reduce((sum, op) => sum + (Number(op.base_amount_minor) || 0), 0);
-    const netMinor = computeViewerUnitNetMinor(members, operations, row.member_id);
+    const viewerUnitId = getUnitHeadId(members, row.member_id);
+    const netMinor = plan.unit_balances_minor[viewerUnitId] || 0;
     const cur = row.base_currency || "RUB";
 
     const item = {
@@ -897,10 +1072,11 @@ async function listUserEventsSummary(db, userProfileId) {
       icon: row.icon || "🎉",
       base_currency: cur,
       creator_id: row.creator_id,
-      simplify_debts: Boolean(Number(row.simplify_debts ?? 1)),
+      simplify_debts: simplify,
       status: row.status || "ACTIVE",
       invite_token: row.invite_token,
       member_id: row.member_id,
+      viewer_unit_id: viewerUnitId,
       role: row.member_role,
       default_weight: Number(row.default_weight ?? 1.0),
       members_count: Number(row.members_count ?? members.length ?? 1),
@@ -925,6 +1101,56 @@ async function listUserEventsSummary(db, userProfileId) {
       }
       if (netMinor > 0) summaryByCurrency[cur].owed_to_you_minor += netMinor;
       else if (netMinor < 0) summaryByCurrency[cur].you_owe_minor += Math.abs(netMinor);
+
+      for (const st of pending) {
+        const fromU = getUnitHeadId(members, st.from_member_id);
+        const toU = getUnitHeadId(members, st.to_member_id);
+        if (fromU === viewerUnitId) summaryByCurrency[cur].pending_outgoing_minor += st.allocated_amount_minor;
+        if (toU === viewerUnitId) summaryByCurrency[cur].pending_incoming_minor += st.allocated_amount_minor;
+      }
+
+      // Кросс-событийная агрегация по людям/кошелькам в разрезе валюты
+      for (const edge of plan.edges) {
+        let otherUnitId = null;
+        let sign = 0;
+        if (edge.from_unit_id === viewerUnitId) {
+          otherUnitId = edge.to_unit_id;
+          sign = -1; // я должен
+        } else if (edge.to_unit_id === viewerUnitId) {
+          otherUnitId = edge.from_unit_id;
+          sign = 1; // мне должны
+        }
+        if (!otherUnitId) continue;
+        const otherUnit = plan.units.find(u => u.id === otherUnitId);
+        if (!otherUnit) continue;
+
+        const key = `${cur}|${crossUnitKey(otherUnit)}`;
+        if (!crossMap.has(key)) {
+          crossMap.set(key, {
+            key,
+            currency: cur,
+            name: otherUnit.name,
+            is_wallet: otherUnit.is_wallet,
+            payment_phone: otherUnit.payment_phone || "",
+            preferred_banks: otherUnit.preferred_banks || [],
+            recipient_user_id: otherUnit.recipient_user_id || null,
+            net_minor: 0,
+            allocations: []
+          });
+        }
+        const entry = crossMap.get(key);
+        const delta = sign * edge.amount_minor;
+        entry.net_minor += delta;
+        if (!entry.payment_phone && otherUnit.payment_phone) entry.payment_phone = otherUnit.payment_phone;
+        if (!entry.preferred_banks.length && otherUnit.preferred_banks.length) entry.preferred_banks = otherUnit.preferred_banks;
+        entry.allocations.push({
+          event_id: row.id,
+          event_title: row.title,
+          from_member_id: row.member_id,
+          to_member_id: otherUnit.id,
+          amount_minor: delta
+        });
+      }
     }
   }
 
@@ -937,11 +1163,15 @@ async function listUserEventsSummary(db, userProfileId) {
     };
   }
 
+  const crossEventDebts = [...crossMap.values()]
+    .filter(x => Math.abs(x.net_minor) > 0)
+    .sort((a, b) => Math.abs(b.net_minor) - Math.abs(a.net_minor));
+
   return {
     active_events: activeEvents,
     archived_events: archivedEvents,
     summary_by_currency: summaryByCurrency,
-    cross_event_debts: []
+    cross_event_debts: crossEventDebts
   };
 }
 
@@ -1024,14 +1254,14 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({
       ok: true,
       module: "expenses",
-      stage: 3,
+      stage: 4,
       tables_count: 9
     });
   }
 
   if (path === "/api/expenses/dashboard" && method === "GET") {
     const dashboard = await listUserEventsSummary(db, user.id);
-    return json({ ok: true, stage: 3, user, ...dashboard });
+    return json({ ok: true, stage: 4, user, ...dashboard });
   }
 
   if (path === "/api/expenses/events" && method === "GET") {
@@ -1043,7 +1273,7 @@ export async function handleExpensesApi(request, env, viewer, url) {
     });
   }
 
-  // POST /api/expenses/events — создание события + копирование участников + Ghost Profiles
+  // POST /api/expenses/events
   if (path === "/api/expenses/events" && method === "POST") {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
@@ -1143,8 +1373,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const { eventRow, members, viewerMember } = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog) }, 201);
+    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements) }, 201);
   }
 
   // GET /api/expenses/invite/:token
@@ -1197,12 +1428,13 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const alreadyMember = members.find(m => m.user_id === user.id);
     if (alreadyMember) {
       const operations = await loadEventOperations(db, eventRow.id);
+      const settlements = await loadEventSettlements(db, eventRow.id);
       const auditLog = await loadEventAuditLog(db, eventRow.id);
       return json({
         ok: true,
         claimed: false,
         already_joined: true,
-        event: serializeEventDetail(eventRow, members, alreadyMember, operations, auditLog)
+        event: serializeEventDetail(eventRow, members, alreadyMember, operations, auditLog, settlements)
       });
     }
 
@@ -1252,11 +1484,12 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updatedAccess = await requireEventAccess(db, eventRow.id, user.id);
     const operations = await loadEventOperations(db, eventRow.id);
+    const settlements = await loadEventSettlements(db, eventRow.id);
     const auditLog = await loadEventAuditLog(db, eventRow.id);
     return json({
       ok: true,
       claimed: Boolean(targetMemberId && targetMemberId !== "__new"),
-      event: serializeEventDetail(updatedAccess.eventRow, updatedAccess.members, updatedAccess.viewerMember, operations, auditLog)
+      event: serializeEventDetail(updatedAccess.eventRow, updatedAccess.members, updatedAccess.viewerMember, operations, auditLog, settlements)
     });
   }
 
@@ -1266,8 +1499,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
     const eventId = eventMatch[1];
     const { eventRow, members, viewerMember } = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog) });
+    return json({ ok: true, event: serializeEventDetail(eventRow, members, viewerMember, operations, auditLog, settlements) });
   }
 
   if (eventMatch && method === "PATCH") {
@@ -1322,8 +1556,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
   }
 
   // POST /api/expenses/events/:id/members
@@ -1376,8 +1611,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog) }, 201);
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) }, 201);
   }
 
   // PATCH / DELETE /api/expenses/events/:id/members/:memberId
@@ -1418,8 +1654,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
   }
 
   if (memberItemMatch && method === "DELETE") {
@@ -1451,8 +1688,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
   }
 
   // POST / DELETE /api/expenses/events/:id/wallets
@@ -1507,8 +1745,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
   }
 
   const walletItemMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/wallets\/([A-Za-z0-9_-]+)$/);
@@ -1534,11 +1773,12 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
   }
 
-  // POST /api/expenses/events/:id/operations — создание операции (EXPENSE / PREPAYMENT / TRANSFER)
+  // POST /api/expenses/events/:id/operations
   const opsCollectionMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/operations$/);
   if (opsCollectionMatch && method === "POST") {
     const eventId = opsCollectionMatch[1];
@@ -1651,15 +1891,16 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
     return json({
       ok: true,
       operation_id: opId,
-      event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog)
+      event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements)
     }, 201);
   }
 
-  // PATCH / DELETE /api/expenses/events/:id/operations/:opId — редактирование и soft-delete операции
+  // PATCH / DELETE /api/expenses/events/:id/operations/:opId
   const opItemMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/operations\/([A-Za-z0-9_-]+)$/);
   if (opItemMatch && method === "PATCH") {
     const [, eventId, opId] = opItemMatch;
@@ -1774,8 +2015,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
   }
 
   if (opItemMatch && method === "DELETE") {
@@ -1808,8 +2050,183 @@ export async function handleExpensesApi(request, env, viewer, url) {
 
     const updated = await requireEventAccess(db, eventId, user.id);
     const operations = await loadEventOperations(db, eventId);
+    const settlements = await loadEventSettlements(db, eventId);
     const auditLog = await loadEventAuditLog(db, eventId);
-    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog) });
+    return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements) });
+  }
+
+  // POST /api/expenses/settlements — фиксация отправки перевода (PENDING) по одному или нескольким событиям
+  if (path === "/api/expenses/settlements" && method === "POST") {
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw new ExpensesApiError(400, "Invalid JSON payload");
+    }
+    const currency = sanitizeCurrency(body.currency, user.default_currency || "RUB");
+    const paymentMethod = cleanPlainText(body.payment_method, 32) || "СБП";
+    const comment = cleanPlainText(body.comment, 240);
+    const rawAllocations = Array.isArray(body.allocations) ? body.allocations : [];
+    if (rawAllocations.length === 0) {
+      throw new ExpensesApiError(400, "Select at least one event allocation");
+    }
+
+    const validAllocs = [];
+    let totalMinor = 0;
+    for (const raw of rawAllocations) {
+      const evId = cleanPlainText(raw?.event_id, 64);
+      const amtMinor = Math.round(Number(raw?.amount_minor) || 0);
+      if (!evId || amtMinor <= 0) continue;
+      const access = await requireEventAccess(db, evId, user.id);
+      if (access.eventRow.base_currency !== currency) {
+        throw new ExpensesApiError(400, "All allocated events must share the settlement currency");
+      }
+      const fromUnitId = getUnitHeadId(access.members, access.viewerMember.id);
+      const toMemberId = cleanPlainText(raw?.to_member_id, 64);
+      const toMember = access.members.find(m => m.id === toMemberId);
+      if (!toMember) {
+        throw new ExpensesApiError(404, "Recipient member not found in event");
+      }
+      const toUnitId = getUnitHeadId(access.members, toMember.id);
+      if (fromUnitId === toUnitId) {
+        throw new ExpensesApiError(400, "Cannot send settlement within the same unified wallet");
+      }
+      validAllocs.push({
+        event_id: evId,
+        from_member_id: fromUnitId,
+        to_member_id: toUnitId,
+        to_user_id: toMember.user_id || null,
+        amount_minor: amtMinor
+      });
+      totalMinor += amtMinor;
+    }
+
+    if (validAllocs.length === 0 || totalMinor <= 0) {
+      throw new ExpensesApiError(400, "Settlement amount must be positive");
+    }
+
+    const settlementId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const first = validAllocs[0];
+
+    await db
+      .prepare(
+        `INSERT INTO settlements (
+          id, from_user_id, to_user_id, from_member_id, to_member_id,
+          total_amount_minor, currency, payment_method, comment, status, created_at, confirmed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, NULL)`
+      )
+      .bind(
+        settlementId,
+        user.id,
+        first.to_user_id,
+        first.from_member_id,
+        first.to_member_id,
+        totalMinor,
+        currency,
+        paymentMethod,
+        comment,
+        now
+      )
+      .run();
+
+    for (const alloc of validAllocs) {
+      await db
+        .prepare(
+          `INSERT INTO settlement_allocations (id, settlement_id, event_id, allocated_amount_minor)
+           VALUES (?, ?, ?, ?)`
+        )
+        .bind(crypto.randomUUID(), settlementId, alloc.event_id, alloc.amount_minor)
+        .run();
+
+      await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, alloc.event_id).run();
+      await appendAuditLog(db, alloc.event_id, user.id, "SETTLEMENT_SENT", {
+        settlement_id: settlementId,
+        amount_minor: alloc.amount_minor,
+        text: `${user.display_name} отправил(а) перевод ${Math.round(alloc.amount_minor / 100)} ${currency} (${paymentMethod}) — ожидает подтверждения`
+      });
+    }
+
+    const dashboard = await listUserEventsSummary(db, user.id);
+    return json({ ok: true, settlement_id: settlementId, dashboard }, 201);
+  }
+
+  // POST /api/expenses/settlements/:id/confirm — получатель подтверждает получение
+  const settleConfirmMatch = path.match(/^\/api\/expenses\/settlements\/([A-Za-z0-9_-]+)\/confirm$/);
+  if (settleConfirmMatch && method === "POST") {
+    const settlementId = settleConfirmMatch[1];
+    const st = await db.prepare("SELECT * FROM settlements WHERE id = ?").bind(settlementId).first();
+    if (!st) throw new ExpensesApiError(404, "Settlement not found");
+    if (st.status !== "PENDING") throw new ExpensesApiError(409, "Settlement is already processed");
+
+    const allocRes = await db
+      .prepare("SELECT event_id, allocated_amount_minor FROM settlement_allocations WHERE settlement_id = ?")
+      .bind(settlementId)
+      .all();
+    const allocs = Array.isArray(allocRes?.results) ? allocRes.results : [];
+    for (const a of allocs) {
+      const access = await requireEventAccess(db, a.event_id, user.id);
+      const viewerUnitId = getUnitHeadId(access.members, access.viewerMember.id);
+      const toUnitId = getUnitHeadId(access.members, st.to_member_id);
+      if (viewerUnitId !== toUnitId && access.viewerMember.role !== "OWNER") {
+        throw new ExpensesApiError(403, "Only recipient can confirm this settlement");
+      }
+    }
+
+    const now = new Date().toISOString();
+    await db
+      .prepare("UPDATE settlements SET status = 'CONFIRMED', confirmed_at = ? WHERE id = ?")
+      .bind(now, settlementId)
+      .run();
+
+    for (const a of allocs) {
+      await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, a.event_id).run();
+      await appendAuditLog(db, a.event_id, user.id, "SETTLEMENT_CONFIRMED", {
+        settlement_id: settlementId,
+        text: `${user.display_name} подтвердил(а) получение перевода ${Math.round((Number(a.allocated_amount_minor) || 0) / 100)} ${st.currency}`
+      });
+    }
+
+    const dashboard = await listUserEventsSummary(db, user.id);
+    return json({ ok: true, status: "CONFIRMED", dashboard });
+  }
+
+  // POST /api/expenses/settlements/:id/reject — получатель отмечает «Деньги не пришли»
+  const settleRejectMatch = path.match(/^\/api\/expenses\/settlements\/([A-Za-z0-9_-]+)\/reject$/);
+  if (settleRejectMatch && method === "POST") {
+    const settlementId = settleRejectMatch[1];
+    const st = await db.prepare("SELECT * FROM settlements WHERE id = ?").bind(settlementId).first();
+    if (!st) throw new ExpensesApiError(404, "Settlement not found");
+    if (st.status !== "PENDING") throw new ExpensesApiError(409, "Settlement is already processed");
+
+    const allocRes = await db
+      .prepare("SELECT event_id, allocated_amount_minor FROM settlement_allocations WHERE settlement_id = ?")
+      .bind(settlementId)
+      .all();
+    const allocs = Array.isArray(allocRes?.results) ? allocRes.results : [];
+    for (const a of allocs) {
+      const access = await requireEventAccess(db, a.event_id, user.id);
+      const viewerUnitId = getUnitHeadId(access.members, access.viewerMember.id);
+      const toUnitId = getUnitHeadId(access.members, st.to_member_id);
+      if (viewerUnitId !== toUnitId && access.viewerMember.role !== "OWNER") {
+        throw new ExpensesApiError(403, "Only recipient can reject this settlement");
+      }
+    }
+
+    const now = new Date().toISOString();
+    await db
+      .prepare("UPDATE settlements SET status = 'REJECTED' WHERE id = ?")
+      .bind(settlementId)
+      .run();
+
+    for (const a of allocs) {
+      await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, a.event_id).run();
+      await appendAuditLog(db, a.event_id, user.id, "SETTLEMENT_REJECTED", {
+        settlement_id: settlementId,
+        text: `${user.display_name} отклонил(а) перевод ${Math.round((Number(a.allocated_amount_minor) || 0) / 100)} ${st.currency} — деньги не пришли`
+      });
+    }
+
+    const dashboard = await listUserEventsSummary(db, user.id);
+    return json({ ok: true, status: "REJECTED", dashboard });
   }
 
   throw new ExpensesApiError(404, "Not found");
