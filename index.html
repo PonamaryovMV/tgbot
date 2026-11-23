@@ -106,7 +106,7 @@
     </button>
   </div>
 
-  <!-- МОДУЛЬ 2: СОВМЕСТНЫЕ РАСХОДЫ (ЭТАП 2) -->
+  <!-- МОДУЛЬ 2: СОВМЕСТНЫЕ РАСХОДЫ -->
   <div class="app-shell expenses-shell" id="expensesAppShell" hidden>
     <!-- ДАШБОРД СОБЫТИЙ -->
     <div id="expensesDashboardView">
@@ -551,6 +551,14 @@
         </section>
       </div>
     </section>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: ОПЕРАЦИЯ РАСХОДОВ (ЭТАП 3) -->
+  <div class="modal-overlay" id="expenseOperationModalBackdrop" onclick="handleBackdropClick(event, 'expenseOperationModalBackdrop')">
+    <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="expenseOperationModalTitle">
+      <div class="sheet-pill-handle"></div>
+      <div id="expenseOperationModalBody"></div>
+    </div>
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО: НОВОЕ СОБЫТИЕ РАСХОДОВ -->
