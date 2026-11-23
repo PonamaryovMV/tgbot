@@ -1,7 +1,7 @@
 /**
  * Модуль главного меню супераппа и профиля СБП.
  * Оба раздела («Вишлисты и подарки» и «Совместные расходы») открываются из главного меню
- * или напрямую по параметру запуска бота (?module=wishlist / ?module=expenses).
+ * или напрямую по параметру запуска бота (?module=wishlist / ?module=expenses / ?invite=exp_...).
  */
 const SUPERAPP_PROFILE_STORAGE_KEY = "tg_superapp_profile_v1";
 
@@ -56,9 +56,10 @@ function saveLocalSuperappProfile(profile) {
 function resolveInitialSuperappScreen() {
   const params = new URLSearchParams(window.location.search);
   const explicitModule = String(params.get("module") || "").trim().toLowerCase();
+  const explicitInvite = String(params.get("invite") || "").trim();
   const rawStartParam = typeof startParam === "string" ? startParam.trim() : "";
 
-  if (explicitModule === "expenses" || rawStartParam === "module_expenses") {
+  if (explicitModule === "expenses" || explicitInvite.startsWith("exp_") || rawStartParam === "module_expenses" || rawStartParam.startsWith("exp_")) {
     return "expenses";
   }
   if (explicitModule === "wishlist" || rawStartParam === "module_wishlist") {
@@ -208,6 +209,9 @@ function selectSuperappModule(moduleName) {
   if (moduleName === "expenses") {
     hub.screen = "expenses";
     renderSuperappHub();
+    if (typeof loadExpensesDashboard === "function") {
+      loadExpensesDashboard();
+    }
     return;
   }
 
