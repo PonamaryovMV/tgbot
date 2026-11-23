@@ -1,405 +1,1296 @@
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data",
-  "Access-Control-Max-Age": "86400"
-};
-
-const MAX_IMAGE_BYTES = 512 * 1024;
-const MAX_UPLOAD_REQUEST_BYTES = 1100 * 1024;
-const MAX_JSON_BYTES = 1024 * 1024;
-const INIT_DATA_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-const MAX_SOCIAL_ITEMS = 200;
-const MAX_GROUPS = 20;
-const MAX_OCCASIONS = 20;
-const MAX_NEW_GIFT_NOTIFICATIONS = 20;
-const NOTIFICATION_BATCH_SIZE = 5;
-
-const DEFAULT_GROUPS = Object.freeze([
+// ==========================================================================
+// 1. КОНСТАНТЫ И СХЕМА СУЩНОСТЕЙ
+// ==========================================================================
+export const DEFAULT_GROUPS = Object.freeze([
   { id: "family", name: "Семья" },
   { id: "close", name: "Близкие" },
   { id: "friends", name: "Друзья" },
   { id: "colleagues", name: "Коллеги" }
 ]);
 
-const LEGACY_GROUP_NAMES = Object.freeze({
-  contacts: "Контакты",
-  family: "Семья",
-  girlfriend: "Девушка",
-  friends: "Друзья"
-});
+export const LEGACY_GROUP_NAMES = Object.freeze(
+  Object.fromEntries(DEFAULT_GROUPS.map(group => [group.id, group.name]))
+);
 
-class HttpError extends Error {
+export const MAX_SOCIAL_ITEMS = 200;
+export const MAX_GROUPS = 20;
+export const MAX_OCCASIONS = 20;
+export const MAX_NEW_GIFT_NOTIFICATIONS = 25;
+export const NOTIFICATION_BATCH_SIZE = 5;
+
+const ALLOWED_IMAGE_TYPES = new Map([
+  ["image/webp", ".webp"],
+  ["image/jpeg", ".jpg"],
+  ["image/jpg", ".jpg"]
+]);
+const MAX_IMAGE_BYTES = 512 * 1024;
+const INIT_DATA_TTL_SEC = 86400;
+const SELECTION_TTL_SEC = 900;
+
+export class ApiError extends Error {
   constructor(status, message) {
     super(message);
     this.status = status;
   }
 }
 
-export default {
-  async fetch(request, env, ctx) {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
-    }
+export function createShortId(prefix) {
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  return `${prefix}_${hex}`;
+}
 
-    try {
-      if (!env.DB) throw new HttpError(500, "KV binding DB is not configured");
+function getCorsHeaders(origin) {
+  return {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data",
+    "Access-Control-Max-Age": "86400"
+  };
+}
 
-      const url = new URL(request.url);
-      const path = url.pathname;
-      const method = request.method;
-
-      if (path === "/" && method === "GET") {
-        return json({ ok: true, service: "tg_podarki" });
-      }
-      if (path === "/" && method === "POST") {
-        return await handleTelegramWebhook(request, env);
-      }
-      if (path === "/api/health" && method === "GET") {
-        return json({ ok: true });
-      }
-      if (path === "/api/config" && method === "GET") {
-        const botUsername = await getBotUsername(env);
-        return json({ botUsername });
-      }
-      if (path === "/api/participations" && method === "GET") {
-        const user = await authenticateTelegram(request, env);
-        return await handleParticipationsGet(env, user);
-      }
-      if (path === "/api/social" && method === "GET") {
-        const user = await authenticateTelegram(request, env);
-        return await handleSocialGet(env, user);
-      }
-      if (path === "/api/social" && method === "POST") {
-        const user = await authenticateTelegram(request, env);
-        return await handleSocialPost(request, env, user, ctx);
-      }
-
-      const imageMatch = path.match(/^\/api\/img\/([A-Za-z0-9_-]{16,64})$/);
-      if (imageMatch && method === "GET") {
-        const user = await authenticateTelegram(request, env);
-        return await handleImageRequest(env, imageMatch[1], user);
-      }
-
-      if ((path === "/api/gifts" || path === "/api/data") && method === "GET") {
-        const user = await authenticateTelegram(request, env);
-        return await handleGiftsGet(url, env, user);
-      }
-      if ((path === "/api/gifts" || path === "/api/data") && method === "POST") {
-        const user = await authenticateTelegram(request, env);
-        return await handleGiftsPost(request, env, user, ctx);
-      }
-      if (path === "/api/upload" && method === "POST") {
-        const user = await authenticateTelegram(request, env);
-        return await handleImageUpload(request, env, user);
-      }
-
-      return json({ error: "Not found" }, 404);
-    } catch (error) {
-      if (error instanceof HttpError) {
-        return json({ error: error.message }, error.status);
-      }
-      console.error("Unhandled worker error:", error?.stack || error);
-      return json({ error: "Internal server error" }, 500);
-    }
+export function dispatchBackground(ctx, promise) {
+  const safePromise = Promise.resolve(promise).catch(error => {
+    console.error("Background task failed:", error);
+  });
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(safePromise);
   }
-};
+  return safePromise;
+}
 
-function json(data, status = 200) {
+export function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
-      ...CORS_HEADERS,
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff"
+      ...extraHeaders
     }
   });
 }
 
-function createShortId(prefix, existingIds = []) {
-  const taken = new Set(existingIds);
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const bytes = crypto.getRandomValues(new Uint8Array(4));
-    const candidate = `${prefix}_${toHex(bytes)}`;
-    if (!taken.has(candidate)) return candidate;
+// ==========================================================================
+// 2. САНИТИЗАЦИЯ И ВАЛИДАЦИЯ ДАННЫХ
+// ==========================================================================
+export function cleanPlainText(value, maxLen) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLen);
+}
+
+export function normalizeUsername(value, required = true) {
+  const cleaned = String(value ?? "").trim().replace(/^@+/, "").toLowerCase();
+  if (!cleaned) {
+    if (required) throw new ApiError(400, "Username is required");
+    return "";
   }
-  return `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
-}
-
-function dispatchBackground(ctx, promise) {
-  if (ctx && typeof ctx.waitUntil === "function") {
-    ctx.waitUntil(promise);
-    return Promise.resolve();
+  if (!/^[a-z0-9_]{3,32}$/.test(cleaned)) {
+    throw new ApiError(400, "Invalid Telegram username");
   }
-  return promise;
+  return cleaned;
 }
 
-function notifyPrefsKey(userId) {
-  return `notify_prefs:${userId}`;
+export function parseId(value, fieldName = "id") {
+  const num = Number(value);
+  if (!Number.isSafeInteger(num) || num <= 0) {
+    throw new ApiError(400, `Invalid ${fieldName}`);
+  }
+  return num;
 }
 
-async function readNotificationPrefs(env, userId) {
-  const stored = await env.DB.get(notifyPrefsKey(userId), { type: "json" });
-  return {
-    bookings: stored?.bookings !== false,
-    new_gifts: stored?.new_gifts !== false
-  };
-}
-
-function isValidChatId(chatId) {
-  const id = Number(chatId);
-  return Number.isSafeInteger(id) && id > 0;
-}
-
-function buildOwnerLabel(owner) {
-  const name = cleanPlainText(owner?.first_name || "Пользователь", 64) || "Пользователь";
-  const username = normalizeUsername(owner?.username || "", false);
-  return username ? `${name} (@${username})` : name;
-}
-
-function buildWishlistReplyMarkup(env, ownerId) {
-  if (!env?.WEBAPP_URL) return undefined;
+export function sanitizeHttpUrl(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
   try {
-    const webAppUrl = new URL(env.WEBAPP_URL);
-    webAppUrl.searchParams.set("list", String(ownerId));
-    return {
-      inline_keyboard: [[{ text: "Открыть вишлист", web_app: { url: webAppUrl.toString() } }]]
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-function formatNotificationPrice(price) {
-  if (price === null || price === undefined || price === "") return "";
-  const numericPrice = Number(price);
-  if (!Number.isFinite(numericPrice) || numericPrice <= 0) return "";
-  return ` (${new Intl.NumberFormat("ru-RU").format(Math.round(numericPrice))} ₽)`;
-}
-
-async function sendNotificationSafe(env, chatId, text, replyMarkup) {
-  if (!isValidChatId(chatId)) return false;
-  const payload = { chat_id: Number(chatId), text };
-  if (replyMarkup) payload.reply_markup = replyMarkup;
-  try {
-    await callTelegramApi(env, "sendMessage", payload);
-    return true;
-  } catch (error) {
-    console.warn("Failed to send Telegram notification:", error?.stack || error);
-    return false;
-  }
-}
-
-async function sendNotificationsBatch(env, items) {
-  for (let offset = 0; offset < items.length; offset += NOTIFICATION_BATCH_SIZE) {
-    const chunk = items.slice(offset, offset + NOTIFICATION_BATCH_SIZE);
-    await Promise.allSettled(chunk.map(async item => {
-      if (!isValidChatId(item.chatId)) return;
-      try {
-        const prefs = await readNotificationPrefs(env, item.chatId);
-        if (prefs[item.prefKey] === false) return;
-        await sendNotificationSafe(env, item.chatId, item.text, item.replyMarkup);
-      } catch (error) {
-        console.warn("Failed to process notification item:", error?.stack || error);
-      }
-    }));
-  }
-}
-
-async function getBotToken(env) {
-  const binding = env.BOT_TOKEN;
-  if (!binding) throw new HttpError(500, "BOT_TOKEN is not configured");
-
-  let value = binding;
-  if (typeof binding !== "string") {
-    if (typeof binding.get !== "function") {
-      throw new HttpError(500, "BOT_TOKEN binding is invalid");
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new ApiError(400, "Only http and https URLs are allowed");
     }
-    value = await binding.get();
+    return parsed.toString().slice(0, 1024);
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(400, "Invalid URL");
   }
-
-  const token = String(value || "").trim();
-  if (!token) throw new HttpError(500, "BOT_TOKEN is not configured");
-  return token;
 }
 
-async function authenticateTelegram(request, env) {
-  const botToken = await getBotToken(env);
-  const initData = request.headers.get("X-Telegram-Init-Data") || "";
-  if (!initData) throw new HttpError(401, "Telegram initData is required");
+export function sanitizeImage(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("/api/img/")) {
+    const id = raw.slice("/api/img/".length);
+    if (!/^[a-z0-9_-]{8,64}$/i.test(id)) {
+      throw new ApiError(400, "Invalid internal image reference");
+    }
+    return `/api/img/${id}`;
+  }
+  return sanitizeHttpUrl(raw);
+}
+
+function sanitizePrice(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0 || num > 1_000_000_000) {
+    throw new ApiError(400, "Invalid price");
+  }
+  return Math.round(num);
+}
+
+export function sanitizeDesire(value, legacyPriority = false) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "high" || raw === "medium" || raw === "wait") return raw;
+  return legacyPriority ? "high" : "medium";
+}
+
+export function sanitizeTags(values) {
+  if (!Array.isArray(values)) return [];
+  const tags = [];
+  const seen = new Set();
+  for (const rawValue of values) {
+    const cleaned = cleanPlainText(String(rawValue ?? "").replace(/^#+/, ""), 30);
+    if (!cleaned) continue;
+    const key = cleaned.toLocaleLowerCase("ru-RU");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(cleaned);
+    if (tags.length >= 8) break;
+  }
+  return tags;
+}
+
+function normalizeGroupId(value) {
+  const id = String(value ?? "").trim();
+  if (!/^[a-zA-Z0-9_-]{2,40}$/.test(id)) return "";
+  return id;
+}
+
+function normalizeOccasionId(value) {
+  const id = String(value ?? "").trim();
+  if (!/^[a-zA-Z0-9_-]{2,40}$/.test(id)) return "";
+  return id;
+}
+
+export function sanitizeGiftGroupIds(values, allowedIds = null) {
+  if (!Array.isArray(values)) return [];
+  const unique = [];
+  for (const raw of values) {
+    const id = normalizeGroupId(raw);
+    if (!id) continue;
+    if (allowedIds && !allowedIds.has(id)) continue;
+    if (!unique.includes(id)) unique.push(id);
+  }
+  return unique;
+}
+
+export function sanitizeGiftOccasionIds(values, allowedIds = null) {
+  if (!Array.isArray(values)) return [];
+  const unique = [];
+  for (const raw of values) {
+    const id = normalizeOccasionId(raw);
+    if (!id) continue;
+    if (allowedIds && !allowedIds.has(id)) continue;
+    if (!unique.includes(id)) unique.push(id);
+  }
+  return unique;
+}
+
+export function sanitizeGroupName(value) {
+  const name = cleanPlainText(value, 32);
+  if (!name) {
+    throw new ApiError(400, "Group name is required");
+  }
+  return name;
+}
+
+export function sanitizeOccasionTitle(value) {
+  const title = cleanPlainText(value, 40);
+  if (!title) {
+    throw new ApiError(400, "Occasion title is required");
+  }
+  return title;
+}
+
+export function findGiftIndex(gifts, id) {
+  const target = String(id ?? "");
+  return gifts.findIndex(item => String(item.id) === target);
+}
+
+export function createGiftId(gifts) {
+  let candidate = Date.now();
+  const used = new Set(gifts.map(item => String(item.id)));
+  while (used.has(String(candidate))) {
+    candidate += 1;
+  }
+  return candidate;
+}
+
+export function getInternalImageId(imagePath) {
+  if (!imagePath || !imagePath.startsWith("/api/img/")) return "";
+  return imagePath.slice("/api/img/".length);
+}
+
+export async function assertInternalImageOwnership(env, ownerId, imagePath) {
+  const imageId = getInternalImageId(imagePath);
+  if (!imageId) return;
+
+  const { metadata } = await env.DB.getWithMetadata(`img:${imageId}`, "arrayBuffer");
+  if (!metadata || Number(metadata.ownerId) !== ownerId) {
+    throw new ApiError(403, "Image does not belong to this wishlist");
+  }
+}
+
+export async function cloneInternalImage(env, sourceImagePath, targetOwnerId) {
+  const sourceId = getInternalImageId(sourceImagePath);
+  if (!sourceId) return "";
+
+  const { value, metadata } = await env.DB.getWithMetadata(`img:${sourceId}`, "arrayBuffer");
+  if (!value) {
+    throw new ApiError(404, "Source image not found");
+  }
+
+  const newImageId = crypto.randomUUID().replaceAll("-", "");
+  const contentType = metadata?.contentType || "image/webp";
+  await env.DB.put(`img:${newImageId}`, value, {
+    metadata: {
+      ownerId: targetOwnerId,
+      contentType,
+      uploadedAt: new Date().toISOString()
+    }
+  });
+  return `/api/img/${newImageId}`;
+}
+
+// ==========================================================================
+// 3. TELEGRAM INITDATA И ПОЛЬЗОВАТЕЛЬСКИЙ СПРАВОЧНИК
+// ==========================================================================
+export async function verifyTelegramInitData(initData, botToken) {
+  if (!botToken) {
+    throw new ApiError(500, "BOT_TOKEN is not configured");
+  }
+  if (!initData || typeof initData !== "string") {
+    throw new ApiError(401, "Missing Telegram initData");
+  }
 
   const params = new URLSearchParams(initData);
-  const receivedHash = params.get("hash") || "";
-  if (!/^[a-f0-9]{64}$/i.test(receivedHash)) {
-    throw new HttpError(401, "Invalid Telegram hash");
+  const hash = params.get("hash");
+  if (!hash) {
+    throw new ApiError(401, "Missing initData hash");
   }
 
   const authDate = Number(params.get("auth_date"));
-  const age = Math.floor(Date.now() / 1000) - authDate;
-  if (!Number.isFinite(authDate) || age > INIT_DATA_MAX_AGE_SECONDS || age < -300) {
-    throw new HttpError(401, "Telegram initData has expired");
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(authDate) || authDate <= 0 || nowSec - authDate > INIT_DATA_TTL_SEC || authDate - nowSec > 300) {
+    throw new ApiError(401, "Expired Telegram initData");
   }
 
   const checkPairs = [];
   for (const [key, value] of params.entries()) {
-    if (key !== "hash") checkPairs.push(`${key}=${value}`);
+    if (key !== "hash") {
+      checkPairs.push([key, value]);
+    }
   }
-  checkPairs.sort();
-  const dataCheckString = checkPairs.join("\n");
-  const encoder = new TextEncoder();
+  checkPairs.sort(([a], [b]) => a.localeCompare(b));
+  const dataCheckString = checkPairs.map(([k, v]) => `${k}=${v}`).join("\n");
 
-  const secretKey = await hmacSha256(
+  const encoder = new TextEncoder();
+  const webAppKey = await crypto.subtle.importKey(
+    "raw",
     encoder.encode("WebAppData"),
-    encoder.encode(botToken)
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
   );
-  const calculatedHash = toHex(await hmacSha256(secretKey, encoder.encode(dataCheckString)));
-  if (!timingSafeEqual(calculatedHash, receivedHash.toLowerCase())) {
-    throw new HttpError(401, "Telegram signature validation failed");
+  const secretKeyBytes = await crypto.subtle.sign("HMAC", webAppKey, encoder.encode(botToken));
+  const secretKey = await crypto.subtle.importKey(
+    "raw",
+    secretKeyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signatureBytes = await crypto.subtle.sign("HMAC", secretKey, encoder.encode(dataCheckString));
+  const expectedHash = Array.from(new Uint8Array(signatureBytes))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  if (expectedHash.length !== hash.length) {
+    throw new ApiError(401, "Invalid initData signature");
+  }
+  let diff = 0;
+  for (let i = 0; i < expectedHash.length; i += 1) {
+    diff |= expectedHash.charCodeAt(i) ^ hash.charCodeAt(i);
+  }
+  if (diff !== 0) {
+    throw new ApiError(401, "Invalid initData signature");
   }
 
   let user;
   try {
     user = JSON.parse(params.get("user") || "null");
   } catch {
-    throw new HttpError(401, "Invalid Telegram user data");
+    throw new ApiError(401, "Malformed initData user");
   }
-  const userId = Number(user?.id);
-  if (!Number.isSafeInteger(userId) || userId <= 0) {
-    throw new HttpError(401, "Telegram user is missing");
+  if (!user || !Number.isSafeInteger(user.id) || user.id <= 0) {
+    throw new ApiError(401, "Invalid initData user");
   }
 
-  const telegramUser = {
-    id: userId,
-    first_name: cleanPlainText(user.first_name || "Пользователь", 64) || "Пользователь",
-    username: normalizeUsername(user.username || "", false)
+  return {
+    id: user.id,
+    first_name: cleanPlainText(user.first_name, 64) || "Пользователь",
+    username: user.username ? normalizeUsername(user.username, false) : ""
   };
-  await rememberTelegramUser(env, telegramUser);
-  return telegramUser;
 }
 
-async function hmacSha256(keyData, data) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    keyData,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  return crypto.subtle.sign("HMAC", key, data);
-}
-
-function toHex(buffer) {
-  return Array.from(new Uint8Array(buffer), byte => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function timingSafeEqual(left, right) {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let i = 0; i < left.length; i += 1) {
-    difference |= left.charCodeAt(i) ^ right.charCodeAt(i);
+function normalizeOccasions(rawOccasions) {
+  if (!Array.isArray(rawOccasions)) return [];
+  const items = [];
+  const seenIds = new Set();
+  const seenTitles = new Set();
+  for (const raw of rawOccasions) {
+    const id = normalizeOccasionId(raw?.id);
+    const title = cleanPlainText(raw?.title, 40);
+    if (!id || !title || seenIds.has(id)) continue;
+    const titleKey = title.toLocaleLowerCase("ru-RU");
+    if (seenTitles.has(titleKey)) continue;
+    seenIds.add(id);
+    seenTitles.add(titleKey);
+    items.push({ id, title });
+    if (items.length >= MAX_OCCASIONS) break;
   }
-  return difference === 0;
+  return items;
 }
 
-async function handleGiftsGet(url, env, viewer) {
-  const ownerId = parseId(url.searchParams.get("owner_id") || viewer.id, "owner_id");
-  const record = await loadWishlist(env, ownerId, viewer);
-  const groups = await loadGroups(env, ownerId);
-  let isSubscribed = false;
-
-  if (ownerId === viewer.id) {
-    if (!record.owner.first_name) record.owner.first_name = viewer.first_name;
-    record.owner.username = viewer.username || record.owner.username || "";
-  } else {
-    await syncWishlistParticipation(env, ownerId, viewer, record, groups);
-    const subscriptions = await readSubscriptions(env, viewer.id);
-    isSubscribed = subscriptions.includes(ownerId);
-    if (isSubscribed) await addSubscriber(env, ownerId, viewer.id);
+export async function loadWishlist(env, ownerId) {
+  const raw = await env.DB.get(`user:${ownerId}`, "json");
+  if (!raw || typeof raw !== "object") {
+    return {
+      owner: { id: ownerId, first_name: "Пользователь", username: "" },
+      occasions: [],
+      gifts: []
+    };
   }
-  return json(serializeWishlist(record, viewer.id, groups, isSubscribed));
+  return {
+    owner: {
+      id: ownerId,
+      first_name: cleanPlainText(raw.owner?.first_name, 64) || "Пользователь",
+      username: raw.owner?.username ? normalizeUsername(raw.owner.username, false) : ""
+    },
+    occasions: normalizeOccasions(raw.occasions),
+    gifts: Array.isArray(raw.gifts) ? raw.gifts : []
+  };
 }
 
-async function handleCopyGift(env, ownerId, viewer, payload) {
-  const sourceRecord = await loadWishlist(env, ownerId, viewer);
-  const sourceGroups = await loadGroups(env, ownerId);
-  const sourceGift = sourceRecord.gifts[findGiftIndex(sourceRecord.gifts, payload.id)];
-  assertGiftVisible(sourceGift, sourceGroups, ownerId, viewer.id);
+export async function saveWishlist(env, ownerId, data) {
+  await env.DB.put(`user:${ownerId}`, JSON.stringify(data));
+}
 
-  let copiedImage = "";
-  const sourceImage = String(sourceGift.image || "");
-  if (sourceImage) {
-    const sourceImageId = getInternalImageId(sourceImage);
-    if (sourceImageId) {
-      copiedImage = await cloneInternalImage(env, sourceImageId, viewer.id);
-    } else {
-      try {
-        copiedImage = sanitizeHttpUrl(sourceImage, "image");
-      } catch {
-        copiedImage = "";
-      }
+export function directoryKey(userId) {
+  return `directory:${userId}`;
+}
+
+function usernameKey(username) {
+  return `username:${username}`;
+}
+
+function subscriptionsKey(viewerId) {
+  return `subscriptions:${viewerId}`;
+}
+
+function subscribersKey(ownerId) {
+  return `subscribers:${ownerId}`;
+}
+
+export function groupsKey(ownerId) {
+  return `groups:${ownerId}`;
+}
+
+function selectionKey(requestId) {
+  return `selection:${requestId}`;
+}
+
+function normalizeIdList(values, maxItems = MAX_SOCIAL_ITEMS) {
+  if (!Array.isArray(values)) return [];
+  const unique = [];
+  for (const value of values) {
+    const num = Number(value);
+    if (!Number.isSafeInteger(num) || num <= 0) continue;
+    if (!unique.includes(num)) unique.push(num);
+    if (unique.length >= maxItems) break;
+  }
+  return unique;
+}
+
+async function loadProfile(env, userId) {
+  const id = parseId(userId, "user_id");
+  const entry = await env.DB.get(directoryKey(id), "json");
+  if (entry && typeof entry === "object") {
+    return {
+      id,
+      first_name: cleanPlainText(entry.first_name, 64) || "Пользователь",
+      username: entry.username ? normalizeUsername(entry.username, false) : ""
+    };
+  }
+  const wishlist = await env.DB.get(`user:${id}`, "json");
+  if (wishlist?.owner) {
+    return {
+      id,
+      first_name: cleanPlainText(wishlist.owner.first_name, 64) || "Пользователь",
+      username: wishlist.owner.username ? normalizeUsername(wishlist.owner.username, false) : ""
+    };
+  }
+  return { id, first_name: "Пользователь", username: "" };
+}
+
+async function loadProfiles(env, userIds) {
+  const ids = normalizeIdList(userIds);
+  return await Promise.all(ids.map(id => loadProfile(env, id)));
+}
+
+async function upsertUserDirectory(env, user) {
+  if (!user || !Number.isSafeInteger(user.id) || user.id <= 0) return null;
+  const id = user.id;
+  const previous = await env.DB.get(directoryKey(id), "json");
+  const firstName = cleanPlainText(user.first_name, 64)
+    || cleanPlainText(previous?.first_name, 64)
+    || "Пользователь";
+  const username = user.username !== undefined
+    ? normalizeUsername(user.username, false)
+    : (previous?.username ? normalizeUsername(previous.username, false) : "");
+
+  if (previous?.username && previous.username !== username) {
+    const oldMapped = await env.DB.get(usernameKey(previous.username));
+    if (Number(oldMapped) === id) {
+      await env.DB.delete(usernameKey(previous.username));
     }
   }
 
-  const desire = sanitizeDesire(sourceGift.desire, sourceGift.priority);
-  const isCrowdfund = Boolean(sourceGift.is_crowdfund);
-  const isReusable = !isCrowdfund && Boolean(sourceGift.is_reusable);
-  const copiedGift = {
-    id: createGiftId(),
-    title: cleanPlainText(sourceGift.title, 120) || "Подарок",
-    link: sourceGift.link || "",
-    image: copiedImage,
-    price: sourceGift.price ?? null,
-    category: cleanPlainText(sourceGift.category || "Разное", 40) || "Разное",
-    comment: cleanPlainText(sourceGift.comment || "", 300),
-    desire,
-    tags: Array.isArray(sourceGift.tags) ? [...sourceGift.tags] : [],
-    group_ids: [],
-    occasion_ids: [],
-    priority: desire === "high",
-    is_crowdfund: isCrowdfund,
+  const profile = {
+    id,
+    first_name: firstName,
+    username,
+    updatedAt: new Date().toISOString()
+  };
+  await env.DB.put(directoryKey(id), JSON.stringify(profile));
+  if (username) {
+    await env.DB.put(usernameKey(username), String(id));
+  }
+
+  const wishlist = await env.DB.get(`user:${id}`, "json");
+  if (wishlist && typeof wishlist === "object") {
+    const nextOwner = {
+      id,
+      first_name: firstName,
+      username
+    };
+    if (
+      wishlist.owner?.first_name !== nextOwner.first_name ||
+      (wishlist.owner?.username || "") !== nextOwner.username
+    ) {
+      wishlist.owner = nextOwner;
+      await saveWishlist(env, id, wishlist);
+    }
+  }
+
+  return profile;
+}
+
+async function resolveUserByUsername(env, rawUsername) {
+  const username = normalizeUsername(rawUsername, true);
+  const directId = Number(await env.DB.get(usernameKey(username)));
+  if (Number.isSafeInteger(directId) && directId > 0) {
+    const profile = await loadProfile(env, directId);
+    if (!profile.username || profile.username === username) {
+      return { ...profile, username };
+    }
+  }
+  return null;
+}
+
+async function loadSubscriptions(env, viewerId) {
+  return normalizeIdList(await env.DB.get(subscriptionsKey(viewerId), "json"));
+}
+
+async function loadSubscribers(env, ownerId) {
+  return normalizeIdList(await env.DB.get(subscribersKey(ownerId), "json"), MAX_NEW_GIFT_NOTIFICATIONS * 4);
+}
+
+async function addSubscriber(env, viewerId, ownerId) {
+  if (viewerId === ownerId) {
+    throw new ApiError(400, "Cannot subscribe to your own wishlist");
+  }
+  const current = await loadSubscriptions(env, viewerId);
+  if (!current.includes(ownerId)) {
+    if (current.length >= MAX_SOCIAL_ITEMS) {
+      throw new ApiError(400, `Maximum ${MAX_SOCIAL_ITEMS} subscriptions allowed`);
+    }
+    current.unshift(ownerId);
+    await env.DB.put(subscriptionsKey(viewerId), JSON.stringify(current));
+  }
+
+  const subscribers = await loadSubscribers(env, ownerId);
+  if (!subscribers.includes(viewerId)) {
+    subscribers.unshift(viewerId);
+    await env.DB.put(subscribersKey(ownerId), JSON.stringify(subscribers));
+  }
+}
+
+export async function removeSubscriber(env, viewerId, ownerId) {
+  const current = await loadSubscriptions(env, viewerId);
+  const next = current.filter(id => id !== ownerId);
+  if (next.length !== current.length) {
+    await env.DB.put(subscriptionsKey(viewerId), JSON.stringify(next));
+  }
+
+  const subscribers = await loadSubscribers(env, ownerId);
+  const nextSubscribers = subscribers.filter(id => id !== viewerId);
+  if (nextSubscribers.length !== subscribers.length) {
+    await env.DB.put(subscribersKey(ownerId), JSON.stringify(nextSubscribers));
+  }
+}
+
+// ==========================================================================
+// 4. КАСТОМНЫЕ ГРУППЫ ДОСТУПА И ПРАВА ВИДИМОСТИ
+// ==========================================================================
+function buildDefaultGroups() {
+  return DEFAULT_GROUPS.map(group => ({
+    id: group.id,
+    name: group.name,
+    memberIds: []
+  }));
+}
+
+export async function loadGroups(env, ownerId) {
+  const raw = await env.DB.get(groupsKey(ownerId), "json");
+
+  if (raw && typeof raw === "object" && Array.isArray(raw.items)) {
+    const items = [];
+    const seenIds = new Set();
+    for (const item of raw.items) {
+      const id = normalizeGroupId(item?.id);
+      if (!id || seenIds.has(id)) continue;
+      const name = cleanPlainText(item?.name, 32) || LEGACY_GROUP_NAMES[id] || id;
+      seenIds.add(id);
+      items.push({
+        id,
+        name,
+        memberIds: normalizeIdList(item?.memberIds)
+      });
+      if (items.length >= MAX_GROUPS) break;
+    }
+    return items;
+  }
+
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return DEFAULT_GROUPS.map(group => ({
+      id: group.id,
+      name: group.name,
+      memberIds: normalizeIdList(raw[group.id])
+    }));
+  }
+
+  return buildDefaultGroups();
+}
+
+export async function saveGroups(env, ownerId, items) {
+  const normalized = [];
+  const seenIds = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    const id = normalizeGroupId(item?.id);
+    if (!id || seenIds.has(id)) continue;
+    const name = sanitizeGroupName(item?.name || LEGACY_GROUP_NAMES[id] || id);
+    seenIds.add(id);
+    normalized.push({
+      id,
+      name,
+      memberIds: normalizeIdList(item?.memberIds)
+    });
+    if (normalized.length >= MAX_GROUPS) break;
+  }
+  await env.DB.put(groupsKey(ownerId), JSON.stringify({ items: normalized }));
+  return normalized;
+}
+
+export function getGroup(groups, groupId) {
+  const id = normalizeGroupId(groupId);
+  if (!id) {
+    throw new ApiError(400, "Invalid group");
+  }
+  const found = groups.find(group => group.id === id);
+  if (!found) {
+    throw new ApiError(404, "Group not found");
+  }
+  return found;
+}
+
+export async function buildSocialPayload(env, viewerId) {
+  const [subscriptionIds, groups] = await Promise.all([
+    loadSubscriptions(env, viewerId),
+    loadGroups(env, viewerId)
+  ]);
+  const subscriptions = await loadProfiles(env, subscriptionIds);
+  const serializedGroups = await Promise.all(
+    groups.map(async group => ({
+      id: group.id,
+      name: group.name,
+      members: await loadProfiles(env, group.memberIds)
+    }))
+  );
+
+  return {
+    subscriptions,
+    groups: serializedGroups
+  };
+}
+
+export async function requestTelegramUserSelection(env, viewerId, { purpose, groupId = "" }) {
+  if (!env.BOT_TOKEN) {
+    throw new ApiError(500, "BOT_TOKEN is not configured");
+  }
+  const requestId = createShortId("sel");
+  const numericRequestId = Number(BigInt(`0x${requestId.slice(4, 11)}`) % 2000000000n) + 1;
+
+  await env.DB.put(selectionKey(requestId), JSON.stringify({
+    viewerId,
+    numericRequestId,
+    purpose,
+    groupId,
+    createdAt: new Date().toISOString()
+  }), { expirationTtl: SELECTION_TTL_SEC });
+
+  const promptText = purpose === "group"
+    ? "Этот @username ещё не открывал приложение. Выберите человека кнопкой ниже, чтобы добавить его в группу:"
+    : "Этот @username ещё не открывал приложение. Выберите человека кнопкой ниже, чтобы подписаться на его вишлист:";
+
+  await sendTelegramBotMessage(env, viewerId, promptText, {
+    keyboard: [[{
+      text: "👤 Выбрать человека в Telegram",
+      request_users: {
+        request_id: numericRequestId,
+        user_is_bot: false,
+        max_quantity: 1,
+        request_name: true,
+        request_username: true
+      }
+    }]],
+    resize_keyboard: true,
+    one_time_keyboard: true
+  });
+
+  const botUsername = await getBotUsername(env);
+  return {
+    status: "selection_required",
+    requestId,
+    botUsername
+  };
+}
+
+export function collectGiftViewerIds(gift) {
+  const ids = new Set();
+  if (Number.isSafeInteger(gift.booked_by) && gift.booked_by > 0) ids.add(gift.booked_by);
+  if (Array.isArray(gift.participants)) {
+    for (const id of gift.participants) {
+      if (Number.isSafeInteger(id) && id > 0) ids.add(id);
+    }
+  }
+  if (Array.isArray(gift.reusable_givers)) {
+    for (const id of gift.reusable_givers) {
+      if (Number.isSafeInteger(id) && id > 0) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+export function canViewerAccessGift(gift, ownerId, viewerId, groups) {
+  if (viewerId === ownerId) return true;
+  const groupIds = sanitizeGiftGroupIds(gift.group_ids);
+  if (groupIds.length === 0) return true;
+  if (!Number.isSafeInteger(viewerId) || viewerId <= 0) return false;
+  return groupIds.some(groupId => {
+    const group = groups.find(item => item.id === groupId);
+    return Array.isArray(group?.memberIds) && group.memberIds.includes(viewerId);
+  });
+}
+
+export function assertGiftVisible(gift, ownerId, viewerId, groups) {
+  if (!canViewerAccessGift(gift, ownerId, viewerId, groups)) {
+    throw new ApiError(404, "Gift not found");
+  }
+}
+
+export async function cleanupGiftAudience(env, ownerId, gift, groups, ctx) {
+  const affectedUsers = [];
+  if (Number.isSafeInteger(gift.booked_by) && gift.booked_by > 0) {
+    if (!canViewerAccessGift(gift, ownerId, gift.booked_by, groups)) {
+      affectedUsers.push({ userId: gift.booked_by, type: "book" });
+      gift.booked_by = null;
+    }
+  }
+  if (Array.isArray(gift.participants)) {
+    gift.participants = gift.participants.filter(participantId => {
+      const keep = canViewerAccessGift(gift, ownerId, participantId, groups);
+      if (!keep) affectedUsers.push({ userId: participantId, type: "crowdfund" });
+      return keep;
+    });
+  }
+  if (Array.isArray(gift.reusable_givers)) {
+    gift.reusable_givers = gift.reusable_givers.filter(giverId => {
+      const keep = canViewerAccessGift(gift, ownerId, giverId, groups);
+      if (!keep) affectedUsers.push({ userId: giverId, type: "reusable" });
+      return keep;
+    });
+  }
+
+  for (const item of affectedUsers) {
+    await syncWishlistParticipation(env, item.userId, ownerId, gift, null);
+    dispatchBackground(ctx, notifyGuestAboutGiftChange(env, item.userId, ownerId, gift, {
+      reason: "access_revoked",
+      participationType: item.type
+    }));
+  }
+}
+
+export async function cleanupRecordAudience(env, ownerId, record, groups, ctx) {
+  let changed = false;
+  for (const gift of record.gifts) {
+    const beforeBook = gift.booked_by;
+    const beforeParticipants = Array.isArray(gift.participants) ? gift.participants.length : 0;
+    const beforeReusable = Array.isArray(gift.reusable_givers) ? gift.reusable_givers.length : 0;
+    await cleanupGiftAudience(env, ownerId, gift, groups, ctx);
+    if (
+      gift.booked_by !== beforeBook ||
+      (Array.isArray(gift.participants) ? gift.participants.length : 0) !== beforeParticipants ||
+      (Array.isArray(gift.reusable_givers) ? gift.reusable_givers.length : 0) !== beforeReusable
+    ) {
+      changed = true;
+    }
+  }
+  if (changed) {
+    await saveWishlist(env, ownerId, record);
+  }
+}
+
+// ==========================================================================
+// 5. УВЕДОМЛЕНИЯ В TELEGRAM И НАСТРОЙКИ УВЕДОМЛЕНИЙ
+// ==========================================================================
+function notifyPrefsKey(userId) {
+  return `notify_prefs:${userId}`;
+}
+
+export async function loadNotificationPrefs(env, userId) {
+  const id = parseId(userId, "user_id");
+  const raw = await env.DB.get(notifyPrefsKey(id), "json");
+  return {
+    bookings: raw?.bookings !== false,
+    new_gifts: raw?.new_gifts !== false
+  };
+}
+
+export async function saveNotificationPrefs(env, userId, prefs) {
+  const id = parseId(userId, "user_id");
+  const current = await loadNotificationPrefs(env, id);
+  const next = {
+    bookings: prefs.bookings !== undefined ? Boolean(prefs.bookings) : current.bookings,
+    new_gifts: prefs.new_gifts !== undefined ? Boolean(prefs.new_gifts) : current.new_gifts
+  };
+  await env.DB.put(notifyPrefsKey(id), JSON.stringify(next));
+  return next;
+}
+
+function buildNotificationsKeyboard(prefs) {
+  return {
+    inline_keyboard: [
+      [{
+        text: `${prefs.bookings ? "✅" : "🔕"} Изменения по броням и сборам`,
+        callback_data: "notif_toggle:bookings"
+      }],
+      [{
+        text: `${prefs.new_gifts ? "✅" : "🔕"} Новые желания в подписках`,
+        callback_data: "notif_toggle:new_gifts"
+      }]
+    ]
+  };
+}
+
+function formatNotificationsSettingsText(prefs) {
+  return [
+    "Настройки уведомлений вишлиста:",
+    "",
+    `• Изменения по броням и сборам: ${prefs.bookings ? "включены" : "выключены"}`,
+    `• Новые желания в подписках: ${prefs.new_gifts ? "включены" : "выключены"}`,
+    "",
+    "Нажмите на кнопку ниже, чтобы переключить:"
+  ].join("\n");
+}
+
+function buildMiniAppButton(env, startParamValue, label = "Открыть вишлист") {
+  const baseUrl = String(env.WEBAPP_URL || "").trim();
+  if (!baseUrl) return undefined;
+  try {
+    const url = new URL(baseUrl);
+    if (startParamValue) {
+      url.searchParams.set("tgWebAppStartParam", startParamValue);
+    }
+    return {
+      inline_keyboard: [[{ text: label, web_app: { url: url.toString() } }]]
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function callTelegramApi(env, method, payload) {
+  if (!env.BOT_TOKEN) return null;
+  const tgUrl = ["https://api.", "telegram.org/bot", env.BOT_TOKEN, "/", method].join("");
+  try {
+    const response = await fetch(tgUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) {
+      console.warn(`Telegram API ${method} failed:`, response.status, data?.description || "");
+      return null;
+    }
+    return data;
+  } catch (error) {
+    console.warn(`Telegram API ${method} network error:`, error?.message || error);
+    return null;
+  }
+}
+
+async function sendTelegramBotMessage(env, chatId, text, replyMarkup) {
+  const payload = {
+    chat_id: chatId,
+    text
+  };
+  if (replyMarkup) {
+    payload.reply_markup = replyMarkup;
+  }
+  return await callTelegramApi(env, "sendMessage", payload);
+}
+
+function formatOwnerLabel(ownerProfile) {
+  const firstName = cleanPlainText(ownerProfile?.first_name, 64);
+  const username = ownerProfile?.username ? `@${ownerProfile.username}` : "";
+  if (firstName && firstName !== "Пользователь" && username) {
+    return `${firstName} (${username})`;
+  }
+  if (firstName && firstName !== "Пользователь") return firstName;
+  if (username) return username;
+  return "владельца вишлиста";
+}
+
+function formatParticipationType(type) {
+  if (type === "crowdfund") return "совместном сборе";
+  if (type === "reusable") return "многоразовом подарке";
+  return "бронировании подарка";
+}
+
+export async function notifyGuestAboutGiftChange(env, guestId, ownerId, gift, options = {}) {
+  if (!env.BOT_TOKEN || !guestId || guestId === ownerId) return;
+  const prefs = await loadNotificationPrefs(env, guestId);
+  if (!prefs.bookings) return;
+
+  const ownerProfile = await loadProfile(env, ownerId);
+  const ownerLabel = formatOwnerLabel(ownerProfile);
+  const giftTitle = cleanPlainText(gift?.title, 120) || "Подарок";
+  const reason = options.reason || "updated";
+
+  let text = "";
+  if (reason === "deleted") {
+    text = `В вишлисте ${ownerLabel} удалён подарок «${giftTitle}», в котором вы участвовали. Отметка участия снята.`;
+  } else if (reason === "gifted") {
+    text = `В вишлисте ${ownerLabel} подарок «${giftTitle}» отмечен как уже подаренный.`;
+  } else if (reason === "format_changed") {
+    text = `В вишлисте ${ownerLabel} изменился формат подарка «${giftTitle}» (${options.detail || "обновлены условия участия"}). Проверьте актуальный статус в приложении.`;
+  } else if (reason === "access_revoked") {
+    text = `Изменились настройки видимости вишлиста ${ownerLabel}: ваше участие в ${formatParticipationType(options.participationType)} «${giftTitle}» автоматически отменено.`;
+  } else {
+    const changes = Array.isArray(options.changes) && options.changes.length
+      ? ` (${options.changes.join(", ")})`
+      : "";
+    text = `В вишлисте ${ownerLabel} обновились детали подарка «${giftTitle}»${changes}.`;
+  }
+
+  const replyMarkup = buildMiniAppButton(env, `list_${ownerId}`, "Открыть вишлист");
+  await sendTelegramBotMessage(env, guestId, text, replyMarkup);
+}
+
+export async function notifyGuestsBatch(env, notifications) {
+  if (!Array.isArray(notifications) || notifications.length === 0) return;
+
+  // Группируем множественные отмены при исключении из группы в одно сообщение на получателя
+  const revokedByGuest = new Map();
+  const directItems = [];
+
+  for (const item of notifications) {
+    if (item.reason === "access_revoked" && item.groupBatch) {
+      const key = `${item.guestId}:${item.ownerId}`;
+      if (!revokedByGuest.has(key)) revokedByGuest.set(key, []);
+      revokedByGuest.get(key).push(item);
+    } else {
+      directItems.push(item);
+    }
+  }
+
+  const tasks = [];
+  for (const item of directItems) {
+    tasks.push(() => notifyGuestAboutGiftChange(env, item.guestId, item.ownerId, item.gift, item));
+  }
+
+  for (const items of revokedByGuest.values()) {
+    if (items.length === 1) {
+      const single = items[0];
+      tasks.push(() => notifyGuestAboutGiftChange(env, single.guestId, single.ownerId, single.gift, single));
+    } else {
+      const first = items[0];
+      tasks.push(async () => {
+        const prefs = await loadNotificationPrefs(env, first.guestId);
+        if (!prefs.bookings) return;
+        const ownerProfile = await loadProfile(env, first.ownerId);
+        const ownerLabel = formatOwnerLabel(ownerProfile);
+        const titles = items.map(i => `«${cleanPlainText(i.gift?.title, 80) || "Подарок"}»`).join(", ");
+        const text = `Изменились настройки видимости вишлиста ${ownerLabel}: автоматически отменено участие по подаркам: ${titles}.`;
+        const replyMarkup = buildMiniAppButton(env, `list_${first.ownerId}`, "Открыть вишлист");
+        await sendTelegramBotMessage(env, first.guestId, text, replyMarkup);
+      });
+    }
+  }
+
+  for (let i = 0; i < tasks.length; i += NOTIFICATION_BATCH_SIZE) {
+    const slice = tasks.slice(i, i + NOTIFICATION_BATCH_SIZE);
+    await Promise.allSettled(slice.map(fn => fn()));
+  }
+}
+
+export async function notifySubscribersAboutNewGift(env, ownerId, gift, groups) {
+  if (!env.BOT_TOKEN) return;
+  const subscriberIds = await loadSubscribers(env, ownerId);
+  if (subscriberIds.length === 0) return;
+
+  const visibleSubscribers = subscriberIds.filter(
+    subId => subId !== ownerId && canViewerAccessGift(gift, ownerId, subId, groups)
+  );
+  if (visibleSubscribers.length === 0) return;
+
+  const ownerProfile = await loadProfile(env, ownerId);
+  const ownerLabel = formatOwnerLabel(ownerProfile);
+  const giftTitle = cleanPlainText(gift?.title, 120) || "Новый подарок";
+  const priceLine = gift?.price !== null && gift?.price !== undefined && Number(gift.price) > 0
+    ? ` — ${new Intl.NumberFormat("ru-RU").format(Number(gift.price))} ₽`
+    : "";
+  const text = `В вишлисте ${ownerLabel} появилось новое желание: «${giftTitle}»${priceLine}.`;
+  const replyMarkup = buildMiniAppButton(env, `list_${ownerId}`, "Посмотреть в вишлисте");
+
+  const targets = visibleSubscribers.slice(0, MAX_NEW_GIFT_NOTIFICATIONS);
+  for (let i = 0; i < targets.length; i += NOTIFICATION_BATCH_SIZE) {
+    const batch = targets.slice(i, i + NOTIFICATION_BATCH_SIZE);
+    await Promise.allSettled(
+      batch.map(async subscriberId => {
+        const prefs = await loadNotificationPrefs(env, subscriberId);
+        if (!prefs.new_gifts) return;
+        await sendTelegramBotMessage(env, subscriberId, text, replyMarkup);
+      })
+    );
+  }
+}
+
+// ==========================================================================
+// 6. УЧАСТИЕ В ПОДАРКАХ ДРУЗЕЙ И СЕРИАЛИЗАЦИЯ
+// ==========================================================================
+function participationsKey(viewerId) {
+  return `participations:${viewerId}`;
+}
+
+export async function syncWishlistParticipation(env, viewerId, ownerId, gift, type) {
+  const id = parseId(viewerId, "viewer_id");
+  const key = participationsKey(id);
+  const raw = await env.DB.get(key, "json");
+  const items = Array.isArray(raw?.items) ? raw.items : [];
+  const giftId = String(gift.id);
+  const filtered = items.filter(
+    item => !(Number(item.ownerId) === ownerId && String(item.giftId) === giftId)
+  );
+
+  if (type) {
+    filtered.unshift({
+      ownerId,
+      giftId: gift.id,
+      type,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  await env.DB.put(key, JSON.stringify({ items: filtered.slice(0, 200) }));
+}
+
+export async function handleParticipationsGet(env, viewer) {
+  const key = participationsKey(viewer.id);
+  const raw = await env.DB.get(key, "json");
+  const stored = Array.isArray(raw?.items) ? raw.items : [];
+  const byOwner = new Map();
+
+  for (const item of stored) {
+    const ownerId = Number(item.ownerId);
+    if (!Number.isSafeInteger(ownerId) || ownerId <= 0) continue;
+    if (!byOwner.has(ownerId)) byOwner.set(ownerId, []);
+    byOwner.get(ownerId).push(item);
+  }
+
+  const activeItems = [];
+  const cleanedIndex = [];
+
+  for (const [ownerId, ownerEntries] of byOwner.entries()) {
+    const [record, groups] = await Promise.all([
+      loadWishlist(env, ownerId),
+      loadGroups(env, ownerId)
+    ]);
+    for (const entry of ownerEntries) {
+      const idx = findGiftIndex(record.gifts, entry.giftId);
+      if (idx === -1) continue;
+      const gift = record.gifts[idx];
+      if (!canViewerAccessGift(gift, ownerId, viewer.id, groups)) continue;
+
+      let type = null;
+      if (gift.is_reusable && Array.isArray(gift.reusable_givers) && gift.reusable_givers.includes(viewer.id)) {
+        type = "reusable";
+      } else if (gift.is_crowdfund && Array.isArray(gift.participants) && gift.participants.includes(viewer.id)) {
+        type = "crowdfund";
+      } else if (!gift.is_crowdfund && !gift.is_reusable && gift.booked_by === viewer.id) {
+        type = "book";
+      }
+
+      if (!type) continue;
+      cleanedIndex.push({
+        ownerId,
+        giftId: gift.id,
+        type,
+        updatedAt: entry.updatedAt || new Date().toISOString()
+      });
+      activeItems.push({
+        type,
+        updatedAt: entry.updatedAt || new Date().toISOString(),
+        owner: {
+          id: ownerId,
+          first_name: record.owner.first_name,
+          username: record.owner.username || ""
+        },
+        gift: serializeGiftForViewer(gift, ownerId, viewer.id)
+      });
+    }
+  }
+
+  if (cleanedIndex.length !== stored.length) {
+    await env.DB.put(key, JSON.stringify({ items: cleanedIndex }));
+  }
+
+  return json({ items: activeItems });
+}
+
+function serializeGiftForViewer(gift, ownerId, viewerId) {
+  const isOwner = viewerId === ownerId;
+  const participants = Array.isArray(gift.participants) ? gift.participants : [];
+  const reusableGivers = Array.isArray(gift.reusable_givers) ? gift.reusable_givers : [];
+  const isReusable = Boolean(gift.is_reusable) && !gift.is_crowdfund;
+  const bookedBy = isOwner
+    ? (gift.booked_by ? -1 : null)
+    : gift.booked_by === viewerId
+      ? viewerId
+      : gift.booked_by
+        ? -1
+        : null;
+
+  const serializedParticipants = isOwner
+    ? participants.map(() => -1)
+    : participants.map(id => (id === viewerId ? viewerId : -1));
+
+  const serializedReusableGivers = isOwner
+    ? reusableGivers.map(() => -1)
+    : reusableGivers.map(id => (id === viewerId ? viewerId : -1));
+
+  const serialized = {
+    id: gift.id,
+    title: gift.title,
+    link: gift.link || "",
+    image: gift.image || "",
+    price: gift.price ?? null,
+    category: gift.category || "",
+    comment: gift.comment || "",
+    priority: Boolean(gift.priority),
+    desire: sanitizeDesire(gift.desire, Boolean(gift.priority)),
+    tags: sanitizeTags(gift.tags),
+    occasion_ids: sanitizeGiftOccasionIds(gift.occasion_ids),
+    is_crowdfund: Boolean(gift.is_crowdfund),
     is_reusable: isReusable,
-    booked_by: null,
-    participants: [],
-    reusable_givers: [],
-    is_gifted: false
+    booked_by: bookedBy,
+    participants: serializedParticipants,
+    reusable_givers: serializedReusableGivers,
+    reusableCount: isReusable ? reusableGivers.length : 0,
+    is_gifted: Boolean(gift.is_gifted)
   };
 
-  const viewerRecord = await loadWishlist(env, viewer.id, viewer);
-  viewerRecord.gifts.unshift(copiedGift);
-  viewerRecord.owner = {
-    ...viewerRecord.owner,
-    id: viewer.id,
-    first_name: viewer.first_name,
-    username: viewer.username || viewerRecord.owner.username || ""
+  if (isOwner) {
+    serialized.group_ids = sanitizeGiftGroupIds(gift.group_ids);
+  }
+
+  return serialized;
+}
+
+export function serializeWishlist(record, ownerId, viewerId, { groups = [], isSubscribed = false } = {}) {
+  const isOwner = viewerId === ownerId;
+  const visibleGifts = record.gifts.filter(gift => canViewerAccessGift(gift, ownerId, viewerId, groups));
+  const allowedOccasionIds = new Set(record.occasions.map(item => item.id));
+
+  const normalizedVisibleGifts = visibleGifts.map(gift => ({
+    ...gift,
+    occasion_ids: sanitizeGiftOccasionIds(gift.occasion_ids, allowedOccasionIds)
+  }));
+
+  const visibleOccasions = isOwner
+    ? record.occasions
+    : record.occasions.filter(occ =>
+        normalizedVisibleGifts.some(gift => gift.occasion_ids.includes(occ.id))
+      );
+
+  const payload = {
+    owner: {
+      id: ownerId,
+      first_name: record.owner.first_name,
+      username: record.owner.username || ""
+    },
+    occasions: visibleOccasions,
+    gifts: normalizedVisibleGifts.map(gift => serializeGiftForViewer(gift, ownerId, viewerId))
   };
-  await saveWishlist(env, viewer.id, viewerRecord);
-  return json({ ok: true, gift: copiedGift }, 201);
+
+  if (isOwner) {
+    payload.groups = groups.map(group => ({
+      id: group.id,
+      name: group.name,
+      memberIds: group.memberIds
+    }));
+  } else {
+    payload.is_subscribed = Boolean(isSubscribed);
+  }
+
+  return payload;
+}
+
+// ==========================================================================
+// 7. ОБРАБОТЧИКИ HTTP API И TELEGRAM WEBHOOK
+// ==========================================================================
+async function getBotUsername(env) {
+  const cached = await env.DB.get("config:bot", "json");
+  if (cached?.username) return cached.username;
+
+  if (!env.BOT_TOKEN) return "";
+  const data = await callTelegramApi(env, "getMe", {});
+  const username = data?.result?.username || "";
+  if (username) {
+    await env.DB.put("config:bot", JSON.stringify({ username }), { expirationTtl: 3600 });
+  }
+  return username;
+}
+
+async function handleImageUpload(request, env, viewer) {
+  const formData = await request.formData();
+  const file = formData.get("file");
+  if (!file || typeof file.arrayBuffer !== "function") {
+    throw new ApiError(400, "Missing image file");
+  }
+
+  const contentType = String(file.type || "").toLowerCase();
+  if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
+    throw new ApiError(415, "Only WebP and JPEG images are supported");
+  }
+
+  const buffer = await file.arrayBuffer();
+  if (buffer.byteLength === 0 || buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new ApiError(413, "Image must be between 1 byte and 512 KB");
+  }
+
+  const imageId = crypto.randomUUID().replaceAll("-", "");
+  await env.DB.put(`img:${imageId}`, buffer, {
+    metadata: {
+      ownerId: viewer.id,
+      contentType,
+      uploadedAt: new Date().toISOString()
+    }
+  });
+
+  return json({ url: `/api/img/${imageId}` }, 201);
+}
+
+async function handleImageGet(env, viewer, imageId) {
+  if (!/^[a-z0-9_-]{8,64}$/i.test(imageId)) {
+    throw new ApiError(400, "Invalid image ID");
+  }
+  const { value, metadata } = await env.DB.getWithMetadata(`img:${imageId}`, "arrayBuffer");
+  if (!value) {
+    throw new ApiError(404, "Image not found");
+  }
+
+  const ownerId = Number(metadata?.ownerId);
+  if (Number.isSafeInteger(ownerId) && ownerId > 0 && ownerId !== viewer.id) {
+    const [record, groups] = await Promise.all([
+      loadWishlist(env, ownerId),
+      loadGroups(env, ownerId)
+    ]);
+    const imagePath = `/api/img/${imageId}`;
+    const hasAccess = record.gifts.some(
+      gift => gift.image === imagePath && canViewerAccessGift(gift, ownerId, viewer.id, groups)
+    );
+    if (!hasAccess) {
+      throw new ApiError(404, "Image not found");
+    }
+  }
+
+  return new Response(value, {
+    status: 200,
+    headers: {
+      "Content-Type": metadata?.contentType || "image/webp",
+      "Cache-Control": "private, max-age=3600"
+    }
+  });
+}
+
+async function handleGiftsGet(env, viewer, url) {
+  const ownerParam = url.searchParams.get("owner_id");
+  const ownerId = ownerParam ? parseId(ownerParam, "owner_id") : viewer.id;
+  const [record, groups, subscriptions] = await Promise.all([
+    loadWishlist(env, ownerId),
+    loadGroups(env, ownerId),
+    ownerId === viewer.id ? Promise.resolve([]) : loadSubscriptions(env, viewer.id)
+  ]);
+
+  if (ownerId === viewer.id) {
+    record.owner = {
+      id: viewer.id,
+      first_name: viewer.first_name,
+      username: viewer.username || record.owner.username || ""
+    };
+  }
+
+  return json(
+    serializeWishlist(record, ownerId, viewer.id, {
+      groups,
+      isSubscribed: subscriptions.includes(ownerId)
+    })
+  );
 }
 
 async function handleGiftsPost(request, env, viewer, ctx) {
-  assertContentLength(request, MAX_JSON_BYTES);
-  let body;
-  try {
-    const rawBody = await request.text();
-    if (new TextEncoder().encode(rawBody).byteLength > MAX_JSON_BYTES) {
-      throw new HttpError(413, "Request body is too large");
-    }
-    body = JSON.parse(rawBody);
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    throw new HttpError(400, "Invalid JSON body");
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    throw new ApiError(400, "Invalid JSON payload");
   }
 
-  const ownerId = parseId(body?.owner_id || viewer.id, "owner_id");
-  const action = String(body?.action || "");
-  const payload = body?.payload && typeof body.payload === "object" ? body.payload : {};
-  const isOwner = viewer.id === ownerId;
-
-  if (action === "copy_gift") {
-    if (isOwner) throw new HttpError(400, "You cannot copy your own gift");
-    return await handleCopyGift(env, ownerId, viewer, payload);
-  }
+  const action = String(body.action || "");
+  const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+  const ownerId = body.owner_id ? parseId(body.owner_id, "owner_id") : viewer.id;
+  const isOwner = ownerId === viewer.id;
 
   const ownerActions = new Set([
     "add",
@@ -409,695 +1300,459 @@ async function handleGiftsPost(request, env, viewer, ctx) {
     "save_occasion",
     "delete_occasion"
   ]);
-  const guestActions = new Set(["toggle_book", "toggle_crowdfund"]);
+  const guestActions = new Set(["toggle_book", "toggle_crowdfund", "copy_gift"]);
 
   if (ownerActions.has(action) && !isOwner) {
-    throw new HttpError(403, "Only the wishlist owner can do this");
+    throw new ApiError(403, "Only the wishlist owner can modify gifts");
   }
   if (guestActions.has(action) && isOwner) {
-    throw new HttpError(403, "The owner cannot book their own gift");
+    throw new ApiError(403, "Owner cannot book or copy own gifts");
   }
   if (!ownerActions.has(action) && !guestActions.has(action)) {
-    throw new HttpError(400, "Unknown action");
+    throw new ApiError(400, "Unsupported action");
   }
 
-  const record = await loadWishlist(env, ownerId, viewer);
-  const groups = await loadGroups(env, ownerId);
-  const affectedViewerIds = new Set();
-  const notifications = [];
-  let imageToDelete = "";
-  let addedGift = null;
+  const [record, groups] = await Promise.all([
+    loadWishlist(env, ownerId),
+    loadGroups(env, ownerId)
+  ]);
+  const allowedGroupIds = new Set(groups.map(group => group.id));
+  const allowedOccasionIds = new Set(record.occasions.map(item => item.id));
 
-  if (action === "save_occasion") {
-    const rawId = String(payload.id || "").trim();
-    const title = sanitizeOccasionTitle(payload.title, record.occasions, rawId);
-    if (rawId) {
-      const existing = record.occasions.find(item => item.id === rawId);
-      if (!existing) throw new HttpError(404, "Occasion not found");
-      existing.title = title;
-    } else {
-      if (record.occasions.length >= MAX_OCCASIONS) {
-        throw new HttpError(409, "Occasions limit reached");
-      }
-      const id = createShortId("occ", record.occasions.map(item => item.id));
-      record.occasions.push({ id, title });
-    }
+  if (isOwner) {
     record.owner = {
-      ...record.owner,
-      id: ownerId,
+      id: viewer.id,
       first_name: viewer.first_name,
       username: viewer.username || record.owner.username || ""
     };
+  }
+
+  // --- Действия владельца ---
+  if (action === "save_occasion") {
+    const title = sanitizeOccasionTitle(payload.title);
+    const requestedId = normalizeOccasionId(payload.id);
+    const titleKey = title.toLocaleLowerCase("ru-RU");
+
+    if (requestedId) {
+      const existing = record.occasions.find(item => item.id === requestedId);
+      if (!existing) {
+        throw new ApiError(404, "Occasion not found");
+      }
+      const duplicate = record.occasions.find(
+        item => item.id !== requestedId && item.title.toLocaleLowerCase("ru-RU") === titleKey
+      );
+      if (duplicate) {
+        throw new ApiError(400, "Occasion with this title already exists");
+      }
+      existing.title = title;
+      await saveWishlist(env, ownerId, record);
+      return json({
+        ...serializeWishlist(record, ownerId, viewer.id, { groups }),
+        savedOccasionId: existing.id
+      });
+    }
+
+    const existingByTitle = record.occasions.find(
+      item => item.title.toLocaleLowerCase("ru-RU") === titleKey
+    );
+    if (existingByTitle) {
+      return json({
+        ...serializeWishlist(record, ownerId, viewer.id, { groups }),
+        savedOccasionId: existingByTitle.id
+      });
+    }
+
+    if (record.occasions.length >= MAX_OCCASIONS) {
+      throw new ApiError(400, `Maximum ${MAX_OCCASIONS} occasions allowed`);
+    }
+
+    const newOccasion = {
+      id: createShortId("occ"),
+      title
+    };
+    record.occasions.push(newOccasion);
+    await saveWishlist(env, ownerId, record);
+    return json({
+      ...serializeWishlist(record, ownerId, viewer.id, { groups }),
+      savedOccasionId: newOccasion.id
+    });
   }
 
   if (action === "delete_occasion") {
-    const id = String(payload.id || "").trim();
-    const index = record.occasions.findIndex(item => item.id === id);
-    if (index < 0) throw new HttpError(404, "Occasion not found");
+    const occasionId = normalizeOccasionId(payload.id);
+    if (!occasionId) {
+      throw new ApiError(400, "Invalid occasion ID");
+    }
+    const index = record.occasions.findIndex(item => item.id === occasionId);
+    if (index === -1) {
+      throw new ApiError(404, "Occasion not found");
+    }
     record.occasions.splice(index, 1);
     for (const gift of record.gifts) {
-      if (Array.isArray(gift.occasion_ids)) {
-        gift.occasion_ids = gift.occasion_ids.filter(occId => occId !== id);
-      }
+      gift.occasion_ids = sanitizeGiftOccasionIds(gift.occasion_ids).filter(id => id !== occasionId);
     }
+    await saveWishlist(env, ownerId, record);
+    return json(serializeWishlist(record, ownerId, viewer.id, { groups }));
   }
 
   if (action === "add") {
-    const gift = sanitizeGift(payload, groups, record.occasions);
-    await assertInternalImageOwnership(env, gift.image, viewer.id);
-    gift.id = createGiftId();
-    gift.booked_by = null;
-    gift.participants = [];
-    gift.reusable_givers = [];
-    gift.is_gifted = false;
-    record.gifts.unshift(gift);
-    record.owner = {
-      ...record.owner,
-      id: ownerId,
-      first_name: viewer.first_name,
-      username: viewer.username || record.owner.username || ""
+    const title = cleanPlainText(payload.title, 120);
+    if (!title) {
+      throw new ApiError(400, "Gift title is required");
+    }
+    const image = sanitizeImage(payload.image);
+    await assertInternalImageOwnership(env, ownerId, image);
+    const desire = sanitizeDesire(payload.desire, Boolean(payload.priority));
+    const isCrowdfund = Boolean(payload.is_crowdfund);
+    const isReusable = !isCrowdfund && Boolean(payload.is_reusable);
+
+    const newGift = {
+      id: createGiftId(record.gifts),
+      title,
+      link: sanitizeHttpUrl(payload.link),
+      image,
+      price: sanitizePrice(payload.price),
+      category: cleanPlainText(payload.category, 40),
+      comment: cleanPlainText(payload.comment, 300),
+      priority: desire === "high",
+      desire,
+      tags: sanitizeTags(payload.tags),
+      group_ids: sanitizeGiftGroupIds(payload.group_ids, allowedGroupIds),
+      occasion_ids: sanitizeGiftOccasionIds(payload.occasion_ids, allowedOccasionIds),
+      is_crowdfund: isCrowdfund,
+      is_reusable: isReusable,
+      booked_by: null,
+      participants: [],
+      reusable_givers: [],
+      is_gifted: false
     };
-    addedGift = gift;
+
+    record.gifts.unshift(newGift);
+    await saveWishlist(env, ownerId, record);
+    dispatchBackground(ctx, notifySubscribersAboutNewGift(env, ownerId, newGift, groups));
+    return json(serializeWishlist(record, ownerId, viewer.id, { groups }));
   }
 
   if (action === "update") {
-    const index = findGiftIndex(record.gifts, payload.id);
-    const previous = record.gifts[index];
-    const next = sanitizeGift(payload, groups, record.occasions);
-    await assertInternalImageOwnership(env, next.image, viewer.id);
-    next.id = previous.id;
-    next.is_gifted = Boolean(previous.is_gifted);
-    next.booked_by = previous.booked_by ?? null;
-    next.participants = Array.isArray(previous.participants) ? [...previous.participants] : [];
-    next.reusable_givers = Array.isArray(previous.reusable_givers) ? [...previous.reusable_givers] : [];
+    const idx = findGiftIndex(record.gifts, payload.id);
+    if (idx === -1) throw new ApiError(404, "Gift not found");
 
-    const modeChanged = Boolean(previous.is_crowdfund) !== Boolean(next.is_crowdfund)
-      || Boolean(previous.is_reusable) !== Boolean(next.is_reusable);
-    if (modeChanged) {
-      next.booked_by = null;
-      next.participants = [];
-      next.reusable_givers = [];
-    }
-    if (previous.image !== next.image) imageToDelete = previous.image;
-    collectGiftViewerIds(previous).forEach(id => affectedViewerIds.add(id));
-    record.gifts[index] = next;
-    cleanupGiftAudience(next, groups, ownerId);
-    collectGiftViewerIds(next).forEach(id => affectedViewerIds.add(id));
+    const title = cleanPlainText(payload.title, 120);
+    if (!title) throw new ApiError(400, "Gift title is required");
 
-    if (!previous.is_gifted) {
-      const beforeIds = collectGiftViewerIds(previous);
-      const afterIds = collectGiftViewerIds(next);
-      const ownerLabel = buildOwnerLabel(record.owner);
-      const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
-      if (modeChanged) {
-        for (const viewerId of beforeIds) {
-          if (viewerId === ownerId) continue;
-          notifications.push({
-            chatId: viewerId,
-            prefKey: "bookings",
-            text: `${ownerLabel} изменил(а) формат подарка «${next.title}». `
-              + "Ваша бронь/участие в сборе сброшены — при желании отметьтесь снова.",
-            replyMarkup
-          });
-        }
-      } else {
-        const removedIds = [...beforeIds].filter(viewerId => viewerId !== ownerId && !afterIds.has(viewerId));
-        for (const viewerId of removedIds) {
-          notifications.push({
-            chatId: viewerId,
-            prefKey: "bookings",
-            text: `Подарок «${previous.title}» в вишлисте ${ownerLabel} стал недоступен. `
-              + "Ваша бронь/участие отменены.",
-            replyMarkup
-          });
-        }
-        const changedFields = [];
-        if (previous.title !== next.title) changedFields.push("название");
-        if ((previous.price ?? null) !== (next.price ?? null)) changedFields.push("цена");
-        if ((previous.comment || "") !== (next.comment || "")) changedFields.push("комментарий");
-        if ((previous.link || "") !== (next.link || "")) changedFields.push("ссылка");
-        if (changedFields.length) {
-          for (const viewerId of afterIds) {
-            if (viewerId === ownerId) continue;
-            notifications.push({
-              chatId: viewerId,
-              prefKey: "bookings",
-              text: `${ownerLabel} обновил(а) забронированный подарок «${next.title}» `
-                + `(изменено: ${changedFields.join(", ")}). Проверьте детали перед покупкой.`,
-              replyMarkup
-            });
-          }
-        }
+    const existing = record.gifts[idx];
+    const previousSnapshot = {
+      title: existing.title,
+      price: existing.price ?? null,
+      comment: existing.comment || "",
+      link: existing.link || "",
+      is_crowdfund: Boolean(existing.is_crowdfund),
+      is_reusable: Boolean(existing.is_reusable) && !existing.is_crowdfund
+    };
+
+    const image = sanitizeImage(payload.image);
+    await assertInternalImageOwnership(env, ownerId, image);
+    const desire = payload.desire !== undefined
+      ? sanitizeDesire(payload.desire, Boolean(payload.priority))
+      : sanitizeDesire(existing.desire, Boolean(payload.priority ?? existing.priority));
+
+    const nextCrowdfund = payload.is_crowdfund !== undefined
+      ? Boolean(payload.is_crowdfund)
+      : Boolean(existing.is_crowdfund);
+    const nextReusable = !nextCrowdfund && (
+      payload.is_reusable !== undefined
+        ? Boolean(payload.is_reusable)
+        : Boolean(existing.is_reusable)
+    );
+
+    const updated = {
+      ...existing,
+      title,
+      link: sanitizeHttpUrl(payload.link),
+      image,
+      price: sanitizePrice(payload.price),
+      category: cleanPlainText(payload.category, 40),
+      comment: cleanPlainText(payload.comment, 300),
+      priority: desire === "high",
+      desire,
+      tags: payload.tags !== undefined ? sanitizeTags(payload.tags) : sanitizeTags(existing.tags),
+      group_ids: payload.group_ids !== undefined
+        ? sanitizeGiftGroupIds(payload.group_ids, allowedGroupIds)
+        : sanitizeGiftGroupIds(existing.group_ids, allowedGroupIds),
+      occasion_ids: payload.occasion_ids !== undefined
+        ? sanitizeGiftOccasionIds(payload.occasion_ids, allowedOccasionIds)
+        : sanitizeGiftOccasionIds(existing.occasion_ids, allowedOccasionIds),
+      is_crowdfund: nextCrowdfund,
+      is_reusable: nextReusable,
+      reusable_givers: Array.isArray(existing.reusable_givers) ? existing.reusable_givers : []
+    };
+
+    const notifications = [];
+
+    // Обработка смены формата участия (одиночная бронь / сбор / многоразовый подарок)
+    if (previousSnapshot.is_crowdfund && !updated.is_crowdfund) {
+      const oldParticipants = Array.isArray(updated.participants) ? [...updated.participants] : [];
+      updated.participants = [];
+      for (const participantId of oldParticipants) {
+        await syncWishlistParticipation(env, participantId, ownerId, updated, null);
+        notifications.push({
+          guestId: participantId,
+          ownerId,
+          gift: updated,
+          reason: "format_changed",
+          detail: "совместный сбор закрыт"
+        });
       }
     }
+
+    if (!previousSnapshot.is_crowdfund && updated.is_crowdfund && updated.booked_by) {
+      const prevBooker = updated.booked_by;
+      updated.booked_by = null;
+      updated.participants = [prevBooker];
+      await syncWishlistParticipation(env, prevBooker, ownerId, updated, "crowdfund");
+      notifications.push({
+        guestId: prevBooker,
+        ownerId,
+        gift: updated,
+        reason: "format_changed",
+        detail: "подарок переведён в совместный сбор (ваша отметка сохранена)"
+      });
+    }
+
+    if (previousSnapshot.is_reusable && !updated.is_reusable) {
+      const oldGivers = [...updated.reusable_givers];
+      updated.reusable_givers = [];
+      for (const giverId of oldGivers) {
+        await syncWishlistParticipation(env, giverId, ownerId, updated, null);
+        notifications.push({
+          guestId: giverId,
+          ownerId,
+          gift: updated,
+          reason: "format_changed",
+          detail: "отключён режим многократного подарка, отметка участия снята"
+        });
+      }
+    }
+
+    if (!previousSnapshot.is_reusable && updated.is_reusable && updated.booked_by) {
+      const prevBooker = updated.booked_by;
+      updated.booked_by = null;
+      updated.reusable_givers = [prevBooker];
+      await syncWishlistParticipation(env, prevBooker, ownerId, updated, "reusable");
+      notifications.push({
+        guestId: prevBooker,
+        ownerId,
+        gift: updated,
+        reason: "format_changed",
+        detail: "подарок теперь можно дарить несколько раз (ваша отметка сохранена)"
+      });
+    }
+
+    // Проверка изменения важных деталей для оставшихся активных участников
+    const detailChanges = [];
+    if (previousSnapshot.title !== updated.title) detailChanges.push("название");
+    if (previousSnapshot.price !== updated.price) detailChanges.push("цена");
+    if (previousSnapshot.comment !== updated.comment) detailChanges.push("комментарий");
+    if (previousSnapshot.link !== updated.link) detailChanges.push("ссылка");
+
+    if (detailChanges.length > 0 && !updated.is_gifted) {
+      const alreadyNotified = new Set(notifications.map(n => n.guestId));
+      for (const guestId of collectGiftViewerIds(updated)) {
+        if (alreadyNotified.has(guestId)) continue;
+        notifications.push({
+          guestId,
+          ownerId,
+          gift: updated,
+          reason: "updated",
+          changes: detailChanges
+        });
+      }
+    }
+
+    record.gifts[idx] = updated;
+    await cleanupGiftAudience(env, ownerId, updated, groups, ctx);
+    await saveWishlist(env, ownerId, record);
+
+    if (notifications.length > 0) {
+      dispatchBackground(ctx, notifyGuestsBatch(env, notifications));
+    }
+
+    return json(serializeWishlist(record, ownerId, viewer.id, { groups }));
   }
 
   if (action === "delete") {
-    const index = findGiftIndex(record.gifts, payload.id);
-    const gift = record.gifts[index];
-    imageToDelete = gift.image || "";
-    collectGiftViewerIds(gift).forEach(id => affectedViewerIds.add(id));
-    if (!gift.is_gifted) {
-      const ownerLabel = buildOwnerLabel(record.owner);
-      const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
-      for (const viewerId of collectGiftViewerIds(gift)) {
-        if (viewerId === ownerId) continue;
-        notifications.push({
-          chatId: viewerId,
-          prefKey: "bookings",
-          text: gift.is_crowdfund
-            ? `${ownerLabel} удалил(а) подарок «${gift.title}». `
-              + "Ваше участие в совместном сборе отменено."
-            : `${ownerLabel} удалил(а) подарок «${gift.title}». Ваша бронь отменена.`,
-          replyMarkup
-        });
-      }
+    const idx = findGiftIndex(record.gifts, payload.id);
+    if (idx === -1) throw new ApiError(404, "Gift not found");
+    const [removed] = record.gifts.splice(idx, 1);
+
+    const affectedGuestIds = collectGiftViewerIds(removed);
+    for (const guestId of affectedGuestIds) {
+      await syncWishlistParticipation(env, guestId, ownerId, removed, null);
     }
-    record.gifts.splice(index, 1);
+
+    await saveWishlist(env, ownerId, record);
+
+    if (!removed.is_gifted && affectedGuestIds.length > 0) {
+      dispatchBackground(
+        ctx,
+        notifyGuestsBatch(
+          env,
+          affectedGuestIds.map(guestId => ({
+            guestId,
+            ownerId,
+            gift: removed,
+            reason: "deleted"
+          }))
+        )
+      );
+    }
+
+    return json(serializeWishlist(record, ownerId, viewer.id, { groups }));
   }
 
   if (action === "toggle_gifted") {
-    const index = findGiftIndex(record.gifts, payload.id);
-    const gift = record.gifts[index];
-    const wasGifted = Boolean(gift.is_gifted);
-    gift.is_gifted = !wasGifted;
-    if (!wasGifted && gift.is_gifted) {
-      const ownerLabel = buildOwnerLabel(record.owner);
-      const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
-      for (const viewerId of collectGiftViewerIds(gift)) {
-        if (viewerId === ownerId) continue;
-        notifications.push({
-          chatId: viewerId,
-          prefKey: "bookings",
-          text: `${ownerLabel} отметил(а) подарок «${gift.title}» как уже подаренный.`,
-          replyMarkup
-        });
+    const idx = findGiftIndex(record.gifts, payload.id);
+    if (idx === -1) throw new ApiError(404, "Gift not found");
+    const targetGift = record.gifts[idx];
+    const nextGifted = !targetGift.is_gifted;
+    targetGift.is_gifted = nextGifted;
+
+    await saveWishlist(env, ownerId, record);
+
+    if (nextGifted) {
+      const guestIds = collectGiftViewerIds(targetGift);
+      if (guestIds.length > 0) {
+        dispatchBackground(
+          ctx,
+          notifyGuestsBatch(
+            env,
+            guestIds.map(guestId => ({
+              guestId,
+              ownerId,
+              gift: targetGift,
+              reason: "gifted"
+            }))
+          )
+        );
       }
     }
+
+    return json(serializeWishlist(record, ownerId, viewer.id, { groups }));
+  }
+
+  // --- Действия гостя ---
+  const idx = findGiftIndex(record.gifts, payload.id);
+  if (idx === -1) throw new ApiError(404, "Gift not found");
+  const gift = record.gifts[idx];
+  assertGiftVisible(gift, ownerId, viewer.id, groups);
+
+  if (action === "copy_gift") {
+    const viewerRecord = await loadWishlist(env, viewer.id);
+    viewerRecord.owner = {
+      id: viewer.id,
+      first_name: viewer.first_name,
+      username: viewer.username || viewerRecord.owner.username || ""
+    };
+
+    const copiedImage = gift.image && gift.image.startsWith("/api/img/")
+      ? await cloneInternalImage(env, gift.image, viewer.id)
+      : sanitizeImage(gift.image);
+
+    const desire = sanitizeDesire(gift.desire, Boolean(gift.priority));
+    const isCrowdfund = Boolean(gift.is_crowdfund);
+    const isReusable = !isCrowdfund && Boolean(gift.is_reusable);
+
+    const copiedGift = {
+      id: createGiftId(viewerRecord.gifts),
+      title: cleanPlainText(gift.title, 120) || "Подарок",
+      link: sanitizeHttpUrl(gift.link),
+      image: copiedImage,
+      price: sanitizePrice(gift.price),
+      category: cleanPlainText(gift.category, 40),
+      comment: cleanPlainText(gift.comment, 300),
+      priority: desire === "high",
+      desire,
+      tags: sanitizeTags(gift.tags),
+      group_ids: [],
+      occasion_ids: [],
+      is_crowdfund: isCrowdfund,
+      is_reusable: isReusable,
+      booked_by: null,
+      participants: [],
+      reusable_givers: [],
+      is_gifted: false
+    };
+
+    viewerRecord.gifts.unshift(copiedGift);
+    await saveWishlist(env, viewer.id, viewerRecord);
+    dispatchBackground(ctx, notifySubscribersAboutNewGift(env, viewer.id, copiedGift, await loadGroups(env, viewer.id)));
+
+    return json({
+      ok: true,
+      gift: serializeGiftForViewer(copiedGift, viewer.id, viewer.id)
+    }, 201);
+  }
+
+  if (gift.is_gifted) {
+    throw new ApiError(409, "Gift is already marked as gifted");
   }
 
   if (action === "toggle_book") {
-    const gift = record.gifts[findGiftIndex(record.gifts, payload.id)];
-    assertGiftVisible(gift, groups, ownerId, viewer.id);
-    if (gift.is_gifted || gift.is_crowdfund) throw new HttpError(409, "This gift cannot be booked");
-    if (gift.is_reusable) {
-      const givers = Array.isArray(gift.reusable_givers) ? gift.reusable_givers : [];
-      const idx = givers.indexOf(viewer.id);
-      if (idx >= 0) givers.splice(idx, 1);
-      else givers.push(viewer.id);
-      gift.reusable_givers = givers;
-    } else if (gift.booked_by === null || gift.booked_by === undefined) {
-      gift.booked_by = viewer.id;
-    } else if (gift.booked_by === viewer.id) {
-      gift.booked_by = null;
-    } else {
-      throw new HttpError(409, "This gift is already booked");
+    if (gift.is_crowdfund) {
+      throw new ApiError(400, "This gift uses crowdfund mode");
     }
+
+    if (gift.is_reusable) {
+      if (!Array.isArray(gift.reusable_givers)) gift.reusable_givers = [];
+      const existingPos = gift.reusable_givers.indexOf(viewer.id);
+      if (existingPos === -1) {
+        gift.reusable_givers.push(viewer.id);
+        await syncWishlistParticipation(env, viewer.id, ownerId, gift, "reusable");
+      } else {
+        gift.reusable_givers.splice(existingPos, 1);
+        await syncWishlistParticipation(env, viewer.id, ownerId, gift, null);
+      }
+      await saveWishlist(env, ownerId, record);
+      const subscriptions = await loadSubscriptions(env, viewer.id);
+      return json(
+        serializeWishlist(record, ownerId, viewer.id, {
+          groups,
+          isSubscribed: subscriptions.includes(ownerId)
+        })
+      );
+    }
+
+    if (gift.booked_by && gift.booked_by !== viewer.id) {
+      throw new ApiError(409, "Gift is already booked by someone else");
+    }
+    const nextBookedBy = gift.booked_by === viewer.id ? null : viewer.id;
+    gift.booked_by = nextBookedBy;
+    await syncWishlistParticipation(env, viewer.id, ownerId, gift, nextBookedBy ? "book" : null);
   }
 
   if (action === "toggle_crowdfund") {
-    const gift = record.gifts[findGiftIndex(record.gifts, payload.id)];
-    assertGiftVisible(gift, groups, ownerId, viewer.id);
-    if (gift.is_gifted || !gift.is_crowdfund) throw new HttpError(409, "This gift is not a crowdfund");
-    const participants = Array.isArray(gift.participants) ? gift.participants : [];
-    const index = participants.indexOf(viewer.id);
-    if (index >= 0) participants.splice(index, 1);
-    else participants.push(viewer.id);
-    gift.participants = participants;
+    if (!gift.is_crowdfund) {
+      throw new ApiError(400, "This gift does not use crowdfund mode");
+    }
+    if (!Array.isArray(gift.participants)) gift.participants = [];
+    const pos = gift.participants.indexOf(viewer.id);
+    if (pos === -1) {
+      gift.participants.push(viewer.id);
+      await syncWishlistParticipation(env, viewer.id, ownerId, gift, "crowdfund");
+    } else {
+      gift.participants.splice(pos, 1);
+      await syncWishlistParticipation(env, viewer.id, ownerId, gift, null);
+    }
   }
 
   await saveWishlist(env, ownerId, record);
-
-  if (action === "add" && addedGift) {
-    const subscribers = await readSubscribers(env, ownerId);
-    const ownerLabel = buildOwnerLabel(record.owner);
-    const replyMarkup = buildWishlistReplyMarkup(env, ownerId);
-    const priceSuffix = formatNotificationPrice(addedGift.price);
-    let scheduled = 0;
-    for (const subscriberId of subscribers) {
-      if (scheduled >= MAX_NEW_GIFT_NOTIFICATIONS) break;
-      if (subscriberId === ownerId) continue;
-      if (!canViewerAccessGift(addedGift, groups, ownerId, subscriberId)) continue;
-      notifications.push({
-        chatId: subscriberId,
-        prefKey: "new_gifts",
-        text: `У ${ownerLabel} появилось новое желание: «${addedGift.title}»${priceSuffix}`,
-        replyMarkup
-      });
-      scheduled += 1;
-    }
-  }
-
-  if (!isOwner) affectedViewerIds.add(viewer.id);
-  for (const affectedViewerId of affectedViewerIds) {
-    await syncWishlistParticipation(env, ownerId, { id: affectedViewerId }, record, groups);
-  }
-  const imageIsStillUsed = imageToDelete
-    && record.gifts.some(gift => gift.image === imageToDelete);
-  if (imageToDelete && !imageIsStillUsed) {
-    await deleteInternalImage(env, imageToDelete, ownerId);
-  }
-  if (notifications.length) {
-    await dispatchBackground(ctx, sendNotificationsBatch(env, notifications));
-  }
-  const isSubscribed = !isOwner && (await readSubscriptions(env, viewer.id)).includes(ownerId);
-  return json(serializeWishlist(record, viewer.id, groups, isSubscribed));
-}
-
-function sanitizeGift(payload, groups = [], occasions = []) {
-  const title = cleanPlainText(payload.title, 120);
-  if (!title) throw new HttpError(400, "Gift title is required");
-
-  const category = cleanPlainText(payload.category || "Разное", 40) || "Разное";
-  const comment = cleanPlainText(payload.comment || "", 300);
-  const link = sanitizeHttpUrl(payload.link || "", "link");
-  const image = sanitizeImage(payload.image || "");
-  const desire = sanitizeDesire(payload.desire, payload.priority);
-  const tags = sanitizeTags(payload.tags);
-  const groupIds = sanitizeGiftGroupIds(payload.group_ids, groups);
-  const occasionIds = sanitizeGiftOccasionIds(payload.occasion_ids, occasions);
-  const isCrowdfund = Boolean(payload.is_crowdfund);
-  const isReusable = Boolean(payload.is_reusable);
-  if (isCrowdfund && isReusable) {
-    throw new HttpError(400, "Gift cannot be both crowdfund and reusable");
-  }
-
-  let price = null;
-  if (payload.price !== null && payload.price !== undefined && payload.price !== "") {
-    const numericPrice = Number(payload.price);
-    if (!Number.isFinite(numericPrice) || numericPrice < 0 || numericPrice > 1_000_000_000) {
-      throw new HttpError(400, "Invalid gift price");
-    }
-    price = Math.round(numericPrice);
-  }
-
-  return {
-    title,
-    link,
-    image,
-    price,
-    category,
-    comment,
-    desire,
-    tags,
-    group_ids: groupIds,
-    occasion_ids: occasionIds,
-    priority: desire === "high",
-    is_crowdfund: isCrowdfund,
-    is_reusable: isReusable
-  };
-}
-
-function sanitizeDesire(value, legacyPriority) {
-  if (value === undefined || value === null || value === "") {
-    return legacyPriority ? "high" : "medium";
-  }
-  if (!["high", "medium", "wait"].includes(value)) {
-    throw new HttpError(400, "Invalid desire level");
-  }
-  return value;
-}
-
-function sanitizeTags(value) {
-  if (value === undefined || value === null || value === "") return [];
-  if (!Array.isArray(value)) throw new HttpError(400, "Tags must be an array");
-  if (value.length > 8) throw new HttpError(400, "No more than 8 tags are allowed");
-
-  const tags = [];
-  const seen = new Set();
-  for (const rawTag of value) {
-    const tag = cleanPlainText(rawTag, 30);
-    if (!tag) continue;
-    const key = tag.toLocaleLowerCase("ru-RU");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    tags.push(tag);
-  }
-  return tags;
-}
-
-function sanitizeGiftGroupIds(value, groups = []) {
-  if (value === undefined || value === null || value === "") return [];
-  if (!Array.isArray(value)) throw new HttpError(400, "Gift groups must be an array");
-  const allowed = new Set(groups.map(group => group.id));
-  const groupIds = [];
-  for (const rawId of value) {
-    const groupId = String(rawId || "");
-    if (!allowed.has(groupId)) throw new HttpError(400, "Unknown gift group");
-    if (!groupIds.includes(groupId)) groupIds.push(groupId);
-  }
-  return groupIds;
-}
-
-function sanitizeGiftOccasionIds(value, occasions = []) {
-  if (value === undefined || value === null || value === "") return [];
-  if (!Array.isArray(value)) throw new HttpError(400, "Gift occasions must be an array");
-  const allowed = new Set(occasions.map(item => item.id));
-  const occasionIds = [];
-  for (const rawId of value) {
-    const occId = String(rawId || "");
-    if (!allowed.has(occId)) throw new HttpError(400, "Unknown gift occasion");
-    if (!occasionIds.includes(occId)) occasionIds.push(occId);
-  }
-  return occasionIds;
-}
-
-function sanitizeGroupName(rawName, existingGroups = [], excludeGroupId = "") {
-  const name = cleanPlainText(rawName, 32);
-  if (!name) throw new HttpError(400, "Group name is required");
-  const key = name.toLocaleLowerCase("ru-RU");
-  const duplicate = existingGroups.some(group =>
-    group.id !== excludeGroupId && group.name.toLocaleLowerCase("ru-RU") === key
+  const subscriptions = await loadSubscriptions(env, viewer.id);
+  return json(
+    serializeWishlist(record, ownerId, viewer.id, {
+      groups,
+      isSubscribed: subscriptions.includes(ownerId)
+    })
   );
-  if (duplicate) throw new HttpError(409, "Group with this name already exists");
-  return name;
-}
-
-function sanitizeOccasionTitle(rawTitle, existingOccasions = [], excludeOccasionId = "") {
-  const title = cleanPlainText(rawTitle, 40);
-  if (!title) throw new HttpError(400, "Occasion title is required");
-  const key = title.toLocaleLowerCase("ru-RU");
-  const duplicate = existingOccasions.some(item =>
-    item.id !== excludeOccasionId && item.title.toLocaleLowerCase("ru-RU") === key
-  );
-  if (duplicate) throw new HttpError(409, "Occasion with this title already exists");
-  return title;
-}
-
-function cleanPlainText(value, maxLength) {
-  if (value === null || value === undefined) return "";
-  if (typeof value !== "string" && typeof value !== "number") {
-    throw new HttpError(400, "Invalid text field");
-  }
-  const text = String(value).trim();
-  if (text.length > maxLength) throw new HttpError(400, "Text field is too long");
-  return text;
-}
-
-function sanitizeHttpUrl(value, fieldName) {
-  const text = cleanPlainText(value, 2048);
-  if (!text) return "";
-  try {
-    const url = new URL(text);
-    if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("protocol");
-    return url.toString();
-  } catch {
-    throw new HttpError(400, `Invalid ${fieldName} URL`);
-  }
-}
-
-function sanitizeImage(value) {
-  const text = cleanPlainText(value, 2048);
-  if (!text) return "";
-  if (getInternalImageId(text)) return text;
-  return sanitizeHttpUrl(text, "image");
-}
-
-function getInternalImageId(value) {
-  const match = String(value || "").match(/^\/api\/img\/([A-Za-z0-9_-]{16,64})$/);
-  return match?.[1] || "";
-}
-
-async function assertInternalImageOwnership(env, imageUrl, userId) {
-  const imageId = getInternalImageId(imageUrl);
-  if (!imageId) return;
-  const { value, metadata } = await env.DB.getWithMetadata(`img:${imageId}`, {
-    type: "arrayBuffer"
-  });
-  if (!value) throw new HttpError(400, "Image not found");
-  if (String(metadata?.ownerId || "") !== String(userId)) {
-    throw new HttpError(403, "This image belongs to another user");
-  }
-}
-
-async function cloneInternalImage(env, sourceImageId, newOwnerId) {
-  const { value, metadata } = await env.DB.getWithMetadata(`img:${sourceImageId}`, {
-    type: "arrayBuffer"
-  });
-  if (!value) return "";
-  const newImageId = crypto.randomUUID().replaceAll("-", "");
-  await env.DB.put(`img:${newImageId}`, value, {
-    metadata: {
-      contentType: metadata?.contentType || "image/jpeg",
-      ownerId: String(newOwnerId),
-      createdAt: new Date().toISOString()
-    }
-  });
-  return `/api/img/${newImageId}`;
-}
-
-async function loadWishlist(env, ownerId, viewer) {
-  const stored = await env.DB.get(`user:${ownerId}`, { type: "json" });
-  const directory = await env.DB.get(directoryKey(ownerId), { type: "json" });
-  const isOwner = ownerId === viewer.id;
-  const ownerProfile = directory || stored?.owner || {};
-  const occasions = [];
-  const seenOccasionIds = new Set();
-  for (const rawOcc of Array.isArray(stored?.occasions) ? stored.occasions : []) {
-    const id = String(rawOcc?.id || "").trim();
-    const title = typeof rawOcc?.title === "string" ? rawOcc.title.trim().slice(0, 40) : "";
-    if (!/^occ_[A-Za-z0-9_-]{1,32}$/.test(id) || !title || seenOccasionIds.has(id)) continue;
-    seenOccasionIds.add(id);
-    occasions.push({ id, title });
-    if (occasions.length >= MAX_OCCASIONS) break;
-  }
-  return {
-    owner: {
-      id: ownerId,
-      first_name: cleanPlainText(isOwner ? viewer.first_name : ownerProfile.first_name || "", 64),
-      username: normalizeUsername(isOwner ? viewer.username : ownerProfile.username || "", false)
-    },
-    occasions,
-    gifts: Array.isArray(stored?.gifts) ? stored.gifts : []
-  };
-}
-
-async function saveWishlist(env, ownerId, record) {
-  await env.DB.put(`user:${ownerId}`, JSON.stringify({
-    owner: record.owner,
-    occasions: Array.isArray(record.occasions) ? record.occasions : [],
-    gifts: record.gifts,
-    updatedAt: new Date().toISOString()
-  }));
-}
-
-function directoryKey(userId) {
-  return `directory:${userId}`;
-}
-
-function usernameKey(username) {
-  return `username:${username}`;
-}
-
-function subscriptionsKey(userId) {
-  return `subscriptions:${userId}`;
-}
-
-function subscribersKey(ownerId) {
-  return `subscribers:${ownerId}`;
-}
-
-function groupsKey(ownerId) {
-  return `groups:${ownerId}`;
-}
-
-function selectionKey(requestId) {
-  return `selection:${requestId}`;
-}
-
-function normalizeUsername(value, strict = true) {
-  const username = String(value || "").trim().replace(/^@+/, "").toLowerCase();
-  if (!username) return "";
-  if (!/^[a-z0-9_]{5,32}$/.test(username)) {
-    if (strict) throw new HttpError(400, "Invalid Telegram username");
-    return "";
-  }
-  return username;
-}
-
-async function rememberTelegramUser(env, profile) {
-  const userId = parseId(profile?.id, "user id");
-  const username = normalizeUsername(profile?.username || "", false);
-  const firstName = cleanPlainText(profile?.first_name || "Пользователь", 64) || "Пользователь";
-  const key = directoryKey(userId);
-  const previous = await env.DB.get(key, { type: "json" });
-  if (previous && previous.first_name === firstName
-    && normalizeUsername(previous.username || "", false) === username) return;
-
-  await env.DB.put(key, JSON.stringify({
-    id: userId,
-    first_name: firstName,
-    username,
-    updatedAt: new Date().toISOString()
-  }));
-
-  const previousUsername = normalizeUsername(previous?.username || "", false);
-  if (previousUsername && previousUsername !== username) {
-    const oldMapping = await env.DB.get(usernameKey(previousUsername));
-    if (Number(oldMapping) === userId) await env.DB.delete(usernameKey(previousUsername));
-  }
-  if (username) await env.DB.put(usernameKey(username), String(userId));
-}
-
-async function resolveUserByUsername(env, rawUsername) {
-  const username = normalizeUsername(rawUsername);
-  if (!username) throw new HttpError(400, "Telegram username is required");
-  const userId = Number(await env.DB.get(usernameKey(username)));
-  if (!Number.isSafeInteger(userId) || userId <= 0) return null;
-  return await readPublicProfile(env, userId);
-}
-
-async function readPublicProfile(env, userId) {
-  const directory = await env.DB.get(directoryKey(userId), { type: "json" });
-  if (directory) {
-    return {
-      id: userId,
-      first_name: cleanPlainText(directory.first_name || "Пользователь", 64) || "Пользователь",
-      username: normalizeUsername(directory.username || "", false)
-    };
-  }
-
-  const stored = await env.DB.get(`user:${userId}`, { type: "json" });
-  return {
-    id: userId,
-    first_name: cleanPlainText(stored?.owner?.first_name || "Пользователь", 64) || "Пользователь",
-    username: normalizeUsername(stored?.owner?.username || "", false)
-  };
-}
-
-async function readSubscriptions(env, userId) {
-  const stored = await env.DB.get(subscriptionsKey(userId), { type: "json" });
-  if (!Array.isArray(stored)) return [];
-  const ids = [];
-  for (const rawId of stored) {
-    const id = Number(rawId);
-    if (!Number.isSafeInteger(id) || id <= 0 || id === userId || ids.includes(id)) continue;
-    ids.push(id);
-    if (ids.length >= MAX_SOCIAL_ITEMS) break;
-  }
-  return ids;
-}
-
-async function addSubscription(env, viewerId, targetId) {
-  if (viewerId === targetId) throw new HttpError(400, "You cannot subscribe to yourself");
-  const subscriptions = await readSubscriptions(env, viewerId);
-  if (!subscriptions.includes(targetId)) {
-    if (subscriptions.length >= MAX_SOCIAL_ITEMS) {
-      throw new HttpError(409, "Subscriptions limit reached");
-    }
-    subscriptions.unshift(targetId);
-    await env.DB.put(subscriptionsKey(viewerId), JSON.stringify(subscriptions));
-  }
-  await addSubscriber(env, targetId, viewerId);
-}
-
-async function readSubscribers(env, ownerId) {
-  const stored = await env.DB.get(subscribersKey(ownerId), { type: "json" });
-  if (!Array.isArray(stored)) return [];
-  const ids = [];
-  for (const rawId of stored) {
-    const id = Number(rawId);
-    if (!Number.isSafeInteger(id) || id <= 0 || id === ownerId || ids.includes(id)) continue;
-    ids.push(id);
-    if (ids.length >= MAX_SOCIAL_ITEMS) break;
-  }
-  return ids;
-}
-
-async function addSubscriber(env, ownerId, viewerId) {
-  if (ownerId === viewerId) return;
-  const subscribers = await readSubscribers(env, ownerId);
-  if (subscribers.includes(viewerId)) return;
-  subscribers.unshift(viewerId);
-  if (subscribers.length > MAX_SOCIAL_ITEMS) subscribers.length = MAX_SOCIAL_ITEMS;
-  await env.DB.put(subscribersKey(ownerId), JSON.stringify(subscribers));
-}
-
-async function removeSubscriber(env, ownerId, viewerId) {
-  const subscribers = (await readSubscribers(env, ownerId)).filter(id => id !== viewerId);
-  await env.DB.put(subscribersKey(ownerId), JSON.stringify(subscribers));
-}
-
-async function loadGroups(env, ownerId) {
-  const stored = await env.DB.get(groupsKey(ownerId), { type: "json" });
-  if (!stored || !Array.isArray(stored.items)) {
-    return DEFAULT_GROUPS.map(definition => ({ ...definition, memberIds: [] }));
-  }
-
-  const groups = [];
-  const seenIds = new Set();
-  for (const saved of stored.items) {
-    const id = String(saved?.id || "").trim();
-    if (!/^[A-Za-z0-9_-]{1,40}$/.test(id) || seenIds.has(id)) continue;
-    seenIds.add(id);
-
-    const rawName = typeof saved?.name === "string" ? saved.name.trim().slice(0, 32) : "";
-    const name = rawName || LEGACY_GROUP_NAMES[id] || id;
-    const memberIds = [];
-    for (const rawId of Array.isArray(saved?.memberIds) ? saved.memberIds : []) {
-      const memberId = Number(rawId);
-      if (!Number.isSafeInteger(memberId) || memberId <= 0
-        || memberId === ownerId || memberIds.includes(memberId)) continue;
-      memberIds.push(memberId);
-      if (memberIds.length >= MAX_SOCIAL_ITEMS) break;
-    }
-    groups.push({ id, name, memberIds });
-    if (groups.length >= MAX_GROUPS) break;
-  }
-  return groups;
-}
-
-async function saveGroups(env, ownerId, groups) {
-  await env.DB.put(groupsKey(ownerId), JSON.stringify({
-    items: groups.map(group => ({
-      id: group.id,
-      name: group.name,
-      memberIds: group.memberIds
-    })),
-    updatedAt: new Date().toISOString()
-  }));
-}
-
-function getGroup(groups, rawGroupId) {
-  const groupId = String(rawGroupId || "");
-  const group = groups.find(item => item.id === groupId);
-  if (!group) throw new HttpError(400, "Unknown group");
-  return group;
-}
-
-async function buildSocialPayload(env, viewerId) {
-  const subscriptions = await readSubscriptions(env, viewerId);
-  const groups = await loadGroups(env, viewerId);
-  const profiles = new Map();
-  const getProfile = async userId => {
-    if (!profiles.has(userId)) profiles.set(userId, await readPublicProfile(env, userId));
-    return profiles.get(userId);
-  };
-
-  const subscriptionItems = [];
-  for (const ownerId of subscriptions) subscriptionItems.push(await getProfile(ownerId));
-  const groupItems = [];
-  for (const group of groups) {
-    const members = [];
-    for (const memberId of group.memberIds) members.push(await getProfile(memberId));
-    groupItems.push({ id: group.id, name: group.name, members });
-  }
-  return { subscriptions: subscriptionItems, groups: groupItems };
-}
-
-async function readSocialBody(request) {
-  assertContentLength(request, MAX_JSON_BYTES);
-  try {
-    const rawBody = await request.text();
-    if (new TextEncoder().encode(rawBody).byteLength > MAX_JSON_BYTES) {
-      throw new HttpError(413, "Request body is too large");
-    }
-    const body = JSON.parse(rawBody);
-    return body && typeof body === "object" ? body : {};
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    throw new HttpError(400, "Invalid JSON body");
-  }
 }
 
 async function handleSocialGet(env, viewer) {
@@ -1105,28 +1760,73 @@ async function handleSocialGet(env, viewer) {
 }
 
 async function handleSocialPost(request, env, viewer, ctx) {
-  const body = await readSocialBody(request);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    throw new ApiError(400, "Invalid JSON payload");
+  }
+
   const action = String(body.action || "");
   const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+
+  if (action === "subscribe") {
+    if (payload.user_id !== undefined && payload.user_id !== null && payload.user_id !== "") {
+      const targetId = parseId(payload.user_id, "user_id");
+      await addSubscriber(env, viewer.id, targetId);
+      return json(await buildSocialPayload(env, viewer.id));
+    }
+
+    const username = normalizeUsername(payload.username, true);
+    if (viewer.username && viewer.username === username) {
+      throw new ApiError(400, "Cannot subscribe to your own wishlist");
+    }
+    const resolved = await resolveUserByUsername(env, username);
+    if (!resolved) {
+      return json(await requestTelegramUserSelection(env, viewer.id, { purpose: "subscribe" }), 202);
+    }
+    await addSubscriber(env, viewer.id, resolved.id);
+    return json(await buildSocialPayload(env, viewer.id));
+  }
+
+  if (action === "unsubscribe") {
+    const targetId = parseId(payload.user_id, "user_id");
+    await removeSubscriber(env, viewer.id, targetId);
+    return json(await buildSocialPayload(env, viewer.id));
+  }
 
   if (action === "create_group") {
     const groups = await loadGroups(env, viewer.id);
     if (groups.length >= MAX_GROUPS) {
-      throw new HttpError(409, "Groups limit reached");
+      throw new ApiError(400, `Maximum ${MAX_GROUPS} groups allowed`);
     }
-    const name = sanitizeGroupName(payload.name, groups);
-    const id = createShortId("grp", groups.map(group => group.id));
-    groups.push({ id, name, memberIds: [] });
+    const name = sanitizeGroupName(payload.name);
+    const duplicate = groups.find(
+      item => item.name.toLocaleLowerCase("ru-RU") === name.toLocaleLowerCase("ru-RU")
+    );
+    if (duplicate) {
+      throw new ApiError(400, "Group with this name already exists");
+    }
+    groups.push({
+      id: createShortId("grp"),
+      name,
+      memberIds: []
+    });
     await saveGroups(env, viewer.id, groups);
-    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+    return json(await buildSocialPayload(env, viewer.id));
   }
 
   if (action === "rename_group") {
     const groups = await loadGroups(env, viewer.id);
     const group = getGroup(groups, payload.group_id);
-    group.name = sanitizeGroupName(payload.name, groups, group.id);
+    const name = sanitizeGroupName(payload.name);
+    const duplicate = groups.find(
+      item => item.id !== group.id && item.name.toLocaleLowerCase("ru-RU") === name.toLocaleLowerCase("ru-RU")
+    );
+    if (duplicate) {
+      throw new ApiError(400, "Group with this name already exists");
+    }
+    group.name = name;
     await saveGroups(env, viewer.id, groups);
-    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+    return json(await buildSocialPayload(env, viewer.id));
   }
 
   if (action === "delete_group") {
@@ -1135,772 +1835,491 @@ async function handleSocialPost(request, env, viewer, ctx) {
     const nextGroups = groups.filter(item => item.id !== group.id);
     await saveGroups(env, viewer.id, nextGroups);
 
-    const record = await loadWishlist(env, viewer.id, viewer);
-    let wishlistChanged = false;
+    const record = await loadWishlist(env, viewer.id);
+    let giftsModified = false;
     for (const gift of record.gifts) {
-      if (Array.isArray(gift.group_ids) && gift.group_ids.includes(group.id)) {
-        gift.group_ids = gift.group_ids.filter(id => id !== group.id);
-        wishlistChanged = true;
+      const currentIds = sanitizeGiftGroupIds(gift.group_ids);
+      if (currentIds.includes(group.id)) {
+        gift.group_ids = currentIds.filter(id => id !== group.id);
+        giftsModified = true;
       }
     }
-    const affectedViewerIds = cleanupRecordAudience(record, nextGroups, viewer.id);
-    if (wishlistChanged || affectedViewerIds.size) {
+    if (giftsModified) {
       await saveWishlist(env, viewer.id, record);
     }
-    for (const affectedViewerId of affectedViewerIds) {
-      await syncWishlistParticipation(env, viewer.id, { id: affectedViewerId }, record, nextGroups);
-    }
-    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+    await cleanupRecordAudience(env, viewer.id, record, nextGroups, ctx);
+
+    return json(await buildSocialPayload(env, viewer.id));
   }
 
-  if (action === "unsubscribe") {
-    const targetId = parseId(payload.user_id, "user id");
-    const subscriptions = (await readSubscriptions(env, viewer.id)).filter(id => id !== targetId);
-    await env.DB.put(subscriptionsKey(viewer.id), JSON.stringify(subscriptions));
-    await removeSubscriber(env, targetId, viewer.id);
-    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
+  if (action === "add_group_member") {
+    const groups = await loadGroups(env, viewer.id);
+    const group = getGroup(groups, payload.group_id);
+
+    if (payload.user_id !== undefined && payload.user_id !== null && payload.user_id !== "") {
+      const memberId = parseId(payload.user_id, "user_id");
+      if (memberId === viewer.id) {
+        throw new ApiError(400, "Cannot add yourself to a group");
+      }
+      if (!group.memberIds.includes(memberId)) {
+        if (group.memberIds.length >= MAX_SOCIAL_ITEMS) {
+          throw new ApiError(400, `Maximum ${MAX_SOCIAL_ITEMS} members per group`);
+        }
+        group.memberIds.unshift(memberId);
+        await saveGroups(env, viewer.id, groups);
+      }
+      return json(await buildSocialPayload(env, viewer.id));
+    }
+
+    const username = normalizeUsername(payload.username, true);
+    if (viewer.username && viewer.username === username) {
+      throw new ApiError(400, "Cannot add yourself to a group");
+    }
+    const resolved = await resolveUserByUsername(env, username);
+    if (!resolved) {
+      return json(await requestTelegramUserSelection(env, viewer.id, {
+        purpose: "group",
+        groupId: group.id
+      }), 202);
+    }
+    if (!group.memberIds.includes(resolved.id)) {
+      if (group.memberIds.length >= MAX_SOCIAL_ITEMS) {
+        throw new ApiError(400, `Maximum ${MAX_SOCIAL_ITEMS} members per group`);
+      }
+      group.memberIds.unshift(resolved.id);
+      await saveGroups(env, viewer.id, groups);
+    }
+    return json(await buildSocialPayload(env, viewer.id));
   }
 
   if (action === "remove_group_member") {
-    const targetId = parseId(payload.user_id, "user id");
     const groups = await loadGroups(env, viewer.id);
     const group = getGroup(groups, payload.group_id);
-    group.memberIds = group.memberIds.filter(id => id !== targetId);
+    const memberId = parseId(payload.user_id, "user_id");
+    group.memberIds = group.memberIds.filter(id => id !== memberId);
     await saveGroups(env, viewer.id, groups);
 
-    const record = await loadWishlist(env, viewer.id, viewer);
-    const cancelledGiftTitles = [];
+    const record = await loadWishlist(env, viewer.id);
+    const notifications = [];
+    let modified = false;
+
     for (const gift of record.gifts) {
-      if (gift.is_gifted) continue;
-      if (!collectGiftViewerIds(gift).has(targetId)) continue;
-      if (!canViewerAccessGift(gift, groups, viewer.id, targetId)) {
-        cancelledGiftTitles.push(gift.title);
-      }
-    }
-    const affectedViewerIds = cleanupRecordAudience(record, groups, viewer.id);
-    if (affectedViewerIds.size) await saveWishlist(env, viewer.id, record);
-    for (const affectedViewerId of affectedViewerIds) {
-      await syncWishlistParticipation(env, viewer.id, { id: affectedViewerId }, record, groups);
-    }
-    if (cancelledGiftTitles.length) {
-      const ownerLabel = buildOwnerLabel(record.owner);
-      const text = cancelledGiftTitles.length === 1
-        ? `Подарок «${cancelledGiftTitles[0]}» в вишлисте ${ownerLabel} стал недоступен. `
-          + "Ваша бронь/участие отменены."
-        : `В вишлисте ${ownerLabel} стали недоступны несколько подарков, `
-          + `ваши брони/участия отменены: ${cancelledGiftTitles.map(title => `«${title}»`).join(", ")}.`;
-      await dispatchBackground(ctx, sendNotificationsBatch(env, [{
-        chatId: targetId,
-        prefKey: "bookings",
-        text,
-        replyMarkup: buildWishlistReplyMarkup(env, viewer.id)
-      }]));
-    }
-    return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
-  }
+      if (canViewerAccessGift(gift, viewer.id, memberId, groups)) continue;
 
-  if (!["subscribe", "add_group_member"].includes(action)) {
-    throw new HttpError(400, "Unknown social action");
-  }
-
-  let targetId = 0;
-  if (payload.user_id !== undefined && action === "subscribe") {
-    targetId = parseId(payload.user_id, "user id");
-  } else {
-    if (action === "add_group_member") {
-      const groups = await loadGroups(env, viewer.id);
-      getGroup(groups, payload.group_id);
-    }
-    const profile = await resolveUserByUsername(env, payload.username || "");
-    if (!profile) {
-      return await requestTelegramUserSelection(env, viewer, action, payload);
-    }
-    targetId = profile.id;
-  }
-
-  if (targetId === viewer.id) throw new HttpError(400, "You cannot add yourself");
-  if (action === "subscribe") {
-    await addSubscription(env, viewer.id, targetId);
-  } else {
-    const groups = await loadGroups(env, viewer.id);
-    const group = getGroup(groups, payload.group_id);
-    if (!group.memberIds.includes(targetId)) {
-      if (group.memberIds.length >= MAX_SOCIAL_ITEMS) {
-        throw new HttpError(409, "Group members limit reached");
-      }
-      group.memberIds.push(targetId);
-      await saveGroups(env, viewer.id, groups);
-    }
-  }
-  return json({ status: "ok", ...await buildSocialPayload(env, viewer.id) });
-}
-
-async function requestTelegramUserSelection(env, viewer, action, payload) {
-  if (!env.WEBAPP_URL) {
-    throw new HttpError(500, "WEBAPP_URL is not configured");
-  }
-  const requestId = crypto.getRandomValues(new Uint32Array(1))[0] % 2_000_000_000 + 1;
-  const pending = {
-    requesterId: viewer.id,
-    action,
-    groupId: action === "add_group_member" ? String(payload.group_id || "") : "",
-    requestedUsername: normalizeUsername(payload.username || "", false),
-    createdAt: new Date().toISOString()
-  };
-  await env.DB.put(selectionKey(requestId), JSON.stringify(pending), { expirationTtl: 900 });
-
-  const text = action === "subscribe"
-    ? "Нажмите кнопку ниже и выберите в Telegram человека, на вишлист которого хотите подписаться."
-    : "Нажмите кнопку ниже и выберите в Telegram человека, которого хотите добавить в группу.";
-  try {
-    await callTelegramApi(env, "sendMessage", {
-      chat_id: viewer.id,
-      text,
-      reply_markup: {
-        keyboard: [[{
-          text: "Выбрать пользователя",
-          request_users: {
-            request_id: requestId,
-            user_is_bot: false,
-            request_name: true,
-            request_username: true,
-            max_quantity: 1
-          }
-        }]],
-        resize_keyboard: true,
-        one_time_keyboard: true
-      }
-    });
-  } catch (error) {
-    await env.DB.delete(selectionKey(requestId));
-    throw error;
-  }
-
-  const botUsername = await getBotUsername(env);
-  return json({ status: "selection_required", requestId, botUsername }, 202);
-}
-
-function canViewerAccessGift(gift, groups, ownerId, viewerId) {
-  if (ownerId === viewerId) return true;
-  const groupIds = Array.isArray(gift?.group_ids) ? gift.group_ids : [];
-  if (groupIds.length === 0) return true;
-  return groupIds.some(groupId => {
-    const group = groups.find(item => item.id === groupId);
-    return group?.memberIds.includes(viewerId);
-  });
-}
-
-function assertGiftVisible(gift, groups, ownerId, viewerId) {
-  if (!canViewerAccessGift(gift, groups, ownerId, viewerId)) {
-    throw new HttpError(404, "Gift not found");
-  }
-}
-
-function collectGiftViewerIds(gift) {
-  const ids = new Set();
-  const bookedBy = Number(gift?.booked_by);
-  if (Number.isSafeInteger(bookedBy) && bookedBy > 0) ids.add(bookedBy);
-  for (const rawId of Array.isArray(gift?.participants) ? gift.participants : []) {
-    const participantId = Number(rawId);
-    if (Number.isSafeInteger(participantId) && participantId > 0) ids.add(participantId);
-  }
-  for (const rawId of Array.isArray(gift?.reusable_givers) ? gift.reusable_givers : []) {
-    const giverId = Number(rawId);
-    if (Number.isSafeInteger(giverId) && giverId > 0) ids.add(giverId);
-  }
-  return ids;
-}
-
-function cleanupGiftAudience(gift, groups, ownerId) {
-  const groupIds = Array.isArray(gift?.group_ids) ? gift.group_ids : [];
-  if (groupIds.length === 0) return;
-  const bookedBy = Number(gift.booked_by);
-  if (Number.isSafeInteger(bookedBy) && bookedBy > 0
-    && !canViewerAccessGift(gift, groups, ownerId, bookedBy)) {
-    gift.booked_by = null;
-  }
-  if (Array.isArray(gift.participants)) {
-    gift.participants = gift.participants.filter(rawId => {
-      const participantId = Number(rawId);
-      return Number.isSafeInteger(participantId) && participantId > 0
-        && canViewerAccessGift(gift, groups, ownerId, participantId);
-    });
-  }
-  if (Array.isArray(gift.reusable_givers)) {
-    gift.reusable_givers = gift.reusable_givers.filter(rawId => {
-      const giverId = Number(rawId);
-      return Number.isSafeInteger(giverId) && giverId > 0
-        && canViewerAccessGift(gift, groups, ownerId, giverId);
-    });
-  }
-}
-
-function cleanupRecordAudience(record, groups, ownerId) {
-  const affectedViewerIds = new Set();
-  for (const gift of record.gifts) {
-    const before = collectGiftViewerIds(gift);
-    cleanupGiftAudience(gift, groups, ownerId);
-    const after = collectGiftViewerIds(gift);
-    for (const id of [...before, ...after]) {
-      if (!after.has(id) || !canViewerAccessGift(gift, groups, ownerId, id)) affectedViewerIds.add(id);
-    }
-  }
-  return affectedViewerIds;
-}
-
-function participationKey(userId) {
-  return `participations:${userId}`;
-}
-
-async function readParticipationIndex(env, userId) {
-  const stored = await env.DB.get(participationKey(userId), { type: "json" });
-  return Array.isArray(stored) ? stored : [];
-}
-
-async function syncWishlistParticipation(env, ownerId, viewer, record, providedGroups = null) {
-  if (ownerId === viewer.id) return;
-  const groups = providedGroups || await loadGroups(env, ownerId);
-
-  const existing = await readParticipationIndex(env, viewer.id);
-  const previous = existing.filter(entry => Number(entry?.ownerId) === ownerId);
-  const next = existing.filter(entry => Number(entry?.ownerId) !== ownerId);
-  const now = new Date().toISOString();
-
-  for (const gift of record.gifts) {
-    if (!canViewerAccessGift(gift, groups, ownerId, viewer.id)) continue;
-    let type = "";
-    if (gift.is_crowdfund) {
-      if (Array.isArray(gift.participants) && gift.participants.some(id => Number(id) === viewer.id)) {
-        type = "crowdfund";
-      }
-    } else if (gift.is_reusable) {
-      if (Array.isArray(gift.reusable_givers) && gift.reusable_givers.some(id => Number(id) === viewer.id)) {
-        type = "reusable";
-      }
-    } else if (Number(gift.booked_by) === viewer.id) {
-      type = "book";
-    }
-    if (!type) continue;
-
-    const oldEntry = previous.find(entry =>
-      Number(entry?.giftId) === Number(gift.id) && entry?.type === type
-    );
-    next.push({
-      ownerId,
-      giftId: Number(gift.id),
-      type,
-      updatedAt: oldEntry?.updatedAt || now
-    });
-  }
-
-  next.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
-  if (JSON.stringify(existing) !== JSON.stringify(next)) {
-    await env.DB.put(participationKey(viewer.id), JSON.stringify(next));
-  }
-}
-
-async function handleParticipationsGet(env, viewer) {
-  const existing = await readParticipationIndex(env, viewer.id);
-  const records = new Map();
-  const recordGroups = new Map();
-  const validEntries = [];
-  const items = [];
-
-  for (const entry of existing) {
-    const ownerId = Number(entry?.ownerId);
-    const giftId = Number(entry?.giftId);
-    const type = entry?.type;
-    if (!Number.isSafeInteger(ownerId) || ownerId <= 0
-      || !Number.isSafeInteger(giftId) || giftId <= 0
-      || !["book", "crowdfund", "reusable"].includes(type)) continue;
-
-    if (!records.has(ownerId)) {
-      records.set(ownerId, await loadWishlist(env, ownerId, viewer));
-      recordGroups.set(ownerId, await loadGroups(env, ownerId));
-    }
-    const record = records.get(ownerId);
-    const groups = recordGroups.get(ownerId);
-    const gift = record.gifts.find(item => Number(item.id) === giftId);
-    if (!gift || !canViewerAccessGift(gift, groups, ownerId, viewer.id)) continue;
-
-    let isActive = false;
-    if (type === "book") {
-      isActive = !gift.is_crowdfund && !gift.is_reusable && Number(gift.booked_by) === viewer.id;
-    } else if (type === "crowdfund") {
-      isActive = Boolean(gift.is_crowdfund) && Array.isArray(gift.participants)
-        && gift.participants.some(id => Number(id) === viewer.id);
-    } else if (type === "reusable") {
-      isActive = Boolean(gift.is_reusable) && Array.isArray(gift.reusable_givers)
-        && gift.reusable_givers.some(id => Number(id) === viewer.id);
-    }
-    if (!isActive) continue;
-
-    const normalizedEntry = {
-      ownerId,
-      giftId,
-      type,
-      updatedAt: String(entry.updatedAt || "")
-    };
-    validEntries.push(normalizedEntry);
-    items.push({
-      type,
-      updatedAt: normalizedEntry.updatedAt,
-      owner: {
-        id: ownerId,
-        first_name: record.owner.first_name || "Пользователь"
-      },
-      gift: {
-        id: giftId,
-        title: gift.title,
-        link: gift.link || "",
-        image: gift.image || "",
-        price: gift.price ?? null,
-        category: gift.category || "Разное",
-        comment: gift.comment || "",
-        desire: gift.desire || (gift.priority ? "high" : "medium"),
-        tags: Array.isArray(gift.tags) ? gift.tags : [],
-        group_ids: Array.isArray(gift.group_ids) ? gift.group_ids : [],
-        occasion_ids: Array.isArray(gift.occasion_ids) ? gift.occasion_ids : [],
-        priority: Boolean(gift.priority),
-        is_crowdfund: Boolean(gift.is_crowdfund),
-        is_reusable: Boolean(gift.is_reusable),
-        is_gifted: Boolean(gift.is_gifted),
-        participantsCount: Array.isArray(gift.participants) ? gift.participants.length : 0,
-        reusableCount: Array.isArray(gift.reusable_givers) ? gift.reusable_givers.length : 0
-      }
-    });
-  }
-
-  if (JSON.stringify(existing) !== JSON.stringify(validEntries)) {
-    await env.DB.put(participationKey(viewer.id), JSON.stringify(validEntries));
-  }
-  items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-  return json({ items });
-}
-
-function serializeWishlist(record, viewerId, groups = [], isSubscribed = false) {
-  const ownerId = Number(record.owner.id);
-  const visibleGifts = record.gifts.filter(gift => canViewerAccessGift(gift, groups, ownerId, viewerId));
-  const allOccasions = Array.isArray(record.occasions) ? record.occasions : [];
-  let visibleOccasions;
-  if (ownerId === viewerId) {
-    visibleOccasions = allOccasions.map(item => ({ id: item.id, title: item.title }));
-  } else {
-    const usedIds = new Set();
-    for (const gift of visibleGifts) {
-      if (Array.isArray(gift.occasion_ids)) {
-        for (const occId of gift.occasion_ids) usedIds.add(occId);
-      }
-    }
-    visibleOccasions = allOccasions
-      .filter(item => usedIds.has(item.id))
-      .map(item => ({ id: item.id, title: item.title }));
-  }
-
-  const result = {
-    owner: {
-      id: ownerId,
-      first_name: record.owner.first_name || "Пользователь",
-      username: normalizeUsername(record.owner.username || "", false)
-    },
-    is_subscribed: Boolean(isSubscribed),
-    occasions: visibleOccasions,
-    gifts: visibleGifts.map(gift => ({
-      ...gift,
-      group_ids: Array.isArray(gift.group_ids) ? gift.group_ids : [],
-      occasion_ids: Array.isArray(gift.occasion_ids) ? gift.occasion_ids : [],
-      is_reusable: Boolean(gift.is_reusable),
-      booked_by: gift.booked_by === null || gift.booked_by === undefined
-        ? null
-        : gift.booked_by === viewerId ? viewerId : -1,
-      participants: (Array.isArray(gift.participants) ? gift.participants : [])
-        .map(participantId => participantId === viewerId ? viewerId : -1),
-      reusable_givers: (Array.isArray(gift.reusable_givers) ? gift.reusable_givers : [])
-        .map(giverId => giverId === viewerId ? viewerId : -1)
-    }))
-  };
-  if (ownerId === viewerId) {
-    result.groups = groups.map(group => ({
-      id: group.id,
-      name: group.name,
-      memberIds: [...group.memberIds]
-    }));
-  }
-  return result;
-}
-
-function findGiftIndex(gifts, rawId) {
-  const id = parseId(rawId, "gift id");
-  const index = gifts.findIndex(gift => Number(gift.id) === id);
-  if (index < 0) throw new HttpError(404, "Gift not found");
-  return index;
-}
-
-function parseId(value, fieldName) {
-  const id = Number(value);
-  if (!Number.isSafeInteger(id) || id <= 0) throw new HttpError(400, `Invalid ${fieldName}`);
-  return id;
-}
-
-function createGiftId() {
-  const random = crypto.getRandomValues(new Uint16Array(1))[0];
-  return Date.now() * 1000 + random;
-}
-
-function assertContentLength(request, maximum) {
-  const length = Number(request.headers.get("Content-Length") || 0);
-  if (length > maximum) throw new HttpError(413, "Request body is too large");
-}
-
-async function handleImageUpload(request, env, user) {
-  assertContentLength(request, MAX_UPLOAD_REQUEST_BYTES);
-  let formData;
-  try {
-    formData = await request.formData();
-  } catch {
-    throw new HttpError(400, "Invalid multipart form data");
-  }
-
-  const file = formData.get("file");
-  if (!file || typeof file.arrayBuffer !== "function") {
-    throw new HttpError(400, "Image file is required");
-  }
-
-  const bytes = await file.arrayBuffer();
-  if (bytes.byteLength < 12 || bytes.byteLength > MAX_IMAGE_BYTES) {
-    throw new HttpError(413, "Image must be smaller than 512 KB");
-  }
-
-  const contentType = detectImageType(bytes);
-  if (!contentType) throw new HttpError(415, "Only WebP and JPEG images are supported");
-
-  const imageId = crypto.randomUUID().replaceAll("-", "");
-  await env.DB.put(`img:${imageId}`, bytes, {
-    metadata: {
-      contentType,
-      ownerId: String(user.id),
-      createdAt: new Date().toISOString()
-    }
-  });
-
-  return json({ url: `/api/img/${imageId}`, size: bytes.byteLength }, 201);
-}
-
-function detectImageType(buffer) {
-  const bytes = new Uint8Array(buffer);
-  const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  const isWebp = String.fromCharCode(...bytes.slice(0, 4)) === "RIFF"
-    && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
-  if (isJpeg) return "image/jpeg";
-  if (isWebp) return "image/webp";
-  return "";
-}
-
-async function handleImageRequest(env, imageId, viewer) {
-  const { value, metadata } = await env.DB.getWithMetadata(`img:${imageId}`, {
-    type: "arrayBuffer"
-  });
-  if (!value) return json({ error: "Image not found" }, 404);
-
-  const ownerId = Number(metadata?.ownerId);
-  if (!Number.isSafeInteger(ownerId) || ownerId <= 0) {
-    return json({ error: "Image not found" }, 404);
-  }
-  const record = await loadWishlist(env, ownerId, viewer);
-  const imageUrl = `/api/img/${imageId}`;
-  const linkedGifts = record.gifts.filter(gift => gift.image === imageUrl);
-  if (viewer.id !== ownerId) {
-    const groups = await loadGroups(env, ownerId);
-    const canView = linkedGifts.length > 0 && linkedGifts.some(gift =>
-      canViewerAccessGift(gift, groups, ownerId, viewer.id)
-    );
-    if (!canView) return json({ error: "Image not found" }, 404);
-  }
-
-  return new Response(value, {
-    status: 200,
-    headers: {
-      ...CORS_HEADERS,
-      "Content-Type": metadata?.contentType || "application/octet-stream",
-      "Content-Length": String(value.byteLength),
-      "Cache-Control": "private, max-age=3600",
-      "Vary": "X-Telegram-Init-Data",
-      "ETag": `"${imageId}"`,
-      "X-Content-Type-Options": "nosniff"
-    }
-  });
-}
-
-async function deleteInternalImage(env, imageUrl, ownerId) {
-  const imageId = getInternalImageId(imageUrl);
-  if (!imageId) return;
-  try {
-    const { value, metadata } = await env.DB.getWithMetadata(`img:${imageId}`, {
-      type: "arrayBuffer"
-    });
-    if (!value || String(metadata?.ownerId || "") !== String(ownerId)) return;
-    await env.DB.delete(`img:${imageId}`);
-  } catch (error) {
-    console.error("Failed to delete unused image:", error?.message || error);
-  }
-}
-
-async function handleTelegramWebhook(request, env) {
-  await getBotToken(env);
-  if (env.WEBHOOK_SECRET) {
-    const receivedSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "";
-    if (receivedSecret !== env.WEBHOOK_SECRET) throw new HttpError(401, "Invalid webhook secret");
-  }
-
-  let update;
-  try {
-    update = await request.json();
-  } catch {
-    throw new HttpError(400, "Invalid Telegram update");
-  }
-
-  const callbackQuery = update?.callback_query;
-  if (callbackQuery) {
-    return await handleNotificationCallback(env, callbackQuery);
-  }
-
-  const message = update?.message;
-  const sharedUsers = message?.users_shared || message?.user_shared;
-  if (sharedUsers) {
-    return await handleSharedUserSelection(env, message, sharedUsers);
-  }
-
-  const text = String(message?.text || "");
-  const notificationsMatch = text.match(/^\/notifications(?:@\w+)?\s*$/);
-  if (notificationsMatch && message?.chat?.id) {
-    return await handleNotificationsCommand(env, message);
-  }
-
-  const startMatch = text.match(/^\/start(?:@\w+)?(?:\s+list_(\d+)(?:_(occ_[A-Za-z0-9_-]{1,32}))?)?\s*$/);
-  if (!message?.chat?.id || !startMatch) {
-    return json({ ok: true });
-  }
-
-  if (!env.WEBAPP_URL) {
-    throw new HttpError(500, "WEBAPP_URL is not configured");
-  }
-
-  const webAppUrl = new URL(env.WEBAPP_URL);
-  if (startMatch[1]) {
-    webAppUrl.searchParams.set("list", startMatch[1]);
-  }
-  if (startMatch[2]) {
-    webAppUrl.searchParams.set("occasion", startMatch[2].replace(/^occ_occ_/, "occ_"));
-  }
-
-  await callTelegramApi(env, "sendMessage", {
-    chat_id: message.chat.id,
-    text: "Откройте вишлист, чтобы добавить желание или выбрать подарок для друга.",
-    reply_markup: {
-      inline_keyboard: [[
-        {
-          text: "Открыть вишлист",
-          web_app: { url: webAppUrl.toString() }
+      if (gift.booked_by === memberId) {
+        gift.booked_by = null;
+        modified = true;
+        await syncWishlistParticipation(env, memberId, viewer.id, gift, null);
+        if (!gift.is_gifted) {
+          notifications.push({
+            guestId: memberId,
+            ownerId: viewer.id,
+            gift,
+            reason: "access_revoked",
+            participationType: "book",
+            groupBatch: true
+          });
         }
-      ]]
-    }
-  });
-
-  return json({ ok: true });
-}
-
-async function handleSharedUserSelection(env, message, shared) {
-  if (!env.WEBAPP_URL) {
-    throw new HttpError(500, "WEBAPP_URL is not configured");
-  }
-  const requestId = Number(shared?.request_id);
-  const requesterId = Number(message?.from?.id);
-  if (!Number.isSafeInteger(requestId) || requestId <= 0
-    || !Number.isSafeInteger(requesterId) || requesterId <= 0) {
-    return json({ ok: true });
-  }
-
-  const key = selectionKey(requestId);
-  const pending = await env.DB.get(key, { type: "json" });
-  if (!pending || Number(pending.requesterId) !== requesterId) {
-    await callTelegramApi(env, "sendMessage", {
-      chat_id: requesterId,
-      text: "Этот запрос выбора уже использован или устарел. Вернитесь в приложение и попробуйте ещё раз.",
-      reply_markup: { remove_keyboard: true }
-    });
-    return json({ ok: true });
-  }
-
-  const sharedProfile = Array.isArray(shared?.users) ? shared.users[0] : shared;
-  const selectedId = Number(sharedProfile?.user_id);
-  if (!Number.isSafeInteger(selectedId) || selectedId <= 0 || selectedId === requesterId) {
-    await env.DB.delete(key);
-    await callTelegramApi(env, "sendMessage", {
-      chat_id: requesterId,
-      text: "Нужно выбрать другого пользователя Telegram, не собственный аккаунт.",
-      reply_markup: { remove_keyboard: true }
-    });
-    return json({ ok: true });
-  }
-
-  const previousProfile = await readPublicProfile(env, selectedId);
-  const selectedProfile = {
-    id: selectedId,
-    first_name: cleanPlainText(sharedProfile?.first_name || previousProfile.first_name, 64) || "Пользователь",
-    username: normalizeUsername(sharedProfile?.username || previousProfile.username || "", false)
-  };
-  await rememberTelegramUser(env, selectedProfile);
-
-  let confirmation = "";
-  if (pending.action === "subscribe") {
-    await addSubscription(env, requesterId, selectedId);
-    confirmation = `Вы подписались на вишлист: ${selectedProfile.first_name}.`;
-  } else if (pending.action === "add_group_member") {
-    const groups = await loadGroups(env, requesterId);
-    const group = groups.find(item => item.id === String(pending.groupId || ""));
-    if (!group) {
-      await env.DB.delete(key);
-      await callTelegramApi(env, "sendMessage", {
-        chat_id: requesterId,
-        text: "Выбранная группа больше не существует.",
-        reply_markup: { remove_keyboard: true }
-      });
-      return json({ ok: true });
-    }
-    if (!group.memberIds.includes(selectedId)) {
-      if (group.memberIds.length >= MAX_SOCIAL_ITEMS) {
-        throw new HttpError(409, "Group members limit reached");
       }
-      group.memberIds.push(selectedId);
-      await saveGroups(env, requesterId, groups);
+
+      if (Array.isArray(gift.participants) && gift.participants.includes(memberId)) {
+        gift.participants = gift.participants.filter(id => id !== memberId);
+        modified = true;
+        await syncWishlistParticipation(env, memberId, viewer.id, gift, null);
+        if (!gift.is_gifted) {
+          notifications.push({
+            guestId: memberId,
+            ownerId: viewer.id,
+            gift,
+            reason: "access_revoked",
+            participationType: "crowdfund",
+            groupBatch: true
+          });
+        }
+      }
+
+      if (Array.isArray(gift.reusable_givers) && gift.reusable_givers.includes(memberId)) {
+        gift.reusable_givers = gift.reusable_givers.filter(id => id !== memberId);
+        modified = true;
+        await syncWishlistParticipation(env, memberId, viewer.id, gift, null);
+        if (!gift.is_gifted) {
+          notifications.push({
+            guestId: memberId,
+            ownerId: viewer.id,
+            gift,
+            reason: "access_revoked",
+            participationType: "reusable",
+            groupBatch: true
+          });
+        }
+      }
     }
-    confirmation = `${selectedProfile.first_name} добавлен(а) в группу «${group.name}».`;
-  } else {
-    await env.DB.delete(key);
-    throw new HttpError(400, "Unknown selection action");
+
+    if (modified) {
+      await saveWishlist(env, viewer.id, record);
+    }
+    if (notifications.length > 0) {
+      dispatchBackground(ctx, notifyGuestsBatch(env, notifications));
+    }
+
+    return json(await buildSocialPayload(env, viewer.id));
   }
 
-  await env.DB.delete(key);
-  const webAppUrl = new URL(env.WEBAPP_URL);
-  await callTelegramApi(env, "sendMessage", {
-    chat_id: requesterId,
-    text: confirmation,
-    reply_markup: {
-      inline_keyboard: [[{ text: "Вернуться в приложение", web_app: { url: webAppUrl.toString() } }]]
-    }
-  });
-  return json({ ok: true });
+  throw new ApiError(400, "Unsupported social action");
 }
 
-function buildNotificationSettingsText(prefs) {
-  const status = value => (value ? "включены" : "выключены");
-  return "Настройки уведомлений:\n"
-    + `• Брони и совместные сборы: ${status(prefs.bookings)}\n`
-    + `• Новые желания друзей: ${status(prefs.new_gifts)}`;
-}
+function buildSuperappStartMenuKeyboard(webAppBaseUrl) {
+  const base = webAppBaseUrl.endsWith("/") ? webAppBaseUrl : `${webAppBaseUrl}/`;
+  const wishlistUrl = new URL(base);
+  wishlistUrl.searchParams.set("module", "wishlist");
 
-function buildNotificationSettingsMarkup(prefs) {
+  const expensesUrl = new URL(base);
+  expensesUrl.searchParams.set("module", "expenses");
+
+  const hubUrl = new URL(base);
+
   return {
     inline_keyboard: [
-      [{
-        text: prefs.bookings ? "Брони и сборы: выключить" : "Брони и сборы: включить",
-        callback_data: "notify:toggle:bookings"
-      }],
-      [{
-        text: prefs.new_gifts ? "Новые желания: выключить" : "Новые желания: включить",
-        callback_data: "notify:toggle:new_gifts"
-      }]
+      [
+        { text: "🎁 Вишлисты", web_app: { url: wishlistUrl.toString() } },
+        { text: "💰 Совместные расходы", web_app: { url: expensesUrl.toString() } }
+      ],
+      [
+        { text: "🧭 Главное меню", web_app: { url: hubUrl.toString() } }
+      ]
     ]
   };
 }
 
-async function handleNotificationsCommand(env, message) {
-  const userId = Number(message?.from?.id ?? message?.chat?.id);
-  if (!isValidChatId(userId)) return json({ ok: true });
-  const prefs = await readNotificationPrefs(env, userId);
-  try {
-    await callTelegramApi(env, "sendMessage", {
-      chat_id: Number(userId),
-      text: buildNotificationSettingsText(prefs),
-      reply_markup: buildNotificationSettingsMarkup(prefs)
-    });
-  } catch (error) {
-    console.warn("Failed to send notification settings:", error?.stack || error);
+export async function handleTelegramWebhook(request, env) {
+  const secretHeader = env.WEBHOOK_SECRET || "";
+  if (secretHeader && request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== secretHeader) {
+    throw new ApiError(401, "Invalid webhook secret");
   }
-  return json({ ok: true });
-}
 
-async function handleNotificationCallback(env, callbackQuery) {
-  try {
-    const data = String(callbackQuery?.data || "");
-    const match = data.match(/^notify:toggle:(bookings|new_gifts)$/);
-    const userId = Number(callbackQuery?.from?.id);
-    if (match && isValidChatId(userId)) {
-      const prefKey = match[1];
-      const prefs = await readNotificationPrefs(env, userId);
-      prefs[prefKey] = !prefs[prefKey];
-      await env.DB.put(notifyPrefsKey(userId), JSON.stringify(prefs));
+  const update = await request.json().catch(() => null);
+  if (!update) return json({ ok: true });
 
-      const messageId = Number(callbackQuery?.message?.message_id);
-      const chatId = Number(callbackQuery?.message?.chat?.id ?? userId);
-      if (Number.isSafeInteger(messageId) && messageId > 0 && isValidChatId(chatId)) {
-        try {
+  // Обработка inline-кнопок настройки уведомлений (/notifications)
+  if (update.callback_query) {
+    const query = update.callback_query;
+    const fromUser = query.from;
+    const data = String(query.data || "");
+
+    if (fromUser?.id) {
+      await upsertUserDirectory(env, {
+        id: fromUser.id,
+        first_name: fromUser.first_name || "Пользователь",
+        username: fromUser.username || ""
+      });
+    }
+
+    if (data.startsWith("notif_toggle:") && fromUser?.id) {
+      const field = data.slice("notif_toggle:".length);
+      if (field === "bookings" || field === "new_gifts") {
+        const current = await loadNotificationPrefs(env, fromUser.id);
+        const updated = await saveNotificationPrefs(env, fromUser.id, {
+          [field]: !current[field]
+        });
+
+        await callTelegramApi(env, "answerCallbackQuery", {
+          callback_query_id: query.id,
+          text: "Настройка сохранена"
+        });
+
+        if (query.message?.chat?.id && query.message?.message_id) {
           await callTelegramApi(env, "editMessageText", {
-            chat_id: chatId,
-            message_id: messageId,
-            text: buildNotificationSettingsText(prefs),
-            reply_markup: buildNotificationSettingsMarkup(prefs)
+            chat_id: query.message.chat.id,
+            message_id: query.message.message_id,
+            text: formatNotificationsSettingsText(updated),
+            reply_markup: buildNotificationsKeyboard(updated)
           });
-        } catch (error) {
-          console.warn("Failed to update notification settings message:", error?.stack || error);
         }
       }
+    } else if (query.id) {
+      await callTelegramApi(env, "answerCallbackQuery", {
+        callback_query_id: query.id
+      });
     }
-    const callbackId = callbackQuery?.id;
-    if (callbackId) {
-      try {
-        await callTelegramApi(env, "answerCallbackQuery", { callback_query_id: callbackId });
-      } catch (error) {
-        console.warn("Failed to answer callback query:", error?.stack || error);
-      }
-    }
-  } catch (error) {
-    console.warn("Failed to handle notification callback:", error?.stack || error);
+
+    return json({ ok: true });
   }
+
+  const message = update.message;
+  if (!message) return json({ ok: true });
+
+  if (message.from?.id) {
+    await upsertUserDirectory(env, {
+      id: message.from.id,
+      first_name: message.from.first_name || "Пользователь",
+      username: message.from.username || ""
+    });
+  }
+
+  const chatId = message.chat?.id;
+  if (!chatId) return json({ ok: true });
+
+  if (message.users_shared && message.from?.id) {
+    await handleSharedUserSelection(env, message.from.id, chatId, message.users_shared);
+    return json({ ok: true });
+  }
+
+  const text = String(message.text || "").trim();
+
+  if (text.startsWith("/notifications")) {
+    const prefs = await loadNotificationPrefs(env, message.from.id);
+    await sendTelegramBotMessage(
+      env,
+      chatId,
+      formatNotificationsSettingsText(prefs),
+      buildNotificationsKeyboard(prefs)
+    );
+    return json({ ok: true });
+  }
+
+  if (text.startsWith("/start")) {
+    const parts = text.split(/\s+/);
+    const rawParam = parts[1] || "";
+
+    if (!env.WEBAPP_URL) {
+      return json({ ok: true });
+    }
+    const baseAppUrl = env.WEBAPP_URL.endsWith("/") ? env.WEBAPP_URL : `${env.WEBAPP_URL}/`;
+    const webAppUrl = new URL(baseAppUrl);
+
+    if (rawParam.startsWith("exp_")) {
+      webAppUrl.searchParams.set("module", "expenses");
+      webAppUrl.searchParams.set("invite", rawParam);
+      await sendTelegramBotMessage(
+        env,
+        chatId,
+        "Вас пригласили в событие модуля «Совместные расходы». Нажмите кнопку ниже, чтобы открыть событие:",
+        {
+          inline_keyboard: [[
+            { text: "💰 Открыть событие расходов", web_app: { url: webAppUrl.toString() } }
+          ]]
+        }
+      );
+      return json({ ok: true });
+    }
+
+    if (rawParam === "module_wishlist" || rawParam === "module_expenses") {
+      const mod = rawParam === "module_wishlist" ? "wishlist" : "expenses";
+      webAppUrl.searchParams.set("module", mod);
+      await sendTelegramBotMessage(
+        env,
+        chatId,
+        mod === "wishlist"
+          ? "Нажмите кнопку ниже, чтобы открыть вишлисты:"
+          : "Нажмите кнопку ниже, чтобы открыть совместные расходы:",
+        {
+          inline_keyboard: [[
+            {
+              text: mod === "wishlist" ? "🎁 Открыть вишлисты" : "💰 Открыть совместные расходы",
+              web_app: { url: webAppUrl.toString() }
+            }
+          ]]
+        }
+      );
+      return json({ ok: true });
+    }
+
+    const startMatch = rawParam.match(/^list_(\d+)(?:_(occ_[a-zA-Z0-9_-]+))?$/);
+    if (startMatch) {
+      webAppUrl.searchParams.set("module", "wishlist");
+      webAppUrl.searchParams.set("list", startMatch[1]);
+      if (startMatch[2]) {
+        webAppUrl.searchParams.set("occasion", startMatch[2]);
+      }
+      webAppUrl.searchParams.set("tgWebAppStartParam", rawParam);
+      const replyText = startMatch[2]
+        ? "Нажмите кнопку ниже, чтобы открыть подборку подарков:"
+        : "Нажмите кнопку ниже, чтобы открыть вишлист друга:";
+      const buttonLabel = startMatch[2] ? "Открыть подборку" : "Открыть вишлист";
+      await sendTelegramBotMessage(env, chatId, replyText, {
+        inline_keyboard: [[
+          { text: buttonLabel, web_app: { url: webAppUrl.toString() } }
+        ]]
+      });
+      return json({ ok: true });
+    }
+
+    await sendTelegramBotMessage(
+      env,
+      chatId,
+      "Привет! Выберите раздел Mini App, который нужно открыть:",
+      buildSuperappStartMenuKeyboard(baseAppUrl)
+    );
+  }
+
   return json({ ok: true });
 }
 
-async function getBotUsername(env) {
-  await getBotToken(env);
-  const cached = await env.DB.get("config:bot", { type: "json" });
-  if (cached?.username) return cached.username;
+export async function handleSharedUserSelection(env, viewerId, chatId, usersShared) {
+  const numericRequestId = Number(usersShared.request_id);
+  const sharedUsers = Array.isArray(usersShared.users) ? usersShared.users : [];
+  const selected = sharedUsers[0];
 
-  const me = await callTelegramApi(env, "getMe", {});
-  if (!me?.username) throw new HttpError(502, "Telegram bot username is unavailable");
+  const listed = await env.DB.list({ prefix: "selection:" });
+  let matchedKey = "";
+  let pending = null;
+  for (const keyInfo of listed.keys) {
+    const candidate = await env.DB.get(keyInfo.name, "json");
+    if (
+      candidate &&
+      Number(candidate.viewerId) === viewerId &&
+      Number(candidate.numericRequestId) === numericRequestId
+    ) {
+      matchedKey = keyInfo.name;
+      pending = candidate;
+      break;
+    }
+  }
 
-  await env.DB.put("config:bot", JSON.stringify({ username: me.username }), {
-    expirationTtl: 86400
+  if (!pending || !selected) {
+    await sendTelegramBotMessage(
+      env,
+      chatId,
+      "Запрос выбора устарел. Повторите действие в приложении.",
+      { remove_keyboard: true }
+    );
+    return;
+  }
+
+  await env.DB.delete(matchedKey);
+  const selectedId = parseId(selected.user_id, "selected_user_id");
+  const firstName = [selected.first_name, selected.last_name].filter(Boolean).join(" ").trim() || "Пользователь";
+  await upsertUserDirectory(env, {
+    id: selectedId,
+    first_name: firstName,
+    username: selected.username ? normalizeUsername(selected.username, false) : ""
   });
-  return me.username;
+
+  if (selectedId === viewerId) {
+    await sendTelegramBotMessage(
+      env,
+      chatId,
+      "Нельзя выбрать самого себя.",
+      { remove_keyboard: true }
+    );
+    return;
+  }
+
+  let messageText = "Готово.";
+  if (pending.purpose === "subscribe") {
+    await addSubscriber(env, viewerId, selectedId);
+    messageText = `Подписка на ${cleanPlainText(firstName, 64)} сохранена. Вернитесь в Mini App.`;
+  } else if (pending.purpose === "group") {
+    const groups = await loadGroups(env, viewerId);
+    const group = getGroup(groups, pending.groupId);
+    if (!group.memberIds.includes(selectedId)) {
+      group.memberIds.unshift(selectedId);
+      await saveGroups(env, viewerId, groups);
+    }
+    messageText = `${cleanPlainText(firstName, 64)} добавлен в группу «${group.name}». Вернитесь в Mini App.`;
+  }
+
+  await sendTelegramBotMessage(env, chatId, messageText, { remove_keyboard: true });
 }
 
-async function callTelegramApi(env, method, payload) {
-  const botToken = await getBotToken(env);
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+// ==========================================================================
+// 8. ГЛАВНЫЙ РОУТЕР CLOUDFLARE WORKER
+// ==========================================================================
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const origin = request.headers.get("Origin") || "";
+    const cors = getCorsHeaders(origin);
 
-  let result;
-  try {
-    result = await response.json();
-  } catch {
-    throw new HttpError(502, "Invalid response from Telegram");
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: cors });
+    }
+
+    try {
+      if (url.pathname.startsWith("/api/core/") || url.pathname.startsWith("/api/expenses/")) {
+        const { handleCoreApi, handleExpensesApi, getExpensesErrorResponse } = await import("./expenses-worker.js");
+        const viewer = await verifyTelegramInitData(
+          request.headers.get("X-Telegram-Init-Data") || "",
+          env.BOT_TOKEN
+        );
+        await upsertUserDirectory(env, viewer);
+        try {
+          const innerResponse = url.pathname.startsWith("/api/core/")
+            ? await handleCoreApi(request, env, viewer, url)
+            : await handleExpensesApi(request, env, viewer, url);
+          const headers = new Headers(innerResponse.headers);
+          for (const [k, v] of Object.entries(cors)) headers.set(k, v);
+          return new Response(innerResponse.body, {
+            status: innerResponse.status,
+            headers
+          });
+        } catch (expError) {
+          const mapped = getExpensesErrorResponse(expError);
+          if (mapped) {
+            const headers = new Headers(mapped.headers);
+            for (const [k, v] of Object.entries(cors)) headers.set(k, v);
+            return new Response(mapped.body, { status: mapped.status, headers });
+          }
+          throw expError;
+        }
+      }
+
+      if (url.pathname === "/" && request.method === "GET") {
+        return json({ ok: true, service: "wishlist-and-expenses-worker" }, 200, cors);
+      }
+
+      if ((url.pathname === "/" || url.pathname === "/webhook") && request.method === "POST") {
+        const res = await handleTelegramWebhook(request, env);
+        return json(await res.json(), res.status, cors);
+      }
+
+      if (url.pathname === "/api/health" && request.method === "GET") {
+        return json({ ok: true }, 200, cors);
+      }
+
+      if (url.pathname === "/api/config" && request.method === "GET") {
+        const botUsername = await getBotUsername(env);
+        return json({ botUsername }, 200, cors);
+      }
+
+      const viewer = await verifyTelegramInitData(
+        request.headers.get("X-Telegram-Init-Data") || "",
+        env.BOT_TOKEN
+      );
+      await upsertUserDirectory(env, viewer);
+
+      let response;
+      if (url.pathname === "/api/upload" && request.method === "POST") {
+        response = await handleImageUpload(request, env, viewer);
+      } else if (url.pathname.startsWith("/api/img/") && request.method === "GET") {
+        const imageId = url.pathname.slice("/api/img/".length);
+        response = await handleImageGet(env, viewer, imageId);
+      } else if (url.pathname === "/api/participations" && request.method === "GET") {
+        response = await handleParticipationsGet(env, viewer);
+      } else if (url.pathname === "/api/social" && request.method === "GET") {
+        response = await handleSocialGet(env, viewer);
+      } else if (url.pathname === "/api/social" && request.method === "POST") {
+        response = await handleSocialPost(request, env, viewer, ctx);
+      } else if ((url.pathname === "/api/gifts" || url.pathname === "/api/data") && request.method === "GET") {
+        response = await handleGiftsGet(env, viewer, url);
+      } else if ((url.pathname === "/api/gifts" || url.pathname === "/api/data") && request.method === "POST") {
+        response = await handleGiftsPost(request, env, viewer, ctx);
+      } else {
+        throw new ApiError(404, "Not found");
+      }
+
+      const headers = new Headers(response.headers);
+      for (const [k, v] of Object.entries(cors)) {
+        headers.set(k, v);
+      }
+      return new Response(response.body, {
+        status: response.status,
+        headers
+      });
+    } catch (error) {
+      const status = error instanceof ApiError ? error.status : 500;
+      const message = error instanceof ApiError ? error.message : "Internal server error";
+      return json({ error: message }, status, cors);
+    }
   }
-  if (!response.ok || !result.ok) {
-    console.error("Telegram API error:", result?.description || response.status);
-    throw new HttpError(502, "Telegram API request failed");
-  }
-  return result.result;
-}
+};
