@@ -1712,7 +1712,7 @@ export async function handleExpensesApi(request, env, viewer, url) {
     return json({ ok: true, event: serializeEventDetail(updated.eventRow, updated.members, updated.viewerMember, operations, auditLog, settlements, goal) });
   }
 
-  // POST /api/expenses/events/:id/goals — создание целевого сбора фиксированной суммы
+  // POST /api/expenses/events/:id/goals
   const goalsMatch = path.match(/^\/api\/expenses\/events\/([A-Za-z0-9_-]+)\/goals$/);
   if (goalsMatch && method === "POST") {
     const eventId = goalsMatch[1];
@@ -2490,13 +2490,14 @@ export function getExpensesErrorResponse(error) {
 }
 
 export function buildSuperappStartKeyboard(webAppBaseUrl) {
-  const wishlistUrl = new URL(webAppBaseUrl);
+  const base = webAppBaseUrl.endsWith("/") ? webAppBaseUrl : `${webAppBaseUrl}/`;
+  const wishlistUrl = new URL(base);
   wishlistUrl.searchParams.set("module", "wishlist");
 
-  const expensesUrl = new URL(webAppBaseUrl);
+  const expensesUrl = new URL(base);
   expensesUrl.searchParams.set("module", "expenses");
 
-  const hubUrl = new URL(webAppBaseUrl);
+  const hubUrl = new URL(base);
 
   return {
     inline_keyboard: [
@@ -2544,7 +2545,8 @@ async function tryHandleSuperappStartCommand(request, env) {
   }
 
   const arg = genericStartMatch[1] || "";
-  const baseUrl = new URL(env.WEBAPP_URL);
+  const normalizedBase = env.WEBAPP_URL.endsWith("/") ? env.WEBAPP_URL : `${env.WEBAPP_URL}/`;
+  const baseUrl = new URL(normalizedBase);
   if (arg === "module_wishlist") baseUrl.searchParams.set("module", "wishlist");
   if (arg === "module_expenses") baseUrl.searchParams.set("module", "expenses");
   if (arg.startsWith("exp_")) {
@@ -2574,7 +2576,7 @@ async function tryHandleSuperappStartCommand(request, env) {
       ]]
     };
   } else {
-    replyMarkup = buildSuperappStartKeyboard(env.WEBAPP_URL);
+    replyMarkup = buildSuperappStartKeyboard(normalizedBase);
   }
 
   const tgApiBase = ["https://api.", "telegram.org/bot", env.BOT_TOKEN, "/sendMessage"].join("");
