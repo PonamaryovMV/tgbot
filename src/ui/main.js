@@ -1,5 +1,7 @@
 import {
+  API_ORIGIN,
   tg,
+  STORAGE_KEY,
   isTelegramSession,
   isBrowserDemo,
   telegramViewerUsername,
@@ -12,7 +14,9 @@ import {
   handleImageUrlInput,
   clearPhoto,
   switchPhotoTab,
-  loadBotConfig
+  loadBotConfig,
+  triggerHaptic,
+  showToast
 } from "./state.js";
 import {
   registerSocialUiHooks,
@@ -114,6 +118,7 @@ import {
   registerExpensesStateHooks,
   getExpensesState,
   loadExpensesDashboard,
+  loadExpensesContacts,
   openExpenseEvent,
   backToExpensesDashboard,
   switchExpenseEventTab,
@@ -141,11 +146,24 @@ import {
   openNewEventModal,
   closeNewEventModal,
   selectNewEventIcon,
+  renderNewEventMembersSection,
+  refreshExpensesContacts,
+  toggleDraftNewEventContact,
+  removeDraftNewEventMember,
+  addDraftNewEventMemberByUsername,
+  requestTelegramContactForExpenses,
   handleCreateExpenseEventSubmit,
+  openEditEventModal,
+  closeEditEventModal,
+  selectEditEventIcon,
+  renderEditEventModal,
+  handleEditExpenseEventSubmit,
   openEventParticipantsModal,
   closeEventParticipantsModal,
+  renderEventParticipantsModal,
   toggleMergeMemberSelection,
-  handleAddGhostMemberSubmit,
+  handleAddRealMemberSubmit,
+  addRealMemberToCurrentEvent,
   adjustMemberWeight,
   removeExpenseMember,
   mergeSelectedIntoUnifiedWallet,
@@ -196,6 +214,8 @@ registerExpensesStateHooks({
 
 Object.assign(window, {
   state,
+  STORAGE_KEY,
+  isTelegramSession,
   handleFileSelect,
   handleImageUrlInput,
   clearPhoto,
@@ -289,6 +309,7 @@ Object.assign(window, {
   handleSaveSuperappProfile,
   getExpensesState,
   loadExpensesDashboard,
+  loadExpensesContacts,
   openExpenseEvent,
   backToExpensesDashboard,
   switchExpenseEventTab,
@@ -312,11 +333,21 @@ Object.assign(window, {
   openNewEventModal,
   closeNewEventModal,
   selectNewEventIcon,
+  refreshExpensesContacts,
+  toggleDraftNewEventContact,
+  removeDraftNewEventMember,
+  addDraftNewEventMemberByUsername,
+  requestTelegramContactForExpenses,
   handleCreateExpenseEventSubmit,
+  openEditEventModal,
+  closeEditEventModal,
+  selectEditEventIcon,
+  handleEditExpenseEventSubmit,
   openEventParticipantsModal,
   closeEventParticipantsModal,
   toggleMergeMemberSelection,
-  handleAddGhostMemberSubmit,
+  handleAddRealMemberSubmit,
+  addRealMemberToCurrentEvent,
   adjustMemberWeight,
   removeExpenseMember,
   mergeSelectedIntoUnifiedWallet,
@@ -399,6 +430,25 @@ window.addEventListener("DOMContentLoaded", () => {
   renderSuperappHub();
   if (isTelegramSession && API_ORIGIN) {
     syncCoreProfileFromServer();
+    document.addEventListener("visibilitychange", async () => {
+      if (document.visibilityState !== "visible") return;
+      const exp = getExpensesState();
+      if (!exp.pendingSelectionContext) return;
+      const ctx = exp.pendingSelectionContext;
+      await loadExpensesContacts(true);
+      if (ctx.mode === "new_event" && document.getElementById("newEventModalBackdrop")?.classList.contains("open")) {
+        renderNewEventMembersSection();
+      } else if (ctx.mode === "event" && exp.currentEvent?.id === ctx.eventId) {
+        exp.pendingSelectionContext = null;
+        await openExpenseEvent(ctx.eventId);
+        if (document.getElementById("eventParticipantsModalBackdrop")?.classList.contains("open")) {
+          renderEventParticipantsModal();
+        }
+        if (document.getElementById("editEventModalBackdrop")?.classList.contains("open")) {
+          renderEditEventModal();
+        }
+      }
+    });
   }
   loadExpensesDashboard();
   checkPendingExpenseInvite();

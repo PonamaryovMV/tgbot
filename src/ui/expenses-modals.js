@@ -2,6 +2,7 @@ import {
   API_ORIGIN,
   tg,
   DEMO_USERS,
+  state,
   isTelegramSession,
   startParam,
   escapeHtml,
@@ -9,6 +10,7 @@ import {
   showToast,
   readApiResponse
 } from "./state.js";
+import { openBotForSelection } from "./wishlist-social.js";
 import { getSuperappState, selectSuperappModule } from "./hub.js";
 import {
   EXPENSE_ICONS,
@@ -20,6 +22,7 @@ import {
   computeClientSettlementPlan,
   getExpensesState,
   loadExpensesDashboard,
+  loadExpensesContacts,
   openExpenseEvent
 } from "./expenses-state.js";
 import { renderExpensesModule, renderExpenseEventDetail } from "./expenses-views.js";
@@ -739,11 +742,220 @@ export async function deleteCurrentExpenseOperation() {
   showToast("🗑 Операция удалена");
 }
 
+function normalizeExpenseUsername(value) {
+  const username = String(value || "").trim().replace(/^@+/, "");
+  if (!/^[A-Za-z0-9_]{5,32}$/.test(username)) {
+    showToast("⚠️ Введите корректный @username Telegram");
+    return "";
+  }
+  return username.toLowerCase();
+}
+
+function resolveDemoUserByInput({ username, telegram_id }) {
+  const all = [];
+  for (const u of Object.values(DEMO_USERS)) {
+    all.push({ telegram_id: u.id, username: u.username, display_name: u.name });
+  }
+  for (const sub of state.subscriptions || []) {
+    const id = Number(sub?.id);
+    if (id && !all.some(x => x.telegram_id === id)) {
+      all.push({ telegram_id: id, username: sub.username || "", display_name: sub.first_name || "Пользователь" });
+    }
+  }
+  if (telegram_id !== undefined && telegram_id !== null && telegram_id !== "") {
+    return all.find(x => Number(x.telegram_id) === Number(telegram_id)) || null;
+  }
+  if (username) {
+    const clean = String(username).trim().replace(/^@+/, "").toLowerCase();
+    return all.find(x => String(x.username || "").toLowerCase() === clean) || null;
+  }
+  return null;
+}
+
+export function renderNewEventMembersSection() {
+  const exp = getExpensesState();
+  const selectedEl = document.getElementById("newEventSelectedMembers");
+  const quickPickEl = document.getElementById("newEventContactsQuickPick");
+  const selected = Array.isArray(exp.newEventMembers) ? exp.newEventMembers : [];
+
+  if (selectedEl) {
+    const myLabel = state.viewerName || "Вы";
+    const chips = [
+      `<span class="audience-chip active" style="cursor: default;">👑 ${escapeHtml(myLabel)} (Вы)</span>`,
+      ...selected.map(m => {
+        const sub = m.username ? ` @${escapeHtml(m.username)}` : "";
+        return `
+          <button type="button" class="audience-chip active" onclick="removeDraftNewEventMember(${Number(m.telegram_id)})" title="Убрать из события">
+            ${escapeHtml(m.display_name || "Пользователь")}${sub} ✕
+          </button>
+        `;
+      })
+    ];
+    selectedEl.innerHTML = chips.join("");
+  }
+
+  if (quickPickEl) {
+    const selectedIds = new Set(selected.map(m => Number(m.telegram_id)));
+    const available = (exp.contacts || []).filter(c => !selectedIds.has(Number(c.telegram_id)));
+    if (available.length > 0) {
+      quickPickEl.innerHTML = `
+        <div style="font-size: 11.5px; color: var(--tg-theme-hint-color); margin-bottom: 6px;">Контакты и подписки (нажмите, чтобы добавить):</div>
+        <div class="audience-editor">
+          ${available.map(c => `
+            <button type="button" class="audience-chip" onclick="toggleDraftNewEventContact(${Number(c.telegram_id)})">
+              ＋ ${escapeHtml(c.display_name || "Пользователь")}${c.username ? ` (@${escapeHtml(c.username)})` : ""}
+            </button>
+          `).join("")}
+        </div>
+      `;
+    } else if (selected.length === 0) {
+      quickPickEl.innerHTML = `<div class="composer-hint">Добавьте участников по @username или выберите через Telegram.</div>`;
+    } else {
+      quickPickEl.innerHTML = "";
+    }
+  }
+}
+
+export async function refreshExpensesContacts() {
+  await loadExpensesContacts(false);
+  renderNewEventMembersSection();
+  if (document.getElementById("eventParticipantsModalBackdrop")?.classList.contains("open")) {
+    renderEventParticipantsModal();
+  }
+  if (document.getElementById("editEventModalBackdrop")?.classList.contains("open")) {
+    renderEditEventModal();
+  }
+}
+
+export function toggleDraftNewEventContact(telegramId) {
+  const exp = getExpensesState();
+  const contact = (exp.contacts || []).find(c => Number(c.telegram_id) === Number(telegramId));
+  if (!contact) return;
+  if (!exp.newEventMembers.some(m => Number(m.telegram_id) === Number(telegramId))) {
+    exp.newEventMembers.push(contact);
+  }
+  renderNewEventMembersSection();
+  triggerHaptic("light");
+}
+
+export function removeDraftNewEventMember(telegramId) {
+  const exp = getExpensesState();
+  exp.newEventMembers = (exp.newEventMembers || []).filter(m => Number(m.telegram_id) !== Number(telegramId));
+  renderNewEventMembersSection();
+  triggerHaptic("light");
+}
+
+export async function addDraftNewEventMemberByUsername() {
+  const exp = getExpensesState();
+  const input = document.getElementById("newEventMemberUsernameInput");
+  const username = normalizeExpenseUsername(input?.value || "");
+  if (!username) return;
+
+  if (isTelegramSession && API_ORIGIN) {
+    const btn = document.getElementById("newEventAddMemberBtn");
+    if (btn) btn.disabled = true;
+    try {
+      const response = await fetch(`${API_ORIGIN}/api/expenses/contacts/resolve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Telegram-Init-Data": tg?.initData || ""
+        },
+        body: JSON.stringify({ username })
+      });
+      const data = await readApiResponse(response);
+      if (data?.status === "selection_required") {
+        state.selectionBotUsername = String(data.botUsername || state.botUsername || "").replace(/^@/, "");
+        exp.pendingSelectionContext = {
+          mode: "new_event",
+          beforeIds: new Set((exp.contacts || []).map(c => Number(c.telegram_id)))
+        };
+        const helpEl = document.getElementById("newEventSelectionHelp");
+        if (helpEl) helpEl.hidden = false;
+        showToast("Выберите человека в сообщении от бота");
+        return;
+      }
+      if (data?.user) {
+        if (!exp.newEventMembers.some(m => Number(m.telegram_id) === Number(data.user.telegram_id))) {
+          exp.newEventMembers.push(data.user);
+        }
+        if (input) input.value = "";
+        const helpEl = document.getElementById("newEventSelectionHelp");
+        if (helpEl) helpEl.hidden = true;
+        await loadExpensesContacts(true);
+        renderNewEventMembersSection();
+        triggerHaptic("success");
+        showToast(`✓ ${data.user.display_name} добавлен(а) в список`);
+      }
+    } catch (error) {
+      showToast(`❌ ${error.message || "Не удалось найти пользователя"}`);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+    return;
+  }
+
+  const found = resolveDemoUserByInput({ username });
+  if (!found) {
+    showToast("⚠️ В демо доступны @maxim, @anna1 и @dima1");
+    return;
+  }
+  if (Number(found.telegram_id) === Number(state.viewerId)) {
+    showToast("⚠️ Вы уже являетесь создателем события");
+    return;
+  }
+  if (!exp.newEventMembers.some(m => Number(m.telegram_id) === Number(found.telegram_id))) {
+    exp.newEventMembers.push(found);
+  }
+  if (input) input.value = "";
+  renderNewEventMembersSection();
+  showToast(`✓ ${found.display_name} добавлен(а) в список`);
+}
+
+export async function requestTelegramContactForExpenses(eventId = null) {
+  if (!isTelegramSession || !API_ORIGIN) {
+    showToast("Выбор реального пользователя доступен после открытия приложения через @testpmvbot_bot.");
+    return;
+  }
+  const exp = getExpensesState();
+  try {
+    const response = await fetch(`${API_ORIGIN}/api/expenses/contacts/request`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Telegram-Init-Data": tg?.initData || ""
+      },
+      body: JSON.stringify(eventId ? { event_id: eventId } : {})
+    });
+    const data = await readApiResponse(response);
+    if (data?.status === "selection_required") {
+      state.selectionBotUsername = String(data.botUsername || state.botUsername || "").replace(/^@/, "");
+      exp.pendingSelectionContext = eventId
+        ? { mode: "event", eventId }
+        : {
+            mode: "new_event",
+            beforeIds: new Set((exp.contacts || []).map(c => Number(c.telegram_id)))
+          };
+      const helpId = eventId
+        ? (document.getElementById("editEventModalBackdrop")?.classList.contains("open")
+            ? "editEventSelectionHelp"
+            : "expParticipantsSelectionHelp")
+        : "newEventSelectionHelp";
+      const helpEl = document.getElementById(helpId);
+      if (helpEl) helpEl.hidden = false;
+      showToast("Откройте чат с ботом и выберите контакт");
+    }
+  } catch (error) {
+    showToast(`❌ ${error.message || "Не удалось запросить выбор пользователя"}`);
+  }
+}
+
 export function openNewEventModal() {
   const exp = getExpensesState();
   const hub = getSuperappState();
   exp.newEventIcon = "🎉";
   exp.newEventSimplify = true;
+  exp.newEventMembers = [];
 
   const iconsBox = document.getElementById("newEventIconsPicker");
   if (iconsBox) {
@@ -755,13 +967,15 @@ export function openNewEventModal() {
   const titleInput = document.getElementById("newEventTitleInput");
   const curSelect = document.getElementById("newEventCurrencySelect");
   const copySelect = document.getElementById("newEventCopyMembersSelect");
-  const ghostsInput = document.getElementById("newEventGhostsInput");
+  const usernameInput = document.getElementById("newEventMemberUsernameInput");
   const simplifyInput = document.getElementById("newEventSimplifyInput");
+  const helpEl = document.getElementById("newEventSelectionHelp");
 
   if (titleInput) titleInput.value = "";
   if (curSelect) curSelect.value = hub?.profile?.default_currency || "RUB";
-  if (ghostsInput) ghostsInput.value = "";
+  if (usernameInput) usernameInput.value = "";
   if (simplifyInput) simplifyInput.checked = true;
+  if (helpEl) helpEl.hidden = true;
 
   if (copySelect) {
     const pastEvents = [...exp.activeEvents, ...exp.archivedEvents];
@@ -769,6 +983,9 @@ export function openNewEventModal() {
       <option value="${escapeHtml(e.id)}">${escapeHtml(e.icon || "🎉")} ${escapeHtml(e.title)} (${Number(e.members_count || e.members?.length || 1)})</option>
     `).join("");
   }
+
+  renderNewEventMembersSection();
+  loadExpensesContacts(true).then(() => renderNewEventMembersSection());
 
   document.getElementById("newEventModalBackdrop")?.classList.add("open");
   triggerHaptic("light");
@@ -797,8 +1014,10 @@ export async function handleCreateExpenseEventSubmit(event) {
   }
   const baseCurrency = String(document.getElementById("newEventCurrencySelect")?.value || "RUB").toUpperCase();
   const copyFromEventId = String(document.getElementById("newEventCopyMembersSelect")?.value || "").trim();
-  const ghostsRaw = String(document.getElementById("newEventGhostsInput")?.value || "");
   const simplifyDebts = Boolean(document.getElementById("newEventSimplifyInput")?.checked);
+  const memberTelegramIds = (exp.newEventMembers || [])
+    .map(m => Number(m.telegram_id))
+    .filter(id => Number.isSafeInteger(id) && id > 0);
 
   if (isTelegramSession && API_ORIGIN) {
     try {
@@ -814,10 +1033,11 @@ export async function handleCreateExpenseEventSubmit(event) {
           base_currency: baseCurrency,
           simplify_debts: simplifyDebts,
           copy_from_event_id: copyFromEventId || undefined,
-          ghost_names: ghostsRaw
+          member_telegram_ids: memberTelegramIds
         })
       });
       const data = await readApiResponse(response);
+      exp.newEventMembers = [];
       closeNewEventModal();
       if (data?.event) {
         exp.currentEvent = data.event;
@@ -848,7 +1068,6 @@ export async function handleCreateExpenseEventSubmit(event) {
       telegram_id: 1001,
       username: "maxim",
       member_name: meName,
-      is_ghost: false,
       role: "OWNER",
       default_weight: 1,
       linked_payer_member_id: null,
@@ -856,42 +1075,41 @@ export async function handleCreateExpenseEventSubmit(event) {
       preferred_banks: ["Т-Банк"]
     }
   ];
-  const seen = new Set([meName.toLocaleLowerCase("ru-RU")]);
+  const seenUserIds = new Set(["usr_1001"]);
 
   if (copyFromEventId) {
     const src = demo.events.find(e => e.id === copyFromEventId);
     for (const m of src?.members || []) {
-      const k = m.member_name.toLocaleLowerCase("ru-RU");
-      if (seen.has(k)) continue;
-      seen.add(k);
+      if (!m.user_id || seenUserIds.has(m.user_id)) continue;
+      seenUserIds.add(m.user_id);
       members.push({
         ...m,
         id: `mem_${Date.now()}_${members.length + 1}`,
         event_id: newId,
+        role: "MEMBER",
         linked_payer_member_id: null
       });
     }
   }
 
-  ghostsRaw.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean).forEach(nm => {
-    const k = nm.toLocaleLowerCase("ru-RU");
-    if (seen.has(k)) return;
-    seen.add(k);
+  for (const m of exp.newEventMembers || []) {
+    const uid = `usr_${m.telegram_id}`;
+    if (seenUserIds.has(uid)) continue;
+    seenUserIds.add(uid);
     members.push({
       id: `mem_${Date.now()}_${members.length + 1}`,
       event_id: newId,
-      user_id: null,
-      telegram_id: null,
-      username: "",
-      member_name: nm,
-      is_ghost: true,
+      user_id: uid,
+      telegram_id: Number(m.telegram_id),
+      username: m.username || "",
+      member_name: m.display_name || "Участник",
       role: "MEMBER",
       default_weight: 1,
       linked_payer_member_id: null,
       payment_phone: "",
       preferred_banks: []
     });
-  });
+  }
 
   const created = {
     id: newId,
@@ -920,6 +1138,7 @@ export async function handleCreateExpenseEventSubmit(event) {
   computeClientSettlementPlan(created);
   demo.events.unshift(created);
   saveDemoExpensesStore(demo);
+  exp.newEventMembers = [];
   closeNewEventModal();
   await loadExpensesDashboard();
   exp.currentEvent = created;
@@ -932,6 +1151,11 @@ export function openEventParticipantsModal() {
   const exp = getExpensesState();
   exp.mergeSelection = [];
   renderEventParticipantsModal();
+  loadExpensesContacts(true).then(() => {
+    if (document.getElementById("eventParticipantsModalBackdrop")?.classList.contains("open")) {
+      renderEventParticipantsModal();
+    }
+  });
   document.getElementById("eventParticipantsModalBackdrop")?.classList.add("open");
   triggerHaptic("light");
 }
@@ -949,6 +1173,8 @@ export function renderEventParticipantsModal() {
   const members = Array.isArray(ev.members) ? ev.members : [];
   const wallets = computeWalletsFromClientMembers(members);
   const canManage = ["OWNER", "ADMIN"].includes(ev.viewer_role);
+  const existingTgIds = new Set(members.map(m => Number(m.telegram_id)).filter(Boolean));
+  const availableContacts = (exp.contacts || []).filter(c => !existingTgIds.has(Number(c.telegram_id)));
 
   container.innerHTML = `
     ${wallets.length ? `
@@ -972,14 +1198,13 @@ export function renderEventParticipantsModal() {
         const weight = Number(m.default_weight || 1);
         return `
           <div class="exp-member-row">
-            <div class="exp-member-avatar ${m.is_ghost ? "ghost" : ""}">${escapeHtml(m.member_name.slice(0, 2).toUpperCase())}</div>
+            <div class="exp-member-avatar">${escapeHtml(m.member_name.slice(0, 2).toUpperCase())}</div>
             <div style="flex: 1; min-width: 0;">
               <div style="font-size: 14px; font-weight: 700;">
                 ${escapeHtml(m.member_name)}
-                ${m.is_ghost ? `<span class="exp-ghost-tag">виртуальный</span>` : ""}
               </div>
               <div style="font-size: 11.5px; color: var(--tg-theme-hint-color);">
-                ${inWallet ? "в едином кошельке" : m.role === "OWNER" ? "создатель" : m.username ? `@${escapeHtml(m.username)}` : "участник"}
+                ${inWallet ? "в едином кошельке" : m.role === "OWNER" ? "создатель" : m.username ? `@${escapeHtml(m.username)}` : "участник Telegram"}
               </div>
             </div>
             <div class="exp-weight-stepper">
@@ -1006,10 +1231,29 @@ export function renderEventParticipantsModal() {
       <div class="composer-hint" style="margin-bottom: 14px;">Отметьте галочками 2 и более участников, чтобы объединить их в единый кошелёк.</div>
     `}
 
-    <form class="social-add-form" style="margin-top: 8px; margin-bottom: 0;" onsubmit="handleAddGhostMemberSubmit(event)">
-      <input type="text" class="input-modern" id="addGhostMemberNameInput" maxlength="64" placeholder="Имя нового участника (можно без Telegram)" required />
+    <div class="hub-section-label">Добавить участника (Telegram)</div>
+    <form class="social-add-form" style="margin-top: 6px; margin-bottom: 8px;" onsubmit="handleAddRealMemberSubmit(event)">
+      <input type="text" class="input-modern" id="addRealMemberUsernameInput" maxlength="33" placeholder="@username" autocomplete="off" autocapitalize="none" spellcheck="false" required />
       <button type="submit" class="btn-glass">＋ Добавить</button>
     </form>
+    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
+      <button type="button" class="btn-mini" onclick="requestTelegramContactForExpenses('${escapeHtml(ev.id)}')">📱 Выбрать в Telegram</button>
+      <button type="button" class="btn-mini" onclick="refreshExpensesContacts()">↻ Обновить</button>
+    </div>
+    <div class="selection-help" id="expParticipantsSelectionHelp" hidden>
+      <p>Пользователь пока неизвестен приложению. Откройте чат с ботом и выберите человека через Telegram.</p>
+      <button type="button" class="btn-glass" onclick="openBotForSelection()">Открыть чат с ботом</button>
+    </div>
+    ${availableContacts.length ? `
+      <div style="font-size: 11.5px; color: var(--tg-theme-hint-color); margin-bottom: 6px;">Быстро добавить из контактов:</div>
+      <div class="audience-editor">
+        ${availableContacts.map(c => `
+          <button type="button" class="audience-chip" onclick="addRealMemberToCurrentEvent({ telegram_id: ${Number(c.telegram_id)} })">
+            ＋ ${escapeHtml(c.display_name || "Пользователь")}${c.username ? ` (@${escapeHtml(c.username)})` : ""}
+          </button>
+        `).join("")}
+      </div>
+    ` : ""}
   `;
 }
 
@@ -1021,55 +1265,85 @@ export function toggleMergeMemberSelection(memberId) {
   renderEventParticipantsModal();
 }
 
-export async function handleAddGhostMemberSubmit(event) {
+export async function handleAddRealMemberSubmit(event) {
   event.preventDefault();
+  const input = document.getElementById("addRealMemberUsernameInput")
+    || document.getElementById("editEventMemberUsernameInput");
+  const username = normalizeExpenseUsername(input?.value || "");
+  if (!username) return;
+  const ok = await addRealMemberToCurrentEvent({ username });
+  if (ok && input) input.value = "";
+}
+
+export async function addRealMemberToCurrentEvent({ username = "", telegram_id = null } = {}) {
   const exp = getExpensesState();
   const ev = exp.currentEvent;
-  const input = document.getElementById("addGhostMemberNameInput");
-  const name = String(input?.value || "").trim();
-  if (!ev || !name) return;
+  if (!ev) return false;
 
   if (isTelegramSession && API_ORIGIN) {
     try {
+      const payload = telegram_id ? { telegram_id: Number(telegram_id) } : { username };
       const response = await fetch(`${API_ORIGIN}/api/expenses/events/${encodeURIComponent(ev.id)}/members`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-Telegram-Init-Data": tg?.initData || ""
         },
-        body: JSON.stringify({ member_name: name })
+        body: JSON.stringify(payload)
       });
       const data = await readApiResponse(response);
+      if (data?.status === "selection_required") {
+        state.selectionBotUsername = String(data.botUsername || state.botUsername || "").replace(/^@/, "");
+        exp.pendingSelectionContext = { mode: "event", eventId: ev.id };
+        const helpId = document.getElementById("editEventModalBackdrop")?.classList.contains("open")
+          ? "editEventSelectionHelp"
+          : "expParticipantsSelectionHelp";
+        const helpEl = document.getElementById(helpId);
+        if (helpEl) helpEl.hidden = false;
+        showToast("Выберите человека в сообщении от бота");
+        return false;
+      }
       if (data?.event) {
         exp.currentEvent = data.event;
-        if (input) input.value = "";
-        renderEventParticipantsModal();
+        if (document.getElementById("eventParticipantsModalBackdrop")?.classList.contains("open")) {
+          renderEventParticipantsModal();
+        }
+        if (document.getElementById("editEventModalBackdrop")?.classList.contains("open")) {
+          renderEditEventModal();
+        }
         renderExpenseEventDetail();
         loadExpensesDashboard();
+        loadExpensesContacts(true);
       }
-      showToast(`✓ Участник «${name}» добавлен`);
+      triggerHaptic("success");
+      showToast("✓ Участник добавлен");
+      return true;
     } catch (error) {
       showToast(`❌ ${error.message || "Не удалось добавить участника"}`);
+      return false;
     }
-    return;
   }
 
   const demo = loadDemoExpensesStore();
   const target = demo.events.find(e => e.id === ev.id);
-  if (!target) return;
-  if (target.members.some(m => m.member_name.toLocaleLowerCase("ru-RU") === name.toLocaleLowerCase("ru-RU"))) {
-    showToast("⚠️ Участник с таким именем уже есть");
-    return;
+  if (!target) return false;
+  const resolved = resolveDemoUserByInput({ username, telegram_id });
+  if (!resolved) {
+    showToast("⚠️ В демо доступны @maxim, @anna1 и @dima1");
+    return false;
+  }
+  if (target.members.some(m => Number(m.telegram_id) === Number(resolved.telegram_id))) {
+    showToast("⚠️ Этот пользователь уже участвует в событии");
+    return false;
   }
   const now = new Date().toISOString();
   target.members.push({
     id: `mem_${Date.now()}`,
     event_id: ev.id,
-    user_id: null,
-    telegram_id: null,
-    username: "",
-    member_name: name,
-    is_ghost: true,
+    user_id: `usr_${resolved.telegram_id}`,
+    telegram_id: Number(resolved.telegram_id),
+    username: resolved.username || "",
+    member_name: resolved.display_name,
     role: "MEMBER",
     default_weight: 1,
     linked_payer_member_id: null,
@@ -1079,17 +1353,22 @@ export async function handleAddGhostMemberSubmit(event) {
   target.audit_log.unshift({
     id: `log_${Date.now()}`,
     action: "MEMBER_ADDED",
-    text: `Добавлен участник «${name}»`,
+    text: `Добавлен(а) участник: ${resolved.display_name}`,
     created_at: now
   });
   computeClientSettlementPlan(target);
   saveDemoExpensesStore(demo);
   exp.currentEvent = target;
-  if (input) input.value = "";
-  renderEventParticipantsModal();
+  if (document.getElementById("eventParticipantsModalBackdrop")?.classList.contains("open")) {
+    renderEventParticipantsModal();
+  }
+  if (document.getElementById("editEventModalBackdrop")?.classList.contains("open")) {
+    renderEditEventModal();
+  }
   renderExpenseEventDetail();
   loadExpensesDashboard();
-  showToast(`✓ Участник «${name}» добавлен`);
+  showToast(`✓ Участник «${resolved.display_name}» добавлен`);
+  return true;
 }
 
 export async function adjustMemberWeight(memberId, delta) {
@@ -1150,7 +1429,12 @@ export async function removeExpenseMember(memberId) {
       if (data?.event) {
         exp.currentEvent = data.event;
         exp.mergeSelection = exp.mergeSelection.filter(id => id !== memberId);
-        renderEventParticipantsModal();
+        if (document.getElementById("eventParticipantsModalBackdrop")?.classList.contains("open")) {
+          renderEventParticipantsModal();
+        }
+        if (document.getElementById("editEventModalBackdrop")?.classList.contains("open")) {
+          renderEditEventModal();
+        }
         renderExpenseEventDetail();
         loadExpensesDashboard();
       }
@@ -1172,7 +1456,12 @@ export async function removeExpenseMember(memberId) {
   saveDemoExpensesStore(demo);
   exp.currentEvent = target;
   exp.mergeSelection = exp.mergeSelection.filter(id => id !== memberId);
-  renderEventParticipantsModal();
+  if (document.getElementById("eventParticipantsModalBackdrop")?.classList.contains("open")) {
+    renderEventParticipantsModal();
+  }
+  if (document.getElementById("editEventModalBackdrop")?.classList.contains("open")) {
+    renderEditEventModal();
+  }
   renderExpenseEventDetail();
   loadExpensesDashboard();
 }
@@ -1213,7 +1502,7 @@ export async function mergeSelectedIntoUnifiedWallet() {
   if (!target) return;
   const selected = exp.mergeSelection.map(id => target.members.find(m => m.id === id)).filter(Boolean);
   if (selected.length < 2) return;
-  const head = selected.find(m => m.role === "OWNER") || selected.find(m => !m.is_ghost) || selected[0];
+  const head = selected.find(m => m.role === "OWNER") || selected.find(m => Boolean(m.user_id)) || selected[0];
   head.linked_payer_member_id = null;
   for (const m of selected) {
     if (m.id !== head.id) m.linked_payer_member_id = head.id;
@@ -1284,14 +1573,20 @@ export function openExpenseEventMenuModal() {
 
   const isFrozen = ev.status === "SETTLING";
   const isArchived = ev.status === "ARCHIVED";
+  const canManage = ["OWNER", "ADMIN"].includes(ev.viewer_role);
 
   body.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 10px;">
+      ${canManage ? `
+        <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); openEditEventModal();">
+          ✏️ Редактировать событие и участников
+        </button>
+      ` : ""}
       <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); openEventParticipantsModal();">
         👥 Участники, веса и единые кошельки
       </button>
       <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); openEventInviteShareModal();">
-        🔗 Пригласить по ссылке / Claim Profile
+        🔗 Пригласить по ссылке
       </button>
       ${!isArchived ? `
         <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="toggleExpenseEventFreeze()">
@@ -1305,6 +1600,145 @@ export function openExpenseEventMenuModal() {
   `;
 
   document.getElementById("expenseEventMenuBackdrop")?.classList.add("open");
+}
+
+export function openEditEventModal() {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  if (!ev) return;
+  exp.editEventDraft = {
+    title: ev.title || "",
+    icon: ev.icon || "🎉",
+    base_currency: ev.base_currency || "RUB",
+    simplify_debts: Boolean(ev.simplify_debts)
+  };
+  renderEditEventModal();
+  loadExpensesContacts(true).then(() => {
+    if (document.getElementById("editEventModalBackdrop")?.classList.contains("open")) {
+      renderEditEventModal();
+    }
+  });
+  document.getElementById("editEventModalBackdrop")?.classList.add("open");
+  triggerHaptic("light");
+}
+
+export function closeEditEventModal() {
+  document.getElementById("editEventModalBackdrop")?.classList.remove("open");
+}
+
+export function selectEditEventIcon(icon) {
+  const exp = getExpensesState();
+  if (!exp.editEventDraft) return;
+  exp.editEventDraft.icon = icon;
+  renderEditEventModal();
+  triggerHaptic("light");
+}
+
+export function renderEditEventModal() {
+  const exp = getExpensesState();
+  const ev = exp.currentEvent;
+  const d = exp.editEventDraft;
+  const body = document.getElementById("editEventModalBody");
+  if (!ev || !d || !body) return;
+
+  const members = Array.isArray(ev.members) ? ev.members : [];
+  const canManage = ["OWNER", "ADMIN"].includes(ev.viewer_role);
+  const existingTgIds = new Set(members.map(m => Number(m.telegram_id)).filter(Boolean));
+  const availableContacts = (exp.contacts || []).filter(c => !existingTgIds.has(Number(c.telegram_id)));
+
+  body.innerHTML = `
+    <form id="editExpenseEventForm" onsubmit="handleEditExpenseEventSubmit(event)">
+      <div class="form-bento-grid">
+        <div class="field-block span-2">
+          <label class="field-label" for="editEventTitleInput">Название</label>
+          <input type="text" class="input-modern" id="editEventTitleInput" maxlength="80" value="${escapeHtml(d.title)}" oninput="getExpensesState().editEventDraft.title=this.value" required />
+        </div>
+        <div class="field-block span-2">
+          <span class="field-label">Иконка</span>
+          <div class="category-preset-row">
+            ${EXPENSE_ICONS.map(ico => `
+              <button type="button" class="cat-preset-btn ${ico === d.icon ? "selected" : ""}" onclick="selectEditEventIcon('${ico}')">${ico}</button>
+            `).join("")}
+          </div>
+        </div>
+        <div class="field-block span-2">
+          <label class="field-label" for="editEventCurrencySelect">Базовая валюта</label>
+          <select class="input-modern" id="editEventCurrencySelect" onchange="getExpensesState().editEventDraft.base_currency=this.value">
+            ${["RUB", "USD", "EUR", "KZT", "TRY", "GEL"].map(c => `<option value="${c}" ${d.base_currency === c ? "selected" : ""}>${c}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+
+      <label class="bento-switch-card" for="editEventSimplifyInput" style="margin-top: 12px;">
+        <div class="switch-text-wrap">
+          <span class="switch-title">Упрощать долги</span>
+          <span class="switch-subtitle">Минимизировать число переводов</span>
+        </div>
+        <span class="ios-switch">
+          <input type="checkbox" id="editEventSimplifyInput" ${d.simplify_debts ? "checked" : ""} onchange="getExpensesState().editEventDraft.simplify_debts=this.checked" />
+          <span class="ios-slider"></span>
+        </span>
+      </label>
+
+      <div class="hub-section-label">Участники (${members.length})</div>
+      <div class="audience-editor" style="margin-bottom: 8px;">
+        ${members.map(m => `
+          <span class="audience-chip active" style="cursor: default;">
+            ${escapeHtml(m.member_name)}${m.username ? ` (@${escapeHtml(m.username)})` : ""}
+            ${canManage && m.role !== "OWNER" ? `<button type="button" style="background:none;border:0;color:inherit;margin-left:4px;cursor:pointer;" onclick="removeExpenseMember('${escapeHtml(m.id)}')" aria-label="Удалить">✕</button>` : ""}
+          </span>
+        `).join("")}
+      </div>
+
+      <div class="social-add-form" style="margin-top: 6px; margin-bottom: 6px;">
+        <input type="text" class="input-modern" id="editEventMemberUsernameInput" maxlength="33" placeholder="@username" autocomplete="off" autocapitalize="none" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();handleAddRealMemberSubmit(event);}" />
+        <button type="button" class="btn-glass" onclick="handleAddRealMemberSubmit(event)">＋ Добавить</button>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
+        <button type="button" class="btn-mini" onclick="requestTelegramContactForExpenses('${escapeHtml(ev.id)}')">📱 Выбрать в Telegram</button>
+        <button type="button" class="btn-mini" onclick="refreshExpensesContacts()">↻ Обновить</button>
+      </div>
+      <div class="selection-help" id="editEventSelectionHelp" hidden>
+        <p>Пользователь пока неизвестен приложению. Откройте чат с ботом и выберите человека через Telegram.</p>
+        <button type="button" class="btn-glass" onclick="openBotForSelection()">Открыть чат с ботом</button>
+      </div>
+      ${availableContacts.length ? `
+        <div class="audience-editor" style="margin-bottom: 8px;">
+          ${availableContacts.map(c => `
+            <button type="button" class="audience-chip" onclick="addRealMemberToCurrentEvent({ telegram_id: ${Number(c.telegram_id)} })">
+              ＋ ${escapeHtml(c.display_name || "Пользователь")}${c.username ? ` (@${escapeHtml(c.username)})` : ""}
+            </button>
+          `).join("")}
+        </div>
+      ` : ""}
+
+      <div style="display: flex; gap: 10px; margin-top: 16px;">
+        <button type="button" class="btn-glass" style="flex: 1;" onclick="closeEditEventModal()">Отмена</button>
+        <button type="submit" class="btn-accent" id="submitEditEventBtn" style="flex: 2;">💾 Сохранить</button>
+      </div>
+    </form>
+  `;
+}
+
+export async function handleEditExpenseEventSubmit(event) {
+  event.preventDefault();
+  const exp = getExpensesState();
+  const d = exp.editEventDraft;
+  if (!d) return;
+  const title = String(d.title || "").trim();
+  if (!title) {
+    showToast("⚠️ Введите название события");
+    return;
+  }
+  await patchCurrentExpenseEvent({
+    title,
+    icon: d.icon,
+    base_currency: d.base_currency,
+    simplify_debts: Boolean(d.simplify_debts)
+  });
+  closeEditEventModal();
+  triggerHaptic("success");
+  showToast("✓ Событие обновлено");
 }
 
 export function closeExpenseEventMenuModal() {
@@ -1386,30 +1820,17 @@ export function openEventInviteShareModal() {
   if (!ev || !body) return;
 
   const inviteUrl = buildExpenseInviteUrl(ev.invite_token || "");
-  const ghosts = (ev.members || []).filter(m => m.is_ghost || !m.user_id);
 
   body.innerHTML = `
     <p class="social-panel-copy">
-      Отправьте ссылку друзьям: при переходе по ней они смогут выбрать своё имя из виртуальных профилей события или войти как новый участник.
+      Отправьте ссылку друзьям в Telegram: при переходе по ней они смогут присоединиться к событию со своего аккаунта.
     </p>
     <div class="share-preview-box" id="expenseInviteUrlBox">${escapeHtml(inviteUrl)}</div>
-    <div style="display: flex; gap: 10px; margin-top: 12px; margin-bottom: 18px;">
+    <div style="display: flex; gap: 10px; margin-top: 12px;">
       <button type="button" class="btn-accent" style="flex: 1;" onclick="copyExpenseInviteLink('${escapeHtml(inviteUrl)}')">
         📋 Скопировать ссылку
       </button>
     </div>
-
-    <div class="hub-section-label">Предпросмотр входа по ссылке (Claim Profile)</div>
-    ${ghosts.length ? ghosts.map(g => `
-      <div class="exp-wallet-card" style="background: var(--surface-input);">
-        <div class="exp-member-avatar ghost">${escapeHtml(g.member_name.slice(0, 2).toUpperCase())}</div>
-        <div style="flex: 1; min-width: 0;">
-          <strong style="font-size: 14px; display: block;">${escapeHtml(g.member_name)}</strong>
-          <span style="font-size: 12px; color: var(--tg-theme-hint-color);">Виртуальный профиль · ждёт привязки</span>
-        </div>
-        <span class="exp-ghost-tag">Ghost</span>
-      </div>
-    `).join("") : `<div class="composer-hint">Все участники уже привязаны к аккаунтам Telegram.</div>`}
   `;
 
   document.getElementById("claimProfileModalBackdrop")?.classList.add("open");
@@ -1446,35 +1867,24 @@ export async function checkPendingExpenseInvite() {
         await openExpenseEvent(data.event.id);
         return;
       }
-      renderIncomingClaimModal(token, data.event, data.ghost_profiles || []);
+      renderIncomingClaimModal(token, data.event);
     } catch (error) {
       showToast(`❌ ${error.message || "Недействительная ссылка приглашения"}`);
     }
   }
 }
 
-function renderIncomingClaimModal(token, eventInfo, ghostProfiles) {
+function renderIncomingClaimModal(token, eventInfo) {
   const body = document.getElementById("claimProfileModalBody");
   if (!body || !eventInfo) return;
 
   body.innerHTML = `
     <p class="social-panel-copy">
       Вас пригласили в событие <strong>${escapeHtml(eventInfo.icon || "🎉")} «${escapeHtml(eventInfo.title)}»</strong>.
-      Выберите свой виртуальный профиль, если вас уже добавили в список, или войдите как новый участник.
     </p>
     <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
-      ${ghostProfiles.map(g => `
-        <button type="button" class="exp-wallet-card" style="text-align: left; width: 100%;" onclick="submitClaimExpenseProfile('${escapeHtml(token)}', '${escapeHtml(g.id)}')">
-          <div class="exp-member-avatar ghost">${escapeHtml(g.member_name.slice(0, 2).toUpperCase())}</div>
-          <div style="flex: 1; min-width: 0;">
-            <strong style="font-size: 14.5px; display: block;">Это я — ${escapeHtml(g.member_name)}</strong>
-            <span style="font-size: 12px; color: var(--tg-theme-hint-color);">Привязать все доли и траты к моему Telegram</span>
-          </div>
-          <span class="hub-chevron">›</span>
-        </button>
-      `).join("")}
-      <button type="button" class="btn-accent" style="width: 100%; margin-top: 4px;" onclick="submitClaimExpenseProfile('${escapeHtml(token)}', '__new')">
-        ➕ Войти как новый участник
+      <button type="button" class="btn-accent" style="width: 100%; margin-top: 4px;" onclick="submitClaimExpenseProfile('${escapeHtml(token)}')">
+        ➕ Присоединиться к событию
       </button>
     </div>
   `;
@@ -1482,7 +1892,7 @@ function renderIncomingClaimModal(token, eventInfo, ghostProfiles) {
   document.getElementById("claimProfileModalBackdrop")?.classList.add("open");
 }
 
-export async function submitClaimExpenseProfile(token, memberId) {
+export async function submitClaimExpenseProfile(token) {
   const exp = getExpensesState();
   if (!isTelegramSession || !API_ORIGIN) {
     closeClaimProfileModal();
@@ -1495,7 +1905,7 @@ export async function submitClaimExpenseProfile(token, memberId) {
         "Content-Type": "application/json",
         "X-Telegram-Init-Data": tg?.initData || ""
       },
-      body: JSON.stringify({ member_id: memberId })
+      body: JSON.stringify({})
     });
     const data = await readApiResponse(response);
     closeClaimProfileModal();
@@ -1513,7 +1923,7 @@ export async function submitClaimExpenseProfile(token, memberId) {
       renderExpensesModule();
     }
     triggerHaptic("success");
-    showToast(data?.claimed ? "✓ Виртуальный профиль привязан к вашему аккаунту" : "✓ Вы присоединились к событию");
+    showToast("✓ Вы присоединились к событию");
   } catch (error) {
     showToast(`❌ ${error.message || "Не удалось присоединиться к событию"}`);
   }

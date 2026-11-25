@@ -78,7 +78,6 @@ export function getInitialDemoExpensesData() {
             telegram_id: 1001,
             username: "maxim",
             member_name: meName,
-            is_ghost: false,
             role: "OWNER",
             default_weight: 1,
             linked_payer_member_id: null,
@@ -92,7 +91,6 @@ export function getInitialDemoExpensesData() {
             telegram_id: 2002,
             username: "anna1",
             member_name: "Анна",
-            is_ghost: false,
             role: "MEMBER",
             default_weight: 1,
             linked_payer_member_id: null,
@@ -102,11 +100,10 @@ export function getInitialDemoExpensesData() {
           {
             id: "mem_3",
             event_id: "demo_ev_1",
-            user_id: null,
-            telegram_id: null,
-            username: "",
-            member_name: "Гоша",
-            is_ghost: true,
+            user_id: "usr_3003",
+            telegram_id: 3003,
+            username: "dima1",
+            member_name: "Дима",
             role: "MEMBER",
             default_weight: 1,
             linked_payer_member_id: null,
@@ -253,7 +250,7 @@ export function computeClientSettlementPlan(ev) {
   const units = [];
   const unitBalances = {};
   for (const [headId, list] of unitGroups.entries()) {
-    const recipient = list.find(x => x.payment_phone) || list.find(x => !x.is_ghost) || list[0];
+    const recipient = list.find(x => x.payment_phone) || list.find(x => Boolean(x.user_id)) || list[0];
     units.push({
       id: headId,
       name: list.length >= 2 ? list.map(x => x.member_name).join(" + ") : list[0].member_name,
@@ -371,13 +368,80 @@ export function getExpensesState() {
       crossEventDebts: [],
       currentEvent: null,
       mergeSelection: [],
+      contacts: [],
+      contactsLoading: false,
       newEventIcon: "🎉",
       newEventSimplify: true,
+      newEventMembers: [],
+      editEventDraft: null,
+      pendingSelectionContext: null,
       opDraft: null,
       settleCtx: null
     };
   }
   return state.expenses;
+}
+
+export async function loadExpensesContacts(silent = false) {
+  const exp = getExpensesState();
+  exp.contactsLoading = true;
+  const previousIds = new Set((exp.contacts || []).map(c => Number(c.telegram_id)));
+
+  if (isTelegramSession && API_ORIGIN) {
+    try {
+      const response = await fetch(`${API_ORIGIN}/api/expenses/contacts`, {
+        headers: { "X-Telegram-Init-Data": tg?.initData || "" }
+      });
+      const data = await readApiResponse(response);
+      exp.contacts = Array.isArray(data.contacts) ? data.contacts : [];
+      if (exp.pendingSelectionContext?.mode === "new_event") {
+        const before = exp.pendingSelectionContext.beforeIds || previousIds;
+        const newlyPicked = exp.contacts.filter(c => !before.has(Number(c.telegram_id)));
+        if (newlyPicked.length > 0) {
+          for (const person of newlyPicked) {
+            if (!exp.newEventMembers.some(m => Number(m.telegram_id) === Number(person.telegram_id))) {
+              exp.newEventMembers.push(person);
+            }
+          }
+          exp.pendingSelectionContext = null;
+          const helpEl = document.getElementById("newEventSelectionHelp");
+          if (helpEl) helpEl.hidden = true;
+        }
+      }
+    } catch (error) {
+      if (!silent) showToast(`❌ ${error.message || "Не удалось загрузить контакты"}`);
+    } finally {
+      exp.contactsLoading = false;
+    }
+    return exp.contacts;
+  }
+
+  const demoList = [];
+  const seen = new Set([Number(state.viewerId)]);
+  for (const u of Object.values(DEMO_USERS)) {
+    if (!seen.has(Number(u.id))) {
+      seen.add(Number(u.id));
+      demoList.push({
+        telegram_id: u.id,
+        username: u.username,
+        display_name: u.name
+      });
+    }
+  }
+  for (const sub of state.subscriptions || []) {
+    const id = Number(sub?.id);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      demoList.push({
+        telegram_id: id,
+        username: sub.username || "",
+        display_name: sub.first_name || "Пользователь"
+      });
+    }
+  }
+  exp.contacts = demoList;
+  exp.contactsLoading = false;
+  return exp.contacts;
 }
 
 export function syncExpensesSummaryToHub() {

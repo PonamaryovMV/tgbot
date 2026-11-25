@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   computeOperationSplits,
   distributeExactMinor,
+  handleCoreApi,
   handleExpensesApi
 } from "../expenses-worker.js";
 
@@ -368,13 +369,21 @@ test("Stage 3 HTTP API creates, updates, deletes operations and enforces SETTLIN
   const db = createStage3MockD1();
   const env = { EXPENSES_DB: db };
   const owner = { id: 1001, first_name: "Максим", username: "maxim" };
+  const anna = { id: 2002, first_name: "Анна", username: "anna1" };
   const baseOrigin = ["https://", "tgbot.ax1ksg94.workers.dev"].join("");
+
+  await handleCoreApi(
+    new Request(`${baseOrigin}/api/core/bootstrap`, { method: "GET" }),
+    env,
+    anna,
+    new URL(`${baseOrigin}/api/core/bootstrap`)
+  );
 
   const createEvRes = await handleExpensesApi(
     new Request(`${baseOrigin}/api/expenses/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Ужин", base_currency: "RUB", ghost_names: ["Гоша"] })
+      body: JSON.stringify({ title: "Ужин", base_currency: "RUB", member_telegram_ids: [2002] })
     }),
     env,
     owner,
@@ -382,7 +391,7 @@ test("Stage 3 HTTP API creates, updates, deletes operations and enforces SETTLIN
   );
   const ev = (await createEvRes.json()).event;
   const ownerMem = ev.members.find(m => m.role === "OWNER");
-  const goshaMem = ev.members.find(m => m.member_name === "Гоша");
+  const goshaMem = ev.members.find(m => m.telegram_id === 2002);
 
   // Добавляем мультивалютную операцию (100 USD по курсу 90 = 9000 RUB = 900000 коп.)
   const addOpRes = await handleExpensesApi(

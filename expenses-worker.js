@@ -1,6 +1,8 @@
 import baseWorker, {
+  ApiError,
   json,
-  verifyTelegramInitData
+  verifyTelegramInitData,
+  upsertUserDirectory
 } from "./worker.js";
 import {
   EXPENSE_SCHEMA_SQL,
@@ -32,9 +34,12 @@ async function dispatchExpensesApi(request, env, viewer, url) {
   const db = getExpensesDb(env);
   const path = url.pathname;
   const method = request.method;
+  if (env?.DB) {
+    await upsertUserDirectory(env, viewer);
+  }
   const user = await ensureUserProfile(db, viewer);
 
-  const eventRes = await handleEventsRoute(request, db, user, path, method);
+  const eventRes = await handleEventsRoute(request, db, user, path, method, env);
   if (eventRes) return eventRes;
 
   const opRes = await handleOperationsRoute(request, db, user, path, method);
@@ -47,6 +52,9 @@ export async function handleExpensesApi(request, env, viewer, url) {
   try {
     return await dispatchExpensesApi(request, env, viewer, url);
   } catch (error) {
+    if (error instanceof ApiError) {
+      return json({ error: error.message }, error.status);
+    }
     const mapped = getExpensesErrorResponse(error);
     if (mapped) return mapped;
     throw error;

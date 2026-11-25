@@ -1,4 +1,11 @@
-import { cleanPlainText, normalizeUsername } from "../../worker.js";
+import {
+  cleanPlainText,
+  normalizeUsername,
+  resolveUserByUsername,
+  loadProfile,
+  readSubscriptions,
+  loadExpenseContactsProfiles
+} from "../../worker.js";
 import { ExpensesApiError, parseBanksJson } from "./schema.js";
 import {
   getUnitHeadId,
@@ -63,6 +70,107 @@ export async function ensureUserProfile(db, viewer) {
   return formatUserRow(refreshed || existing, viewer);
 }
 
+export async function resolveRealUserForExpenses(db, env, { telegramId, username } = {}) {
+  if (telegramId !== undefined && telegramId !== null && telegramId !== "") {
+    const numId = Number(telegramId);
+    if (!Number.isSafeInteger(numId) || numId <= 0) {
+      throw new ExpensesApiError(400, "Invalid telegram_id");
+    }
+    const existing = await db
+      .prepare("SELECT * FROM users WHERE telegram_id = ?")
+      .bind(numId)
+      .first();
+    if (existing) {
+      return formatUserRow(existing, {
+        id: numId,
+        first_name: existing.display_name,
+        username: existing.username
+      });
+    }
+    if (env?.DB) {
+      const dir = await env.DB.get(`directory:${numId}`, "json");
+      if (dir && typeof dir === "object") {
+        return await ensureUserProfile(db, {
+          id: numId,
+          first_name: dir.first_name || "Пользователь",
+          username: dir.username || ""
+        });
+      }
+    }
+    return null;
+  }
+
+  if (username !== undefined && username !== null && String(username).trim() !== "") {
+    const normalized = normalizeUsername(username, true);
+    const existing = await db
+      .prepare("SELECT * FROM users WHERE LOWER(username) = ?")
+      .bind(normalized)
+      .first();
+    if (existing) {
+      return formatUserRow(existing, {
+        id: existing.telegram_id,
+        first_name: existing.display_name,
+        username: existing.username
+      });
+    }
+    if (env?.DB) {
+      const profile = await resolveUserByUsername(env, normalized);
+      if (profile) {
+        return await ensureUserProfile(db, {
+          id: profile.id,
+          first_name: profile.first_name,
+          username: profile.username
+        });
+      }
+    }
+    return null;
+  }
+
+  return null;
+}
+
+export async function listExpensesContacts(db, env, currentUser) {
+  const byTelegramId = new Map();
+  const addEntry = item => {
+    const tgId = Number(item?.telegram_id ?? item?.id);
+    if (!Number.isSafeInteger(tgId) || tgId <= 0 || tgId === Number(currentUser.telegram_id)) return;
+    if (byTelegramId.has(tgId)) return;
+    byTelegramId.set(tgId, {
+      telegram_id: tgId,
+      username: normalizeUsername(item?.username || "", false),
+      display_name: cleanPlainText(item?.display_name || item?.first_name || "Пользователь", 64) || "Пользователь"
+    });
+  };
+
+  if (env?.DB) {
+    const expContacts = await loadExpenseContactsProfiles(env, currentUser.telegram_id);
+    for (const p of expContacts) addEntry(p);
+
+    const subIds = await readSubscriptions(env, currentUser.telegram_id);
+    for (const subId of subIds) {
+      const profile = await loadProfile(env, subId);
+      addEntry(profile);
+    }
+  }
+
+  const coMembersRes = await db
+    .prepare(
+      `SELECT DISTINCT u.id, u.telegram_id, u.username, u.display_name
+       FROM event_members em_me
+       JOIN event_members em_other ON em_other.event_id = em_me.event_id
+       JOIN users u ON u.id = em_other.user_id
+       WHERE em_me.user_id = ? AND u.id != ?`
+    )
+    .bind(currentUser.id, currentUser.id)
+    .all();
+
+  for (const row of Array.isArray(coMembersRes?.results) ? coMembersRes.results : []) {
+    addEntry(row);
+  }
+
+  return [...byTelegramId.values()];
+}
+
 export async function appendAuditLog(db, eventId, actorUserId, action, details = {}) {
   const now = new Date().toISOString();
   await db
@@ -103,7 +211,6 @@ export async function loadEventMembers(db, eventId) {
     telegram_id: row.telegram_id ? Number(row.telegram_id) : null,
     username: row.username || "",
     member_name: row.member_name,
-    is_ghost: !row.user_id,
     role: row.role || "MEMBER",
     default_weight: Number(row.default_weight ?? 1.0),
     linked_payer_member_id: row.linked_payer_member_id || null,

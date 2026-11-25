@@ -1,5 +1,5 @@
-export default async page => {
-  const baseUrl = process.env.TEST_BASE_URL || 'http://127.0.0.1:8765';
+export default async (page, baseUrlArg) => {
+  const baseUrl = baseUrlArg || process.env.TEST_BASE_URL || 'http://127.0.0.1:8765';
   const assert = (condition, message) => {
     if (!condition) throw new Error(message);
   };

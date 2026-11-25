@@ -41,6 +41,10 @@ export function selectionKey(requestId) {
   return `selection:${requestId}`;
 }
 
+export function expenseContactsKey(userId) {
+  return `exp_contacts:${userId}`;
+}
+
 export function notifyPrefsKey(userId) {
   return `notify_prefs:${userId}`;
 }
@@ -213,6 +217,39 @@ export function getGroup(groups, rawGroupId) {
   const group = groups.find(item => item.id === groupId);
   if (!group) throw new ApiError(400, "Unknown group");
   return group;
+}
+
+export async function readExpenseContacts(env, userId) {
+  if (!env?.DB) return [];
+  const stored = await env.DB.get(expenseContactsKey(userId), "json");
+  if (!Array.isArray(stored)) return [];
+  const ids = [];
+  for (const rawId of stored) {
+    const id = Number(rawId);
+    if (!Number.isSafeInteger(id) || id <= 0 || id === userId || ids.includes(id)) continue;
+    ids.push(id);
+    if (ids.length >= MAX_SOCIAL_ITEMS) break;
+  }
+  return ids;
+}
+
+export async function addExpenseContact(env, viewerId, targetId) {
+  if (!env?.DB || !viewerId || !targetId || Number(viewerId) === Number(targetId)) return;
+  const contacts = await readExpenseContacts(env, viewerId);
+  const filtered = contacts.filter(id => id !== Number(targetId));
+  filtered.unshift(Number(targetId));
+  if (filtered.length > MAX_SOCIAL_ITEMS) filtered.length = MAX_SOCIAL_ITEMS;
+  await env.DB.put(expenseContactsKey(viewerId), JSON.stringify(filtered));
+}
+
+export async function loadExpenseContactsProfiles(env, viewerId) {
+  if (!env?.DB) return [];
+  const ids = await readExpenseContacts(env, viewerId);
+  const profiles = [];
+  for (const id of ids) {
+    profiles.push(await loadProfile(env, id));
+  }
+  return profiles;
 }
 
 export async function buildSocialPayload(env, viewerId) {

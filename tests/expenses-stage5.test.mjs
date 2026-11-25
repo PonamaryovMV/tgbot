@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildEventCsvExport,
+  handleCoreApi,
   handleExpensesApi
 } from "../expenses-worker.js";
 
@@ -246,20 +247,28 @@ test("Stage 5 target goals creation, contribution status updates and HTTP CSV en
   const db = createStage5MockD1();
   const env = { EXPENSES_DB: db };
   const owner = { id: 1001, first_name: "Максим", username: "maxim" };
+  const anna = { id: 2002, first_name: "Анна", username: "anna1" };
   const baseOrigin = ["https://", "tgbot.ax1ksg94.workers.dev"].join("");
+
+  await handleCoreApi(
+    new Request(`${baseOrigin}/api/core/bootstrap`, { method: "GET" }),
+    env,
+    anna,
+    new URL(`${baseOrigin}/api/core/bootstrap`)
+  );
 
   const createEvRes = await handleExpensesApi(
     new Request(`${baseOrigin}/api/expenses/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Подарок боссу", ghost_names: ["Гоша"] })
+      body: JSON.stringify({ title: "Подарок боссу", member_telegram_ids: [2002] })
     }),
     env,
     owner,
     new URL(`${baseOrigin}/api/expenses/events`)
   );
   const ev = (await createEvRes.json()).event;
-  const gosha = ev.members.find(m => m.member_name === "Гоша");
+  const gosha = ev.members.find(m => m.telegram_id === 2002);
 
   const goalRes = await handleExpensesApi(
     new Request(`${baseOrigin}/api/expenses/events/${ev.id}/goals`, {

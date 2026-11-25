@@ -1,9 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  handleCoreApi,
   handleExpensesApi,
+  handleTelegramWebhook,
   getExpensesErrorResponse
 } from "../expenses-worker.js";
+
+function createMemoryKV() {
+  const map = new Map();
+  return {
+    async get(key, opt) {
+      const val = map.get(key);
+      if (val === undefined) return null;
+      return opt === "json" ? JSON.parse(val) : val;
+    },
+    async put(key, value) {
+      map.set(key, typeof value === "string" ? value : JSON.stringify(value));
+    },
+    async delete(key) {
+      map.delete(key);
+    },
+    _map: map
+  };
+}
 
 function createStage2MockD1() {
   const usersByTelegramId = new Map();
@@ -26,9 +46,23 @@ function createStage2MockD1() {
           const row = usersByTelegramId.get(Number(this._params[0]));
           return row ? { ...row } : null;
         }
+        if (q.includes("from users where lower(username)")) {
+          const uname = String(this._params[0] || "").toLowerCase();
+          for (const row of usersById.values()) {
+            if (String(row.username || "").toLowerCase() === uname) return { ...row };
+          }
+          return null;
+        }
         if (q.includes("from users where id")) {
           const row = usersById.get(String(this._params[0] || ""));
           return row ? { ...row } : null;
+        }
+        if (q.includes("from event_members where event_id = ? and user_id = ?")) {
+          const [eventId, userId] = this._params;
+          for (const m of membersById.values()) {
+            if (m.event_id === String(eventId) && m.user_id === String(userId)) return { ...m };
+          }
+          return null;
         }
         if (q.includes("from events where invite_token")) {
           const token = String(this._params[0] || "");
@@ -45,6 +79,22 @@ function createStage2MockD1() {
       },
       async all() {
         const q = this._sql.toLowerCase();
+        if (q.includes("from event_members em_me")) {
+          const myId = String(this._params[0] || "");
+          const myEvents = new Set(
+            [...membersById.values()].filter(m => m.user_id === myId).map(m => m.event_id)
+          );
+          const seen = new Set();
+          const rows = [];
+          for (const m of membersById.values()) {
+            if (!myEvents.has(m.event_id) || !m.user_id || m.user_id === myId) continue;
+            if (seen.has(m.user_id)) continue;
+            seen.add(m.user_id);
+            const u = usersById.get(m.user_id);
+            if (u) rows.push({ id: u.id, telegram_id: u.telegram_id, username: u.username, display_name: u.display_name });
+          }
+          return { results: rows };
+        }
         if (q.includes("from events e") && q.includes("where em.user_id = ?")) {
           const userId = String(this._params[0] || "");
           const rows = [];
@@ -270,88 +320,198 @@ function createStage2MockD1() {
   return { prepare };
 }
 
-test("Stage 2 event creation, ghost members, weights, unified wallet and invite claim", async () => {
+test("Stage 2 event creation with real users, rejects ghosts, bot selection, edit event, weights, wallet and invite", async () => {
   const db = createStage2MockD1();
-  const env = { EXPENSES_DB: db };
-  const owner = { id: 1001, first_name: "Максим", username: "maxim" };
-  const guest = { id: 2002, first_name: "Анна", username: "anna1" };
-  const baseOrigin = ["https://", "tgbot.ax1ksg94.workers.dev"].join("");
+  const kv = createMemoryKV();
+  const botCalls = [];
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    const method = new URL(String(url)).pathname.split("/").pop();
+    const payload = opts.body ? JSON.parse(opts.body) : {};
+    botCalls.push({ method, payload });
+    if (method === "getMe") {
+      return new Response(JSON.stringify({ ok: true, result: { username: "test_exp_bot" } }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ ok: true, result: { message_id: botCalls.length } }), { status: 200 });
+  };
 
-  // 1. Создаём событие с виртуальным участником «Гоша»
-  const createReq = new Request(`${baseOrigin}/api/expenses/events`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      title: "Поездка на Байкал",
-      icon: "🏕",
-      base_currency: "RUB",
-      ghost_names: ["Гоша"]
-    })
-  });
-  const createRes = await handleExpensesApi(createReq, env, owner, new URL(createReq.url));
-  assert.equal(createRes.status, 201);
-  const createdData = await createRes.json();
-  const ev = createdData.event;
-  assert.equal(ev.title, "Поездка на Байкал");
-  assert.equal(ev.members.length, 2);
-  const ownerMem = ev.members.find(m => m.role === "OWNER");
-  const ghostMem = ev.members.find(m => m.member_name === "Гоша");
-  assert.equal(ghostMem.is_ghost, true);
+  try {
+    const env = { EXPENSES_DB: db, DB: kv, BOT_TOKEN: "test-bot-token" };
+    const owner = { id: 1001, first_name: "Максим", username: "maxim" };
+    const anna = { id: 2002, first_name: "Анна", username: "anna1" };
+    const bob = { id: 4004, first_name: "Борис", username: "boris4" };
+    const baseOrigin = ["https://", "tgbot.ax1ksg94.workers.dev"].join("");
 
-  // 2. Меняем вес Гоши на 2x и добавляем ещё одного участника «Лена»
-  const addMemberReq = new Request(`${baseOrigin}/api/expenses/events/${ev.id}/members`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ member_name: "Лена" })
-  });
-  const afterAddMember = await (await handleExpensesApi(addMemberReq, env, owner, new URL(addMemberReq.url))).json();
-  const lenaMem = afterAddMember.event.members.find(m => m.member_name === "Лена");
-  assert.ok(lenaMem);
+    // Регистрируем Анну в приложении
+    await handleCoreApi(
+      new Request(`${baseOrigin}/api/core/bootstrap`, { method: "GET" }),
+      env,
+      anna,
+      new URL(`${baseOrigin}/api/core/bootstrap`)
+    );
 
-  const weightReq = new Request(`${baseOrigin}/api/expenses/events/${ev.id}/members/${ghostMem.id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ default_weight: 2 })
-  });
-  const afterWeight = await (await handleExpensesApi(weightReq, env, owner, new URL(weightReq.url))).json();
-  assert.equal(afterWeight.event.members.find(m => m.id === ghostMem.id).default_weight, 2);
+    // 1. Попытка создать событие с незарегистрированным пользователем (ghost_names) отклоняется
+    const ghostRejectRes = await handleExpensesApi(
+      new Request(`${baseOrigin}/api/expenses/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Поездка", ghost_names: ["Гоша"] })
+      }),
+      env,
+      owner,
+      new URL(`${baseOrigin}/api/expenses/events`)
+    );
+    assert.equal(ghostRejectRes.status, 400);
 
-  // 3. Объединяем Гошу и Лену в «Единый кошелёк» и разъединяем обратно
-  const mergeReq = new Request(`${baseOrigin}/api/expenses/events/${ev.id}/wallets`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ member_ids: [ghostMem.id, lenaMem.id] })
-  });
-  const afterMerge = await (await handleExpensesApi(mergeReq, env, owner, new URL(mergeReq.url))).json();
-  assert.equal(afterMerge.event.wallets.length, 1);
-  assert.equal(afterMerge.event.wallets[0].member_ids.length, 2);
+    // 2. Создаём событие с реальным пользователем Анна по её telegram_id
+    const createReq = new Request(`${baseOrigin}/api/expenses/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Поездка на Байкал",
+        icon: "🏕",
+        base_currency: "RUB",
+        member_telegram_ids: [2002]
+      })
+    });
+    const createRes = await handleExpensesApi(createReq, env, owner, new URL(createReq.url));
+    assert.equal(createRes.status, 201);
+    const ev = (await createRes.json()).event;
+    assert.equal(ev.title, "Поездка на Байкал");
+    assert.equal(ev.members.length, 2);
+    const annaMem = ev.members.find(m => m.telegram_id === 2002);
+    assert.ok(annaMem?.user_id);
 
-  // 4. Гость открывает инвайт-ссылку и забирает виртуальный профиль «Гоша» (Claim Profile)
-  const inviteGetReq = new Request(`${baseOrigin}/api/expenses/invite/${ev.invite_token}`, { method: "GET" });
-  const inviteInfo = await (await handleExpensesApi(inviteGetReq, env, guest, new URL(inviteGetReq.url))).json();
-  assert.equal(inviteInfo.ghost_profiles.length, 1);
-  assert.equal(inviteInfo.ghost_profiles[0].id, ghostMem.id);
+    // 3. Попытка добавить участника только по имени без Telegram отклоняется
+    const badMemberRes = await handleExpensesApi(
+      new Request(`${baseOrigin}/api/expenses/events/${ev.id}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_name: "Лена" })
+      }),
+      env,
+      owner,
+      new URL(`${baseOrigin}/api/expenses/events/${ev.id}/members`)
+    );
+    assert.equal(badMemberRes.status, 400);
 
-  const claimReq = new Request(`${baseOrigin}/api/expenses/invite/${ev.invite_token}/claim`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ member_id: ghostMem.id })
-  });
-  const claimRes = await handleExpensesApi(claimReq, env, guest, new URL(claimReq.url));
-  assert.equal(claimRes.status, 200);
-  const claimedEvent = (await claimRes.json()).event;
-  assert.equal(claimedEvent.members.find(m => m.id === ghostMem.id).is_ghost, false);
+    // 4. Добавление неизвестного @dima1 запускает selection_required (request_users) и после ответа бота добавляет в событие
+    const selRes = await handleExpensesApi(
+      new Request(`${baseOrigin}/api/expenses/events/${ev.id}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "@dima1" })
+      }),
+      env,
+      owner,
+      new URL(`${baseOrigin}/api/expenses/events/${ev.id}/members`)
+    );
+    assert.equal(selRes.status, 202);
+    const selBody = await selRes.json();
+    assert.equal(selBody.status, "selection_required");
+    assert.ok(selBody.requestId);
 
-  // 5. Копируем участников из первого события в новое событие
-  const copyReq = new Request(`${baseOrigin}/api/expenses/events`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      title: "Весенний выезд",
-      copy_from_event_id: ev.id
-    })
-  });
-  const copyData = await (await handleExpensesApi(copyReq, env, owner, new URL(copyReq.url))).json();
-  assert.equal(copyData.event.members.length, 3);
-  assert.equal(getExpensesErrorResponse(new Error("other")), null);
+    const webhookRes = await handleTelegramWebhook(
+      new Request(`${baseOrigin}/webhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: {
+            chat: { id: owner.id },
+            from: { id: owner.id },
+            users_shared: {
+              request_id: selBody.requestId,
+              users: [{ user_id: 3003, first_name: "Дима", username: "dima1" }]
+            }
+          }
+        })
+      }),
+      env
+    );
+    assert.equal(webhookRes.status, 200);
+
+    const refreshedEv = await (await handleExpensesApi(
+      new Request(`${baseOrigin}/api/expenses/events/${ev.id}`, { method: "GET" }),
+      env,
+      owner,
+      new URL(`${baseOrigin}/api/expenses/events/${ev.id}`)
+    )).json();
+    const dimaMem = refreshedEv.event.members.find(m => m.telegram_id === 3003);
+    assert.ok(dimaMem?.user_id);
+
+    // 5. Редактирование события (title, icon, base_currency) и изменение веса участника
+    const editEvRes = await handleExpensesApi(
+      new Request(`${baseOrigin}/api/expenses/events/${ev.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Байкал 2027", icon: "🚗", base_currency: "USD" })
+      }),
+      env,
+      owner,
+      new URL(`${baseOrigin}/api/expenses/events/${ev.id}`)
+    );
+    assert.equal(editEvRes.status, 200);
+    const edited = (await editEvRes.json()).event;
+    assert.equal(edited.title, "Байкал 2027");
+    assert.equal(edited.icon, "🚗");
+    assert.equal(edited.base_currency, "USD");
+
+    const weightReq = new Request(`${baseOrigin}/api/expenses/events/${ev.id}/members/${annaMem.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ default_weight: 2 })
+    });
+    const afterWeight = await (await handleExpensesApi(weightReq, env, owner, new URL(weightReq.url))).json();
+    assert.equal(afterWeight.event.members.find(m => m.id === annaMem.id).default_weight, 2);
+
+    // 6. Объединяем Анну и Диму в «Единый кошелёк»
+    const mergeReq = new Request(`${baseOrigin}/api/expenses/events/${ev.id}/wallets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ member_ids: [annaMem.id, dimaMem.id] })
+    });
+    const afterMerge = await (await handleExpensesApi(mergeReq, env, owner, new URL(mergeReq.url))).json();
+    assert.equal(afterMerge.event.wallets.length, 1);
+    assert.equal(afterMerge.event.wallets[0].member_ids.length, 2);
+
+    // 7. Новый реальный пользователь Борис присоединяется по инвайт-ссылке (без ghost_profiles)
+    const inviteGetReq = new Request(`${baseOrigin}/api/expenses/invite/${ev.invite_token}`, { method: "GET" });
+    const inviteInfo = await (await handleExpensesApi(inviteGetReq, env, bob, new URL(inviteGetReq.url))).json();
+    assert.equal("ghost_profiles" in inviteInfo, false);
+    assert.equal(inviteInfo.already_joined, false);
+
+    const claimReq = new Request(`${baseOrigin}/api/expenses/invite/${ev.invite_token}/claim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    const claimRes = await handleExpensesApi(claimReq, env, bob, new URL(claimReq.url));
+    assert.equal(claimRes.status, 200);
+    const joinedEvent = (await claimRes.json()).event;
+    assert.ok(joinedEvent.members.some(m => m.telegram_id === 4004));
+
+    // 8. Контакты и копирование реальных участников в новое событие
+    const contactsRes = await (await handleExpensesApi(
+      new Request(`${baseOrigin}/api/expenses/contacts`, { method: "GET" }),
+      env,
+      owner,
+      new URL(`${baseOrigin}/api/expenses/contacts`)
+    )).json();
+    assert.ok(contactsRes.contacts.some(c => c.telegram_id === 2002));
+    assert.ok(contactsRes.contacts.some(c => c.telegram_id === 3003));
+
+    const copyReq = new Request(`${baseOrigin}/api/expenses/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Весенний выезд",
+        copy_from_event_id: ev.id
+      })
+    });
+    const copyData = await (await handleExpensesApi(copyReq, env, owner, new URL(copyReq.url))).json();
+    assert.equal(copyData.event.members.length, 4);
+    assert.equal(getExpensesErrorResponse(new Error("other")), null);
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
 });

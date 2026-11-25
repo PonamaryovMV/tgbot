@@ -595,8 +595,34 @@
             </select>
           </div>
           <div class="field-block span-2">
-            <label class="field-label" for="newEventGhostsInput">Участники (по одному в строке, можно без Telegram)</label>
-            <textarea class="input-modern textarea-modern" id="newEventGhostsInput" placeholder="Гоша&#10;Лена"></textarea>
+            <div class="field-label">
+              <span>Участники (Telegram)</span>
+              <button type="button" class="btn-mini" onclick="refreshExpensesContacts()">↻ Обновить</button>
+            </div>
+            <div class="audience-editor" id="newEventSelectedMembers"></div>
+            <div class="social-add-form" style="margin-top: 8px; margin-bottom: 6px;">
+              <input
+                type="text"
+                class="input-modern"
+                id="newEventMemberUsernameInput"
+                placeholder="@username"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
+                maxlength="33"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();addDraftNewEventMemberByUsername();}"
+              />
+              <button type="button" class="btn-glass" id="newEventAddMemberBtn" onclick="addDraftNewEventMemberByUsername()">＋ Добавить</button>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
+              <button type="button" class="btn-mini" id="newEventRequestTelegramUserBtn" onclick="requestTelegramContactForExpenses(null)">📱 Выбрать в Telegram</button>
+              <span style="font-size: 11.5px; color: var(--tg-theme-hint-color);">Если @username скрыт или не указан</span>
+            </div>
+            <div class="selection-help" id="newEventSelectionHelp" hidden>
+              <p>Пользователь пока неизвестен приложению. Откройте чат с ботом и выберите человека через Telegram — после возврата он появится в списке.</p>
+              <button type="button" class="btn-glass" onclick="openBotForSelection()">Открыть чат с ботом</button>
+            </div>
+            <div id="newEventContactsQuickPick"></div>
           </div>
         </div>
         <label class="bento-switch-card" for="newEventSimplifyInput" style="margin-top: 12px;">
@@ -614,6 +640,18 @@
           <button type="submit" class="btn-accent" id="submitCreateEventBtn" style="flex: 2;">Создать событие</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: РЕДАКТИРОВАНИЕ СОБЫТИЯ РАСХОДОВ -->
+  <div class="modal-overlay" id="editEventModalBackdrop" onclick="handleBackdropClick(event, 'editEventModalBackdrop')">
+    <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="editEventModalTitle">
+      <div class="sheet-pill-handle"></div>
+      <div class="modal-head">
+        <h2 class="modal-title" id="editEventModalTitle">✏️ Редактировать событие</h2>
+        <button type="button" class="btn-close-circle" onclick="closeEditEventModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div id="editEventModalBody"></div>
     </div>
   </div>
 
@@ -641,7 +679,7 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО: ИНВАЙТ-ССЫЛКА И CLAIM PROFILE -->
+  <!-- МОДАЛЬНОЕ ОКНО: ИНВАЙТ-ССЫЛКА В СОБЫТИЕ -->
   <div class="modal-overlay" id="claimProfileModalBackdrop" onclick="handleBackdropClick(event, 'claimProfileModalBackdrop')">
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="claimProfileModalTitle">
       <div class="sheet-pill-handle"></div>

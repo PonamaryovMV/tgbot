@@ -16,6 +16,7 @@ import {
   loadProfile,
   upsertUserDirectory,
   addSubscription,
+  addExpenseContact,
   readSubscribers,
   loadGroups,
   saveGroups
@@ -224,7 +225,11 @@ export async function notifySubscribersAboutNewGift(env, ownerId, gift, groups, 
   }
 }
 
-export async function requestTelegramUserSelection(env, viewerId, { purpose, groupId = "", requestedUsername = "" }) {
+export async function requestTelegramUserSelection(
+  env,
+  viewerId,
+  { purpose, groupId = "", eventId = "", requestedUsername = "" }
+) {
   if (!env?.BOT_TOKEN) {
     throw new ApiError(500, "BOT_TOKEN is not configured");
   }
@@ -235,13 +240,19 @@ export async function requestTelegramUserSelection(env, viewerId, { purpose, gro
     numericRequestId,
     purpose,
     groupId: purpose === "group" ? String(groupId || "") : "",
+    eventId: purpose === "expense_member" ? String(eventId || "") : "",
     requestedUsername: normalizeUsername(requestedUsername || "", false),
     createdAt: new Date().toISOString()
   }), { expirationTtl: 900 });
 
-  const text = purpose === "subscribe"
-    ? "Нажмите кнопку ниже и выберите в Telegram человека, на вишлист которого хотите подписаться."
-    : "Нажмите кнопку ниже и выберите в Telegram человека, которого хотите добавить в группу.";
+  let text = "Нажмите кнопку ниже и выберите в Telegram человека, которого хотите добавить в группу.";
+  if (purpose === "subscribe") {
+    text = "Нажмите кнопку ниже и выберите в Telegram человека, на вишлист которого хотите подписаться.";
+  } else if (purpose === "expense_member") {
+    text = "Нажмите кнопку ниже и выберите в Telegram человека, которого хотите добавить в событие расходов.";
+  } else if (purpose === "expense_contact") {
+    text = "Нажмите кнопку ниже и выберите в Telegram человека, чтобы сохранить его для добавления в события расходов.";
+  }
 
   try {
     await callTelegramApi(env, "sendMessage", {
@@ -275,6 +286,49 @@ export async function requestTelegramUserSelection(env, viewerId, { purpose, gro
   };
 }
 
+async function ensureExpenseUserInD1(db, { telegramId, displayName, username }) {
+  if (!db || typeof db.prepare !== "function") return null;
+  const now = new Date().toISOString();
+  const safeName = cleanPlainText(displayName, 64) || "Пользователь";
+  const safeUsername = normalizeUsername(username || "", false);
+  const existing = await db
+    .prepare("SELECT * FROM users WHERE telegram_id = ?")
+    .bind(Number(telegramId))
+    .first();
+
+  if (!existing) {
+    const userId = crypto.randomUUID();
+    await db
+      .prepare(
+        `INSERT INTO users (
+          id, telegram_id, username, display_name, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .bind(userId, Number(telegramId), safeUsername, safeName, now, now)
+      .run();
+    return {
+      id: userId,
+      telegram_id: Number(telegramId),
+      username: safeUsername,
+      display_name: safeName
+    };
+  }
+
+  const nextUsername = safeUsername || existing.username || "";
+  const nextDisplayName = safeName !== "Пользователь" ? safeName : (existing.display_name || safeName);
+  if (nextUsername !== (existing.username || "") || nextDisplayName !== existing.display_name) {
+    await db
+      .prepare("UPDATE users SET username = ?, display_name = ?, updated_at = ? WHERE id = ?")
+      .bind(nextUsername, nextDisplayName, now, existing.id)
+      .run();
+  }
+  return {
+    ...existing,
+    username: nextUsername,
+    display_name: nextDisplayName
+  };
+}
+
 export async function handleSharedUserSelection(env, viewerId, chatId, usersShared) {
   const numericRequestId = Number(usersShared?.request_id);
   const sharedUsers = Array.isArray(usersShared?.users) ? usersShared.users : [];
@@ -296,10 +350,11 @@ export async function handleSharedUserSelection(env, viewerId, chatId, usersShar
   await env.DB.delete(matchedKey);
   const selectedId = parseId(selected.user_id, "selected_user_id");
   const firstName = [selected.first_name, selected.last_name].filter(Boolean).join(" ").trim() || undefined;
+  const normalizedUsername = selected.username ? normalizeUsername(selected.username, false) : "";
   await upsertUserDirectory(env, {
     id: selectedId,
     first_name: firstName,
-    username: selected.username ? normalizeUsername(selected.username, false) : undefined
+    username: normalizedUsername || undefined
   });
 
   if (selectedId === Number(viewerId)) {
@@ -339,6 +394,84 @@ export async function handleSharedUserSelection(env, viewerId, chatId, usersShar
       await saveGroups(env, Number(viewerId), groups);
     }
     messageText = `${displayName} добавлен в группу «${group.name}». Вернитесь в Mini App.`;
+  } else if (pending.purpose === "expense_contact" || pending.purpose === "expense_member") {
+    await addExpenseContact(env, Number(viewerId), selectedId);
+    const selectedUserRow = await ensureExpenseUserInD1(env.EXPENSES_DB, {
+      telegramId: selectedId,
+      displayName,
+      username: normalizedUsername || storedProfile.username || ""
+    });
+
+    if (pending.purpose === "expense_member" && pending.eventId && env.EXPENSES_DB && selectedUserRow) {
+      const db = env.EXPENSES_DB;
+      const eventRow = await db
+        .prepare("SELECT * FROM events WHERE id = ?")
+        .bind(String(pending.eventId))
+        .first();
+      const viewerRow = await db
+        .prepare("SELECT * FROM users WHERE telegram_id = ?")
+        .bind(Number(viewerId))
+        .first();
+      const viewerMember = viewerRow
+        ? await db
+            .prepare("SELECT * FROM event_members WHERE event_id = ? AND user_id = ?")
+            .bind(String(pending.eventId), viewerRow.id)
+            .first()
+        : null;
+
+      if (!eventRow || !viewerMember) {
+        await sendTelegramBotMessage(
+          env,
+          chatId,
+          "Событие не найдено или у вас нет прав добавлять в него участников.",
+          { remove_keyboard: true }
+        );
+        return;
+      }
+
+      const existingMember = await db
+        .prepare("SELECT * FROM event_members WHERE event_id = ? AND user_id = ?")
+        .bind(String(pending.eventId), selectedUserRow.id)
+        .first();
+
+      if (!existingMember) {
+        const now = new Date().toISOString();
+        await db
+          .prepare(
+            `INSERT INTO event_members (
+              id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
+            ) VALUES (?, ?, ?, ?, 'MEMBER', 1.0, NULL, ?)`
+          )
+          .bind(crypto.randomUUID(), String(pending.eventId), selectedUserRow.id, displayName, now)
+          .run();
+        await db
+          .prepare("UPDATE events SET updated_at = ? WHERE id = ?")
+          .bind(now, String(pending.eventId))
+          .run();
+        await db
+          .prepare(
+            `INSERT INTO event_audit_log (id, event_id, actor_user_id, action, details_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            crypto.randomUUID(),
+            String(pending.eventId),
+            viewerRow.id,
+            "MEMBER_ADDED",
+            JSON.stringify({
+              user_id: selectedUserRow.id,
+              telegram_id: selectedId,
+              names: [displayName],
+              text: `Добавлен(а) участник: ${displayName}`
+            }),
+            now
+          )
+          .run();
+      }
+      messageText = `${displayName} добавлен(а) в событие «${eventRow.title}». Вернитесь в Mini App.`;
+    } else {
+      messageText = `${displayName} сохранён(а) в контакты. Вернитесь в Mini App, чтобы добавить участника в событие.`;
+    }
   }
 
   if (messageText) {

@@ -1,4 +1,10 @@
-import { cleanPlainText, json } from "../../worker.js";
+import {
+  cleanPlainText,
+  json,
+  normalizeUsername,
+  addExpenseContact,
+  requestTelegramUserSelection
+} from "../../worker.js";
 import {
   EVENT_STATUSES,
   CONTRIBUTION_STATUSES,
@@ -13,15 +19,16 @@ import {
   loadEventMembers,
   loadEventOperations,
   loadEventSettlements,
-  loadEventAuditLog,
   requireEventAccess,
   serializeEventDetail,
   loadFullEventDetail,
   listUserEventsSummary,
-  buildEventCsvExport
+  buildEventCsvExport,
+  resolveRealUserForExpenses,
+  listExpensesContacts
 } from "./queries.js";
 
-export async function handleEventsRoute(request, db, user, path, method) {
+export async function handleEventsRoute(request, db, user, path, method, env = null) {
   if (path === "/api/expenses/health" && method === "GET") {
     return json({
       ok: true,
@@ -34,6 +41,77 @@ export async function handleEventsRoute(request, db, user, path, method) {
   if (path === "/api/expenses/dashboard" && method === "GET") {
     const dashboard = await listUserEventsSummary(db, user.id);
     return json({ ok: true, stage: 5, user, ...dashboard });
+  }
+
+  if (path === "/api/expenses/contacts" && method === "GET") {
+    const contacts = await listExpensesContacts(db, env, user);
+    return json({ ok: true, contacts });
+  }
+
+  if (path === "/api/expenses/contacts/resolve" && method === "POST") {
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      throw new ExpensesApiError(400, "Invalid JSON payload");
+    }
+    const rawUsername = String(body.username || "").trim();
+    const rawTelegramId = body.telegram_id;
+    if (!rawUsername && !rawTelegramId) {
+      throw new ExpensesApiError(400, "Specify @username or telegram_id");
+    }
+    const normalizedUsername = rawUsername ? normalizeUsername(rawUsername, true) : "";
+    const resolved = await resolveRealUserForExpenses(db, env, {
+      telegramId: rawTelegramId,
+      username: normalizedUsername
+    });
+
+    if (resolved) {
+      if (Number(resolved.telegram_id) === Number(user.telegram_id)) {
+        throw new ExpensesApiError(400, "You cannot add yourself");
+      }
+      if (env?.DB) {
+        await addExpenseContact(env, user.telegram_id, resolved.telegram_id);
+      }
+      return json({
+        ok: true,
+        status: "ok",
+        user: {
+          id: resolved.id,
+          telegram_id: resolved.telegram_id,
+          username: resolved.username || "",
+          display_name: resolved.display_name
+        }
+      });
+    }
+
+    if (env?.BOT_TOKEN && env?.DB) {
+      const selection = await requestTelegramUserSelection(env, user.telegram_id, {
+        purpose: "expense_contact",
+        requestedUsername: normalizedUsername
+      });
+      return json(selection, 202);
+    }
+
+    throw new ExpensesApiError(404, "User not found");
+  }
+
+  if (path === "/api/expenses/contacts/request" && method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    if (!env?.BOT_TOKEN || !env?.DB) {
+      throw new ExpensesApiError(503, "Telegram user selection is unavailable");
+    }
+    const eventId = cleanPlainText(body?.event_id, 64);
+    if (eventId) {
+      await requireEventAccess(db, eventId, user.id);
+      const selection = await requestTelegramUserSelection(env, user.telegram_id, {
+        purpose: "expense_member",
+        eventId
+      });
+      return json(selection, 202);
+    }
+    const selection = await requestTelegramUserSelection(env, user.telegram_id, {
+      purpose: "expense_contact"
+    });
+    return json(selection, 202);
   }
 
   if (path === "/api/expenses/events" && method === "GET") {
@@ -54,10 +132,45 @@ export async function handleEventsRoute(request, db, user, path, method) {
     if (!title) {
       throw new ExpensesApiError(400, "Event title is required");
     }
+    const hasGhosts = Array.isArray(body.ghost_names)
+      ? body.ghost_names.some(v => String(v || "").trim() !== "")
+      : Boolean(String(body.ghost_names || "").trim());
+    if (hasGhosts) {
+      throw new ExpensesApiError(400, "Unregistered members are not supported. Add real Telegram users.");
+    }
+
     const description = cleanPlainText(body.description, 240);
     const icon = sanitizeEventIcon(body.icon);
     const baseCurrency = sanitizeCurrency(body.base_currency, user.default_currency || "RUB");
     const simplifyDebts = body.simplify_debts === false || body.simplify_debts === 0 ? 0 : 1;
+
+    const requestedInputs = [];
+    if (Array.isArray(body.member_telegram_ids)) {
+      for (const tgId of body.member_telegram_ids) requestedInputs.push({ telegramId: tgId });
+    }
+    if (Array.isArray(body.usernames)) {
+      for (const uname of body.usernames) requestedInputs.push({ username: uname });
+    }
+    if (Array.isArray(body.members)) {
+      for (const item of body.members) {
+        if (item && typeof item === "object") {
+          requestedInputs.push({ telegramId: item.telegram_id, username: item.username });
+        }
+      }
+    }
+
+    const resolvedInitialMembers = [];
+    const seenRequestedUserIds = new Set([user.id]);
+    for (const reqItem of requestedInputs) {
+      const resolved = await resolveRealUserForExpenses(db, env, reqItem);
+      if (!resolved) {
+        throw new ExpensesApiError(404, "One or more selected Telegram users were not found");
+      }
+      if (seenRequestedUserIds.has(resolved.id)) continue;
+      seenRequestedUserIds.add(resolved.id);
+      resolvedInitialMembers.push(resolved);
+    }
+
     const now = new Date().toISOString();
     const eventId = crypto.randomUUID();
     const inviteToken = generateInviteToken();
@@ -84,18 +197,14 @@ export async function handleEventsRoute(request, db, user, path, method) {
       .run();
 
     const seenUserIds = new Set([user.id]);
-    const seenNames = new Set([ownerName.toLocaleLowerCase("ru-RU")]);
 
     const copyFromEventId = cleanPlainText(body.copy_from_event_id, 64);
     if (copyFromEventId) {
       const sourceAccess = await requireEventAccess(db, copyFromEventId, user.id).catch(() => null);
       if (sourceAccess) {
         for (const srcMember of sourceAccess.members) {
-          if (srcMember.user_id && seenUserIds.has(srcMember.user_id)) continue;
-          const nameKey = srcMember.member_name.toLocaleLowerCase("ru-RU");
-          if (!srcMember.user_id && seenNames.has(nameKey)) continue;
-          if (srcMember.user_id) seenUserIds.add(srcMember.user_id);
-          seenNames.add(nameKey);
+          if (!srcMember.user_id || seenUserIds.has(srcMember.user_id)) continue;
+          seenUserIds.add(srcMember.user_id);
 
           await db
             .prepare(
@@ -106,7 +215,7 @@ export async function handleEventsRoute(request, db, user, path, method) {
             .bind(
               crypto.randomUUID(),
               eventId,
-              srcMember.user_id || null,
+              srcMember.user_id,
               srcMember.member_name,
               sanitizeWeight(srcMember.default_weight, 1.0),
               now
@@ -116,26 +225,22 @@ export async function handleEventsRoute(request, db, user, path, method) {
       }
     }
 
-    const rawGhosts = Array.isArray(body.ghost_names)
-      ? body.ghost_names
-      : typeof body.ghost_names === "string"
-        ? body.ghost_names.split(/[\n,;]+/)
-        : [];
-    for (const rawName of rawGhosts) {
-      const ghostName = cleanPlainText(rawName, 64);
-      if (!ghostName) continue;
-      const key = ghostName.toLocaleLowerCase("ru-RU");
-      if (seenNames.has(key)) continue;
-      seenNames.add(key);
+    for (const memberUser of resolvedInitialMembers) {
+      if (seenUserIds.has(memberUser.id)) continue;
+      seenUserIds.add(memberUser.id);
 
       await db
         .prepare(
           `INSERT INTO event_members (
             id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
-          ) VALUES (?, ?, NULL, ?, 'MEMBER', 1.0, NULL, ?)`
+          ) VALUES (?, ?, ?, ?, 'MEMBER', 1.0, NULL, ?)`
         )
-        .bind(crypto.randomUUID(), eventId, ghostName, now)
+        .bind(crypto.randomUUID(), eventId, memberUser.id, memberUser.display_name || "Участник", now)
         .run();
+
+      if (env?.DB) {
+        await addExpenseContact(env, user.telegram_id, memberUser.telegram_id);
+      }
     }
 
     await appendAuditLog(db, eventId, user.id, "EVENT_CREATED", {
@@ -158,7 +263,6 @@ export async function handleEventsRoute(request, db, user, path, method) {
     }
     const members = await loadEventMembers(db, eventRow.id);
     const existingMember = members.find(m => m.user_id === user.id) || null;
-    const ghostProfiles = members.filter(m => !m.user_id && !m.linked_payer_member_id);
 
     return json({
       ok: true,
@@ -173,8 +277,7 @@ export async function handleEventsRoute(request, db, user, path, method) {
         members_count: members.length
       },
       already_joined: Boolean(existingMember),
-      viewer_member: existingMember,
-      ghost_profiles: ghostProfiles
+      viewer_member: existingMember
     });
   }
 
@@ -196,50 +299,27 @@ export async function handleEventsRoute(request, db, user, path, method) {
       const eventDetail = await loadFullEventDetail(db, eventRow.id, user.id);
       return json({
         ok: true,
-        claimed: false,
         already_joined: true,
         event: eventDetail
       });
     }
 
     const now = new Date().toISOString();
-    const targetMemberId = cleanPlainText(body?.member_id, 64);
+    const joinName = cleanPlainText(body?.member_name, 64) || user.display_name || "Участник";
+    const newMemberId = crypto.randomUUID();
+    await db
+      .prepare(
+        `INSERT INTO event_members (
+          id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
+        ) VALUES (?, ?, ?, ?, 'MEMBER', 1.0, NULL, ?)`
+      )
+      .bind(newMemberId, eventRow.id, user.id, joinName, now)
+      .run();
 
-    if (targetMemberId && targetMemberId !== "__new") {
-      const ghost = members.find(m => m.id === targetMemberId);
-      if (!ghost) {
-        throw new ExpensesApiError(404, "Selected profile not found in this event");
-      }
-      if (ghost.user_id) {
-        throw new ExpensesApiError(409, "This profile has already been claimed");
-      }
-      const nextName = cleanPlainText(body?.member_name, 64) || ghost.member_name;
-      await db
-        .prepare("UPDATE event_members SET user_id = ?, member_name = ? WHERE id = ?")
-        .bind(user.id, nextName, ghost.id)
-        .run();
-
-      await appendAuditLog(db, eventRow.id, user.id, "PROFILE_CLAIMED", {
-        member_id: ghost.id,
-        text: `${user.display_name} привязал(а) профиль «${nextName}» по инвайт-ссылке`
-      });
-    } else {
-      const joinName = cleanPlainText(body?.member_name, 64) || user.display_name || "Участник";
-      const newMemberId = crypto.randomUUID();
-      await db
-        .prepare(
-          `INSERT INTO event_members (
-            id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
-          ) VALUES (?, ?, ?, ?, 'MEMBER', 1.0, NULL, ?)`
-        )
-        .bind(newMemberId, eventRow.id, user.id, joinName, now)
-        .run();
-
-      await appendAuditLog(db, eventRow.id, user.id, "MEMBER_JOINED", {
-        member_id: newMemberId,
-        text: `${joinName} присоединился(ась) к событию по инвайт-ссылке`
-      });
-    }
+    await appendAuditLog(db, eventRow.id, user.id, "MEMBER_JOINED", {
+      member_id: newMemberId,
+      text: `${joinName} присоединился(ась) к событию по инвайт-ссылке`
+    });
 
     await db
       .prepare("UPDATE events SET updated_at = ? WHERE id = ?")
@@ -249,7 +329,7 @@ export async function handleEventsRoute(request, db, user, path, method) {
     const eventDetail = await loadFullEventDetail(db, eventRow.id, user.id);
     return json({
       ok: true,
-      claimed: Boolean(targetMemberId && targetMemberId !== "__new"),
+      already_joined: false,
       event: eventDetail
     });
   }
@@ -325,6 +405,13 @@ export async function handleEventsRoute(request, db, user, path, method) {
       await appendAuditLog(db, eventId, user.id, "SIMPLIFY_TOGGLED", {
         simplify_debts: Boolean(simplifyDebts),
         text: simplifyDebts ? "Включено упрощение долгов" : "Включены прямые долги"
+      });
+    } else if (title !== eventRow.title || icon !== (eventRow.icon || "🎉") || baseCurrency !== eventRow.base_currency || description !== (eventRow.description || "")) {
+      await appendAuditLog(db, eventId, user.id, "EVENT_UPDATED", {
+        title,
+        icon,
+        base_currency: baseCurrency,
+        text: `Параметры события «${title}» обновлены`
       });
     }
 
@@ -424,42 +511,56 @@ export async function handleEventsRoute(request, db, user, path, method) {
     }
     const { members } = await requireEventAccess(db, eventId, user.id);
     const now = new Date().toISOString();
-    const seenNames = new Set(members.map(m => m.member_name.toLocaleLowerCase("ru-RU")));
-
-    const rawNames = Array.isArray(body.names)
-      ? body.names
-      : body.member_name
-        ? [body.member_name]
-        : [];
     const weight = sanitizeWeight(body.default_weight, 1.0);
-    const added = [];
 
-    for (const rawName of rawNames) {
-      const name = cleanPlainText(rawName, 64);
-      if (!name) continue;
-      const key = name.toLocaleLowerCase("ru-RU");
-      if (seenNames.has(key)) continue;
-      seenNames.add(key);
-
-      await db
-        .prepare(
-          `INSERT INTO event_members (
-            id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
-          ) VALUES (?, ?, NULL, ?, 'MEMBER', ?, NULL, ?)`
-        )
-        .bind(crypto.randomUUID(), eventId, name, weight, now)
-        .run();
-      added.push(name);
+    const rawUsername = String(body.username || "").trim();
+    const rawTelegramId = body.telegram_id;
+    if (!rawUsername && (rawTelegramId === undefined || rawTelegramId === null || rawTelegramId === "")) {
+      throw new ExpensesApiError(400, "Specify @username or select a registered Telegram user");
     }
 
-    if (!added.length) {
-      throw new ExpensesApiError(400, "Provide at least one unique participant name");
+    const normalizedUsername = rawUsername ? normalizeUsername(rawUsername, true) : "";
+    const resolved = await resolveRealUserForExpenses(db, env, {
+      telegramId: rawTelegramId,
+      username: normalizedUsername
+    });
+
+    if (!resolved) {
+      if (normalizedUsername && env?.BOT_TOKEN && env?.DB) {
+        const selection = await requestTelegramUserSelection(env, user.telegram_id, {
+          purpose: "expense_member",
+          eventId,
+          requestedUsername: normalizedUsername
+        });
+        return json(selection, 202);
+      }
+      throw new ExpensesApiError(404, "User not found");
+    }
+
+    if (members.some(m => m.user_id === resolved.id)) {
+      throw new ExpensesApiError(409, "User is already a member of this event");
+    }
+
+    const memberName = cleanPlainText(resolved.display_name, 64) || "Участник";
+    await db
+      .prepare(
+        `INSERT INTO event_members (
+          id, event_id, user_id, member_name, role, default_weight, linked_payer_member_id, joined_at
+        ) VALUES (?, ?, ?, ?, 'MEMBER', ?, NULL, ?)`
+      )
+      .bind(crypto.randomUUID(), eventId, resolved.id, memberName, weight, now)
+      .run();
+
+    if (env?.DB) {
+      await addExpenseContact(env, user.telegram_id, resolved.telegram_id);
     }
 
     await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, eventId).run();
     await appendAuditLog(db, eventId, user.id, "MEMBER_ADDED", {
-      names: added,
-      text: `Добавлен(ы) участник(и): ${added.join(", ")}`
+      user_id: resolved.id,
+      telegram_id: resolved.telegram_id,
+      names: [memberName],
+      text: `Добавлен(а) участник: ${memberName}`
     });
 
     const eventDetail = await loadFullEventDetail(db, eventId, user.id);

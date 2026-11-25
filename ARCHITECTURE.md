@@ -15,9 +15,9 @@ Telegram Mini App состоит из статического клиентск�
 │   ├── expenses/
 │   │   ├── schema.js                 # SQL-схема D1, константы, ExpensesApiError, CORS и санитайзеры
 │   │   ├── splits.js                 # Распределение минорных единиц, 5 режимов сплита, кошельки и граф долгов
-│   │   ├── queries.js                # D1-запросы, сериализация событий, кросс-событийные долги и CSV-экспорт
+│   │   ├── queries.js                # D1-запросы, контакты, сериализация событий, кросс-событийные долги и CSV-экспорт
 │   │   ├── core-api.js               # Обработчики /api/core/* и клавиатура выбора модулей по /start
-│   │   ├── events-api.js             # Маршруты событий, инвайты/claim, участники, кошельки, цели и CSV
+│   │   ├── events-api.js             # Маршруты событий, контакты/request_users, инвайты, участники, кошельки, цели и CSV
 │   │   └── operations-api.js         # CRUD операций (/operations/*) и 2-шаговые СБП-расчёты (/settlements/*)
 │   ├── wishlist/
 │   │   ├── utils.js                  # Константы, ApiError, санитайзеры, HMAC verifyTelegramInitData и Telegram API

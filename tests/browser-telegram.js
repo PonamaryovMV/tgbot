@@ -166,9 +166,31 @@ export default async (page, baseUrl) => {
       });
     }
 
+    const knownUsers = [
+      { id: "usr_1001", telegram_id: 1001, username: "maxim", display_name: "Максим" },
+      { id: "usr_3003", telegram_id: 3003, username: "dima1", display_name: "Дима" }
+    ];
+
+    if (url.pathname === "/api/expenses/contacts" && request.method() === "GET") {
+      return fulfillJson({
+        ok: true,
+        contacts: knownUsers.map(u => ({ telegram_id: u.telegram_id, username: u.username, display_name: u.display_name }))
+      });
+    }
+
+    if (url.pathname === "/api/expenses/contacts/resolve" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      const uname = String(body.username || "").replace(/^@+/, "").toLowerCase();
+      const found = knownUsers.find(u => u.username === uname);
+      if (!found) {
+        return fulfillJson({ status: "selection_required", requestId: "exp_req_1", botUsername: "wishlist_test_bot" }, 202);
+      }
+      return fulfillJson({ ok: true, status: "ok", user: found });
+    }
+
     if (url.pathname === "/api/expenses/events" && request.method() === "POST") {
       const body = request.postDataJSON();
-      const ghosts = String(body.ghost_names || "").split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+      const tgIds = Array.isArray(body.member_telegram_ids) ? body.member_telegram_ids : [];
       const evId = `ev_${expenseEvents.length + 1}`;
       const members = [
         {
@@ -178,23 +200,24 @@ export default async (page, baseUrl) => {
           telegram_id: 2002,
           username: "anna1",
           member_name: "Анна",
-          is_ghost: false,
           role: "OWNER",
           default_weight: 1,
           linked_payer_member_id: null
         },
-        ...ghosts.map((name, idx) => ({
-          id: `${evId}_g${idx + 1}`,
-          event_id: evId,
-          user_id: null,
-          telegram_id: null,
-          username: "",
-          member_name: name,
-          is_ghost: true,
-          role: "MEMBER",
-          default_weight: 1,
-          linked_payer_member_id: null
-        }))
+        ...tgIds.map((tgId, idx) => {
+          const u = knownUsers.find(x => x.telegram_id === Number(tgId)) || { id: `usr_${tgId}`, telegram_id: Number(tgId), username: "", display_name: "Пользователь" };
+          return {
+            id: `${evId}_m${idx + 2}`,
+            event_id: evId,
+            user_id: u.id,
+            telegram_id: u.telegram_id,
+            username: u.username,
+            member_name: u.display_name,
+            role: "MEMBER",
+            default_weight: 1,
+            linked_payer_member_id: null
+          };
+        })
       ];
       const created = {
         id: evId,
@@ -220,6 +243,17 @@ export default async (page, baseUrl) => {
     if (evDetailMatch && request.method() === "GET") {
       const found = expenseEvents.find(e => e.id === evDetailMatch[1]);
       return found ? fulfillJson({ ok: true, event: found }) : fulfillJson({ error: "Not found" }, 404);
+    }
+    if (evDetailMatch && request.method() === "PATCH") {
+      const found = expenseEvents.find(e => e.id === evDetailMatch[1]);
+      if (!found) return fulfillJson({ error: "Not found" }, 404);
+      const body = request.postDataJSON();
+      if (body.title !== undefined) found.title = body.title;
+      if (body.icon !== undefined) found.icon = body.icon;
+      if (body.base_currency !== undefined) found.base_currency = body.base_currency;
+      if (body.simplify_debts !== undefined) found.simplify_debts = Boolean(body.simplify_debts);
+      if (body.status !== undefined) found.status = body.status;
+      return fulfillJson({ ok: true, event: found });
     }
 
     const walletMergeMatch = url.pathname.match(/^\/api\/expenses\/events\/([^/]+)\/wallets$/);
@@ -398,10 +432,20 @@ export default async (page, baseUrl) => {
   await page.locator("#openNewEventHeaderBtn").click();
   await page.locator("#newEventModalBackdrop.open").waitFor();
   await page.locator("#newEventTitleInput").fill("Поездка в Сочи");
-  await page.locator("#newEventGhostsInput").fill("Гоша\nЛена");
+  await page.locator("#newEventMemberUsernameInput").fill("@dima1");
+  await page.locator("#newEventAddMemberBtn").click();
+  await page.waitForFunction(() => document.querySelector("#newEventSelectedMembers")?.textContent.includes("Дима"));
   await page.locator("#submitCreateEventBtn").click();
   await page.locator("#expenseEventDetailView").waitFor({ state: "visible" });
   assert((await page.locator("#expDetailTitle").textContent()).includes("Поездка в Сочи"), "Created event title must render");
+
+  await page.locator("#expEventMenuBtn").click();
+  await page.locator("#expenseEventMenuBackdrop.open").waitFor();
+  await page.locator("#expenseEventMenuBody").getByRole("button", { name: /Редактировать событие/ }).click();
+  await page.locator("#editEventModalBackdrop.open").waitFor();
+  await page.locator("#editEventTitleInput").fill("Поездка в Сочи 2027");
+  await page.locator("#submitEditEventBtn").click();
+  await page.waitForFunction(() => document.querySelector("#expDetailTitle")?.textContent.includes("Поездка в Сочи 2027"));
 
   await page.locator("#expParticipantsBtn").click();
   await page.locator("#eventParticipantsModalBackdrop.open").waitFor();
@@ -414,7 +458,8 @@ export default async (page, baseUrl) => {
 
   await page.locator("#backToExpensesDashBtn").click();
   await page.locator("#expensesDashboardView").waitFor({ state: "visible" });
-  assert((await page.locator("#expensesActiveEventsList").textContent()).includes("Поездка в Сочи"), "Created event must appear in dashboard");
+  await page.waitForFunction(() => document.querySelector("#expensesActiveEventsList")?.textContent.includes("Поездка в Сочи 2027"));
+  assert((await page.locator("#expensesActiveEventsList").textContent()).includes("Поездка в Сочи 2027"), "Edited event must appear in dashboard");
 
   await page.locator("#backFromExpensesBtn").click();
   await page.locator("#hubModuleWishlistBtn").click();
@@ -485,6 +530,7 @@ export default async (page, baseUrl) => {
 
   await page.locator("#participationsViewBtn").click();
   await page.locator("#participationsWorkspace").waitFor({ state: "visible" });
+  await page.waitForFunction(() => !state.participationsLoading);
   assert((await page.locator("#participationsGrid").textContent()).includes("Подарок через боевой API"), "Participations tab must render booked item");
   results.push("participations tab");
 

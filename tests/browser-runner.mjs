@@ -52,7 +52,27 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
 
-const browser = await chromium.launch({ headless: true });
+async function launchBrowser() {
+  if (process.env.PLAYWRIGHT_CHANNEL) {
+    return await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL });
+  }
+  try {
+    return await chromium.launch({ headless: true });
+  } catch (error) {
+    const msg = String(error?.message || "");
+    if (!msg.includes("Executable doesn't exist")) throw error;
+    for (const channel of ["chrome", "msedge"]) {
+      try {
+        return await chromium.launch({ headless: true, channel });
+      } catch {
+        // try next channel
+      }
+    }
+    throw error;
+  }
+}
+
+const browser = await launchBrowser();
 
 try {
   const telegramContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
