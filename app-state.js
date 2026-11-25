@@ -10,6 +10,9 @@ if (tg) {
   try {
     tg.ready();
     tg.expand();
+    if (typeof tg.requestFullscreen === "function") {
+      tg.requestFullscreen();
+    }
     if (tg.colorScheme === "light") {
       document.body.setAttribute("data-theme", "light");
     }

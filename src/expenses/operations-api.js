@@ -414,9 +414,9 @@ export async function handleOperationsRoute(request, db, user, path, method) {
     return json({ ok: true, status: "CONFIRMED", dashboard });
   }
 
-  const settleRejectMatch = path.match(/^\/api\/expenses\/settlements\/([A-Za-z0-9_-]+)\/reject$/);
-  if (settleRejectMatch && method === "POST") {
-    const settlementId = settleRejectMatch[1];
+  const settleCancelMatch = path.match(/^\/api\/expenses\/settlements\/([A-Za-z0-9_-]+)\/cancel$/);
+  if (settleCancelMatch && method === "POST") {
+    const settlementId = settleCancelMatch[1];
     const st = await db.prepare("SELECT * FROM settlements WHERE id = ?").bind(settlementId).first();
     if (!st) throw new ExpensesApiError(404, "Settlement not found");
     if (st.status !== "PENDING") throw new ExpensesApiError(409, "Settlement is already processed");
@@ -429,28 +429,78 @@ export async function handleOperationsRoute(request, db, user, path, method) {
     for (const a of allocs) {
       const access = await requireEventAccess(db, a.event_id, user.id);
       const viewerUnitId = getUnitHeadId(access.members, access.viewerMember.id);
-      const toUnitId = getUnitHeadId(access.members, st.to_member_id);
-      if (viewerUnitId !== toUnitId && access.viewerMember.role !== "OWNER") {
-        throw new ExpensesApiError(403, "Only recipient can reject this settlement");
+      const fromUnitId = getUnitHeadId(access.members, st.from_member_id);
+      if (viewerUnitId !== fromUnitId) {
+        throw new ExpensesApiError(403, "Only sender can cancel this settlement");
       }
     }
 
     const now = new Date().toISOString();
     await db
-      .prepare("UPDATE settlements SET status = 'REJECTED' WHERE id = ?")
+      .prepare("UPDATE settlements SET status = 'CANCELLED' WHERE id = ?")
       .bind(settlementId)
       .run();
 
     for (const a of allocs) {
       await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, a.event_id).run();
-      await appendAuditLog(db, a.event_id, user.id, "SETTLEMENT_REJECTED", {
+      await appendAuditLog(db, a.event_id, user.id, "SETTLEMENT_CANCELLED", {
         settlement_id: settlementId,
-        text: `${user.display_name} отклонил(а) перевод ${Math.round((Number(a.allocated_amount_minor) || 0) / 100)} ${st.currency} — деньги не пришли`
+        text: `${user.display_name} отозвал(а) перевод ${Math.round((Number(a.allocated_amount_minor) || 0) / 100)} ${st.currency}`
       });
     }
 
     const dashboard = await listUserEventsSummary(db, user.id);
-    return json({ ok: true, status: "REJECTED", dashboard });
+    return json({ ok: true, status: "CANCELLED", dashboard });
+  }
+
+  const settleRejectMatch = path.match(/^\/api\/expenses\/settlements\/([A-Za-z0-9_-]+)\/reject$/);
+  if (settleRejectMatch && method === "POST") {
+    const settlementId = settleRejectMatch[1];
+    const st = await db.prepare("SELECT * FROM settlements WHERE id = ?").bind(settlementId).first();
+    if (!st) throw new ExpensesApiError(404, "Settlement not found");
+    if (st.status !== "PENDING") throw new ExpensesApiError(409, "Settlement is already processed");
+
+    const allocRes = await db
+      .prepare("SELECT event_id, allocated_amount_minor FROM settlement_allocations WHERE settlement_id = ?")
+      .bind(settlementId)
+      .all();
+    const allocs = Array.isArray(allocRes?.results) ? allocRes.results : [];
+    let isSender = false;
+    for (const a of allocs) {
+      const access = await requireEventAccess(db, a.event_id, user.id);
+      const viewerUnitId = getUnitHeadId(access.members, access.viewerMember.id);
+      const toUnitId = getUnitHeadId(access.members, st.to_member_id);
+      const fromUnitId = getUnitHeadId(access.members, st.from_member_id);
+      if (viewerUnitId === fromUnitId) {
+        isSender = true;
+      } else if (viewerUnitId !== toUnitId && access.viewerMember.role !== "OWNER") {
+        throw new ExpensesApiError(403, "Only recipient can reject this settlement");
+      }
+    }
+
+    const nextStatus = isSender ? "CANCELLED" : "REJECTED";
+    const logAction = isSender ? "SETTLEMENT_CANCELLED" : "SETTLEMENT_REJECTED";
+    const actionText = isSender
+      ? `${user.display_name} отозвал(а) перевод`
+      : `${user.display_name} отклонил(а) перевод`;
+    const note = isSender ? "" : " — деньги не пришли";
+
+    const now = new Date().toISOString();
+    await db
+      .prepare(isSender ? "UPDATE settlements SET status = 'CANCELLED' WHERE id = ?" : "UPDATE settlements SET status = 'REJECTED' WHERE id = ?")
+      .bind(settlementId)
+      .run();
+
+    for (const a of allocs) {
+      await db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(now, a.event_id).run();
+      await appendAuditLog(db, a.event_id, user.id, logAction, {
+        settlement_id: settlementId,
+        text: `${actionText} ${Math.round((Number(a.allocated_amount_minor) || 0) / 100)} ${st.currency}${note}`
+      });
+    }
+
+    const dashboard = await listUserEventsSummary(db, user.id);
+    return json({ ok: true, status: nextStatus, dashboard });
   }
 
   return null;

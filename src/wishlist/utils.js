@@ -262,9 +262,14 @@ export function createGiftId(existingGifts = []) {
 }
 
 export async function getBotToken(envOrToken) {
-  const binding = typeof envOrToken === "object" && envOrToken !== null && "BOT_TOKEN" in envOrToken
-    ? envOrToken.BOT_TOKEN
-    : envOrToken;
+  let binding = envOrToken;
+  if (typeof envOrToken === "object" && envOrToken !== null) {
+    if ("BOT_TOKEN" in envOrToken) {
+      binding = envOrToken.BOT_TOKEN;
+    } else if (typeof envOrToken.get !== "function") {
+      binding = undefined;
+    }
+  }
   if (!binding) {
     throw new ApiError(500, "BOT_TOKEN is not configured");
   }

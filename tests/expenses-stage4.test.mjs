@@ -286,6 +286,12 @@ function createStage4MockD1() {
           if (st) st.status = "REJECTED";
           return { success: true };
         }
+        if (q.startsWith("update settlements set status = 'cancelled'")) {
+          const [settlementId] = this._params;
+          const st = settlementsById.get(String(settlementId));
+          if (st) st.status = "CANCELLED";
+          return { success: true };
+        }
         if (q.startsWith("insert into settlement_allocations")) {
           const [id, settlementId, eventId, allocatedAmountMinor] = this._params;
           allocationsById.set(String(id), {
@@ -437,7 +443,46 @@ test("Stage 4 2-step SBP settlement flow: send -> reject -> resend -> confirm", 
   assert.equal(rejectRes.status, 200);
   assert.equal((await rejectRes.json()).dashboard.summary_by_currency.RUB.owed_to_you_minor, 500000);
 
-  // 5. Анна отправляет повторно, Максим подтверждает -> баланс 0
+  // 5. Анна отправляет повторно, затем отзывает (cancel) -> статус CANCELLED, долг остаётся 5 000 ₽
+  const sendResCancel = await handleExpensesApi(
+    new Request(`${baseOrigin}/api/expenses/settlements`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        currency: "RUB",
+        payment_method: "СБП",
+        allocations: [{ event_id: ev.id, to_member_id: maxMem.id, amount_minor: 500000 }]
+      })
+    }),
+    env,
+    guest,
+    new URL(`${baseOrigin}/api/expenses/settlements`)
+  );
+  assert.equal(sendResCancel.status, 201);
+  const stIdCancel = (await sendResCancel.json()).settlement_id;
+
+  // Максим (получатель) не может вызвать /cancel (только отправитель)
+  const failCancelRes = await handleExpensesApi(
+    new Request(`${baseOrigin}/api/expenses/settlements/${stIdCancel}/cancel`, { method: "POST" }),
+    env,
+    owner,
+    new URL(`${baseOrigin}/api/expenses/settlements/${stIdCancel}/cancel`)
+  );
+  assert.equal(failCancelRes.status, 403);
+
+  // Анна (отправитель) успешно отзывает перевод через /cancel
+  const cancelRes = await handleExpensesApi(
+    new Request(`${baseOrigin}/api/expenses/settlements/${stIdCancel}/cancel`, { method: "POST" }),
+    env,
+    guest,
+    new URL(`${baseOrigin}/api/expenses/settlements/${stIdCancel}/cancel`)
+  );
+  assert.equal(cancelRes.status, 200);
+  const cancelData = await cancelRes.json();
+  assert.equal(cancelData.ok, true);
+  assert.equal(cancelData.status, "CANCELLED");
+
+  // 6. Анна отправляет повторно, Максим подтверждает -> баланс 0
   const sendRes2 = await handleExpensesApi(
     new Request(`${baseOrigin}/api/expenses/settlements`, {
       method: "POST",

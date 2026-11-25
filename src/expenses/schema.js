@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS settlements (
   currency TEXT NOT NULL,
   payment_method TEXT,
   comment TEXT,
-  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'CONFIRMED', 'REJECTED')),
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED')),
   created_at TEXT NOT NULL,
   confirmed_at TEXT
 );
