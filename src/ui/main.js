@@ -186,7 +186,8 @@ import {
   setSettlePaymentMethod,
   submitSettlePayment,
   confirmIncomingSettlement,
-  rejectIncomingSettlement
+  rejectIncomingSettlement,
+  cancelPendingSettlement
 } from "./expenses-modals.js";
 
 registerSocialUiHooks({
@@ -370,7 +371,8 @@ Object.assign(window, {
   setSettlePaymentMethod,
   submitSettlePayment,
   confirmIncomingSettlement,
-  rejectIncomingSettlement
+  rejectIncomingSettlement,
+  cancelPendingSettlement
 });
 
 document.getElementById("confirmDeleteBtn")?.addEventListener("click", async () => {

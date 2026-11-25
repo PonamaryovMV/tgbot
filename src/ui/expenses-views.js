@@ -16,11 +16,59 @@ const modalTriggers = {
   openEdgeSettleModal: () => {},
   confirmIncomingSettlement: () => {},
   rejectIncomingSettlement: () => {},
+  cancelPendingSettlement: () => {},
   openCrossPersonSettleModal: () => {}
 };
 
 export function registerExpensesViewHooks(hooks) {
   Object.assign(modalTriggers, hooks);
+}
+
+export function getAuditEventMeta(action) {
+  const act = String(action || "").toUpperCase();
+  if (act === "EXPENSE_CREATED" || act === "OPERATION_ADDED") {
+    return { icon: "💳", badge: "Расход", bg: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" };
+  }
+  if (act === "EXPENSE_UPDATED" || act === "OPERATION_UPDATED") {
+    return { icon: "✏️", badge: "Изменение", bg: "rgba(245, 158, 11, 0.15)", color: "#fbbf24" };
+  }
+  if (act === "EXPENSE_DELETED" || act === "OPERATION_DELETED") {
+    return { icon: "🗑", badge: "Удаление", bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" };
+  }
+  if (act === "SETTLEMENT_SENT") {
+    return { icon: "📤", badge: "Перевод отправлен", bg: "rgba(99, 102, 241, 0.15)", color: "#818cf8" };
+  }
+  if (act === "SETTLEMENT_CONFIRMED") {
+    return { icon: "✅", badge: "Перевод подтверждён", bg: "rgba(34, 197, 94, 0.15)", color: "#4ade80" };
+  }
+  if (act === "SETTLEMENT_REJECTED") {
+    return { icon: "❌", badge: "Перевод отклонён", bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" };
+  }
+  if (act === "SETTLEMENT_CANCELLED") {
+    return { icon: "↩️", badge: "Перевод отозван", bg: "rgba(156, 163, 175, 0.18)", color: "#9ca3af" };
+  }
+  if (act === "MEMBER_ADDED" || act === "MEMBER_JOINED") {
+    return { icon: "👤", badge: "Участник", bg: "rgba(168, 85, 247, 0.15)", color: "#c084fc" };
+  }
+  if (act === "MEMBER_REMOVED") {
+    return { icon: "🚪", badge: "Участник удалён", bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" };
+  }
+  if (act === "MEMBER_WEIGHT_UPDATED") {
+    return { icon: "⚖️", badge: "Вес участника", bg: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" };
+  }
+  if (act === "EVENT_CREATED") {
+    return { icon: "🎉", badge: "Событие создано", bg: "rgba(16, 185, 129, 0.15)", color: "#34d399" };
+  }
+  if (act === "EVENT_UPDATED" || act === "STATUS_CHANGED" || act === "SIMPLIFY_TOGGLED") {
+    return { icon: "⚙️", badge: "Настройки", bg: "rgba(148, 163, 184, 0.15)", color: "#94a3b8" };
+  }
+  if (act.startsWith("GOAL_")) {
+    return { icon: "🎯", badge: "Целевой сбор", bg: "rgba(236, 72, 153, 0.15)", color: "#f472b6" };
+  }
+  if (act === "WALLET_MERGED" || act === "WALLET_UNMERGED") {
+    return { icon: "🤝", badge: "Единый кошелёк", bg: "rgba(6, 182, 212, 0.15)", color: "#22d3ee" };
+  }
+  return { icon: "📝", badge: "Событие", bg: "rgba(148, 163, 184, 0.15)", color: "#94a3b8" };
 }
 
 function getEventStatusBadge(status) {
@@ -266,9 +314,10 @@ export function renderExpenseEventDetail() {
         const toU = getClientUnitHeadId(members, s.to_member_id);
         const fromU = getClientUnitHeadId(members, s.from_member_id);
         const incoming = toU === myUnitId;
+        const outgoing = fromU === myUnitId || s.from_unit_id === myUnitId || (ev.viewer_member_id && (s.from_member_id === ev.viewer_member_id || s.from_user_id === ev.viewer_user_id));
         return `
           <div class="composer-card" style="padding: 13px; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: ${incoming ? "10px" : "0"};">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: ${incoming || outgoing ? "10px" : "0"};">
               <div class="exp-member-avatar">${incoming ? "↓" : "↑"}</div>
               <div style="flex: 1; min-width: 0;">
                 <div style="font-size: 14px; font-weight: 700;">${escapeHtml(unitName(fromU))} → ${escapeHtml(unitName(toU))}</div>
@@ -280,6 +329,10 @@ export function renderExpenseEventDetail() {
               <div style="display: flex; gap: 8px;">
                 <button type="button" class="btn-accent" style="flex: 1; min-height: 38px; font-size: 13px;" onclick="confirmIncomingSettlement('${escapeHtml(s.id)}')">Подтвердить</button>
                 <button type="button" class="btn-glass" style="flex: 1; min-height: 38px; font-size: 13px;" onclick="rejectIncomingSettlement('${escapeHtml(s.id)}')">Деньги не пришли</button>
+              </div>
+            ` : outgoing ? `
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn-glass" style="flex: 1; min-height: 38px; font-size: 13px;" onclick="cancelPendingSettlement('${escapeHtml(s.id)}')">Отозвать перевод</button>
               </div>
             ` : `<div class="composer-hint">Ожидает подтверждения получателем</div>`}
           </div>
@@ -325,15 +378,25 @@ export function renderExpenseEventDetail() {
       <h3 class="modal-title" style="font-size: 16px; margin-bottom: 10px;">Журнал событий</h3>
       ${logs.length === 0
         ? `<div class="composer-hint">История пока пуста.</div>`
-        : logs.map(item => `
-            <div class="exp-history-row">
-              <span class="exp-history-dot"></span>
-              <div style="flex: 1; min-width: 0;">
-                <div style="font-size: 13.5px;">${escapeHtml(item.text || item.action)}</div>
-                <div style="font-size: 11px; color: var(--tg-theme-hint-color); margin-top: 2px;">${escapeHtml(String(item.created_at || "").replace("T", " ").slice(0, 16))}</div>
+        : logs.map(item => {
+            const meta = getAuditEventMeta(item.action);
+            return `
+              <div class="exp-history-row" style="display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-hairline);">
+                <div class="exp-history-icon-box" style="width: 36px; height: 36px; border-radius: 10px; background: ${meta.bg}; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                  ${meta.icon}
+                </div>
+                <div style="flex: 1; min-width: 0;">
+                  <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap;">
+                    <span class="exp-history-badge" style="display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; background: ${meta.bg}; color: ${meta.color}; line-height: 1.3;">
+                      ${escapeHtml(meta.badge)}
+                    </span>
+                    <span style="font-size: 11px; color: var(--tg-theme-hint-color);">${escapeHtml(String(item.created_at || "").replace("T", " ").slice(0, 16))}</span>
+                  </div>
+                  <div style="font-size: 13.5px; line-height: 1.4; color: var(--tg-theme-text-color);">${escapeHtml(item.text || item.action)}</div>
+                </div>
               </div>
-            </div>
-          `).join("")}
+            `;
+          }).join("")}
     </div>
   `;
 }

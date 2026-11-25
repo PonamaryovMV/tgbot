@@ -158,12 +158,6 @@ export function renderExpenseOperationModal() {
       </div>
     </div>
 
-    <div class="desire-segment" style="margin-bottom: 14px;">
-      <button type="button" class="desire-btn ${d.operation_type === "EXPENSE" ? "active" : ""}" onclick="setDraftOperationType('EXPENSE')">Расход</button>
-      <button type="button" class="desire-btn ${d.operation_type === "PREPAYMENT" ? "active" : ""}" onclick="setDraftOperationType('PREPAYMENT')">В котёл</button>
-      <button type="button" class="desire-btn ${d.operation_type === "TRANSFER" ? "active" : ""}" onclick="setDraftOperationType('TRANSFER')">Перевод</button>
-    </div>
-
     <div class="form-bento-grid">
       <div class="field-block span-2">
         <label class="field-label" for="expOpTitleInput">Название</label>
@@ -2259,4 +2253,45 @@ export async function rejectIncomingSettlement(settlementId) {
   if (exp.currentEvent) renderExpenseEventDetail();
   await loadExpensesDashboard();
   showToast("Отмечено: деньги не пришли");
+}
+
+export async function cancelPendingSettlement(settlementId) {
+  const exp = getExpensesState();
+  if (isTelegramSession && API_ORIGIN) {
+    try {
+      const response = await fetch(`${API_ORIGIN}/api/expenses/settlements/${encodeURIComponent(settlementId)}/cancel`, {
+        method: "POST",
+        headers: { "X-Telegram-Init-Data": tg?.initData || "" }
+      });
+      await readApiResponse(response);
+      if (exp.currentEvent) await openExpenseEvent(exp.currentEvent.id);
+      await loadExpensesDashboard();
+      showToast("✓ Перевод отозван");
+    } catch (error) {
+      showToast(`❌ ${error.message || "Не удалось отозвать перевод"}`);
+    }
+    return;
+  }
+
+  const demo = loadDemoExpensesStore();
+  for (const ev of demo.events) {
+    const st = (ev.settlements || []).find(s => s.id === settlementId);
+    if (st) {
+      st.status = "CANCELLED";
+      computeClientSettlementPlan(ev);
+      if (Array.isArray(ev.audit_log)) {
+        ev.audit_log.unshift({
+          id: `log_${Date.now()}`,
+          action: "SETTLEMENT_CANCELLED",
+          text: `Перевод на сумму ${Math.round((Number(st.allocated_amount_minor ?? st.total_amount_minor) || 0) / 100)} ${st.currency || ev.base_currency || "RUB"} отозван`,
+          created_at: new Date().toISOString()
+        });
+      }
+      if (exp.currentEvent?.id === ev.id) exp.currentEvent = ev;
+    }
+  }
+  saveDemoExpensesStore(demo);
+  if (exp.currentEvent) renderExpenseEventDetail();
+  await loadExpensesDashboard();
+  showToast("✓ Перевод отозван");
 }
