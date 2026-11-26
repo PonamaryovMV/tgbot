@@ -2,10 +2,9 @@
 
 - **Цель:** Развитие Telegram Mini App (`PonamaryovMV/tgbot`, ветка `main`) — вишлисты и модуль совместных расходов.
 - **Репозиторий / ветка:** `PonamaryovMV/tgbot` (`main`)
-- **Последнее изменение:** Все UI-эмодзи в модулях «Совместные расходы», «Вишлист», «Главное меню (Hub)» и Demo Studio заменены на единый векторный SVG-набор в стиле Lucide (`src/ui/icons.js`, `styles.css`, `index.html`, `src/ui/*`) с мягкими цветными бейджами и сохранением совместимости с `sanitizeEventIcon` в D1 и текстовыми строками Telegram-бота. В `tests/browser-runner.mjs` добавлен `/src/ui/icons.js` в `STATIC_FILES`.
+- **Последнее изменение:** Добавлено необязательное поле «Дата события» (`event_date`, календарь `<input type="date">` с кнопкой очистки) в модалки создания и редактирования события совместных расходов ([index.html](file:///c:/Users/ponam/tgbot/index.html), [src/ui/expenses-modals.js](file:///c:/Users/ponam/tgbot/src/ui/expenses-modals.js), [src/ui/expenses-views.js](file:///c:/Users/ponam/tgbot/src/ui/expenses-views.js)) и на бэкенд D1 ([migrations/0003_events_date.sql](file:///c:/Users/ponam/tgbot/migrations/0003_events_date.sql), [src/expenses/schema.js](file:///c:/Users/ponam/tgbot/src/expenses/schema.js), [src/expenses/queries.js](file:///c:/Users/ponam/tgbot/src/expenses/queries.js), [src/expenses/events-api.js](file:///c:/Users/ponam/tgbot/src/expenses/events-api.js)) с ленивым `ALTER TABLE` фолбэком для существующих БД.
 - **Что работает и проверено:**
-  - `npm run test:expenses` — 12/12 пройдено.
   - `npm run test:worker` — 20/20 групп тестов воркера + 12/12 тестов расходов пройдено.
   - `npm run test:browser` — все сценарии пройдены (`telegramReport`: 16 проверок, `demoReport`: 22 проверки, 0 JS-ошибок, вёрстка 320–1280px без переполнения).
-- **Файлы в фокусе:** `index.html`, `styles.css`, `src/ui/icons.js`, `src/ui/main.js`, `src/ui/hub.js`, `src/ui/state.js`, `src/ui/wishlist-render.js`, `src/ui/wishlist-social.js`, `src/ui/expenses-state.js`, `src/ui/expenses-views.js`, `src/ui/expenses-modals.js`, `tests/browser-runner.mjs`.
+- **Файлы в фокусе:** `migrations/0003_events_date.sql`, `src/expenses/schema.js`, `src/expenses/queries.js`, `src/expenses/events-api.js`, `index.html`, `styles.css`, `src/ui/expenses-modals.js`, `src/ui/expenses-views.js`, `src/ui/main.js`, `tests/expenses-stage2.test.mjs`, `tests/browser-telegram.js`.
 - **Следующий шаг:** Проверить GitHub Actions / деплой в GitHub Pages и Cloudflare Workers.

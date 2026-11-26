@@ -578,6 +578,13 @@
             <span class="field-label">Иконка</span>
             <div class="category-preset-row" id="newEventIconsPicker"></div>
           </div>
+          <div class="field-block span-2">
+            <div class="field-label">
+              <label for="newEventDateInput">Дата события <span style="font-weight: 500; opacity: 0.7; text-transform: none;">(необязательно)</span></label>
+              <button type="button" class="btn-mini" id="newEventClearDateBtn" onclick="clearNewEventDate()" hidden><span data-icon="x" data-icon-class="app-icon-sm"></span> Очистить</button>
+            </div>
+            <input type="date" class="input-modern" id="newEventDateInput" oninput="syncNewEventDateClearBtn()" onchange="syncNewEventDateClearBtn()" />
+          </div>
           <div class="field-block">
             <label class="field-label" for="newEventCurrencySelect">Базовая валюта</label>
             <select class="input-modern" id="newEventCurrencySelect">

@@ -76,6 +76,17 @@ export function getAuditEventMeta(action) {
   return { icon: renderIcon("receipt"), iconKey: "receipt", badge: "Событие", bg: "rgba(148, 163, 184, 0.15)", color: "#94a3b8" };
 }
 
+function formatEventDateLabel(dateIso) {
+  const raw = String(dateIso || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
+  const [y, m, d] = raw.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return "";
+  const months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  const nowYear = new Date().getFullYear();
+  return y === nowYear ? `${d} ${months[m - 1]}` : `${d} ${months[m - 1]} ${y}`;
+}
+
 function getEventStatusBadge(status) {
   if (status === "ARCHIVED") return `<span class="exp-status-pill archived">Архив</span>`;
   if (status === "SETTLING") return `<span class="exp-status-pill settling">Расчёты · заморожено</span>`;
@@ -165,12 +176,13 @@ export function renderExpensesDashboard() {
         ? `−${formatExpenseMinor(Math.abs(bal), ev.base_currency)}`
         : "0 " + getExpensesCurrencySymbol(ev.base_currency);
     const balCls = bal > 0 ? "pos" : bal < 0 ? "neg" : "";
+    const dateLabel = formatEventDateLabel(ev.event_date);
     return `
       <button type="button" class="exp-event-card" data-event-id="${escapeHtml(ev.id)}" onclick="openExpenseEvent('${escapeHtml(ev.id)}')">
         <div class="exp-event-icon">${renderEventIcon(ev.icon || "🎉")}</div>
         <div class="exp-event-info">
           <div class="exp-event-title">${escapeHtml(ev.title)}</div>
-          <div class="exp-event-meta">${count} уч. · ${formatExpenseMinor(totalSpent, ev.base_currency)}</div>
+          <div class="exp-event-meta">${dateLabel ? `${escapeHtml(dateLabel)} · ` : ""}${count} уч. · ${formatExpenseMinor(totalSpent, ev.base_currency)}</div>
         </div>
         <div class="exp-event-right">
           <div class="exp-event-bal ${balCls}">${balText}</div>
@@ -227,8 +239,10 @@ export function renderExpenseEventDetail() {
       : ev.status === "SETTLING"
         ? "Траты заморожены"
         : "Активно";
+    const dateLabel = formatEventDateLabel(ev.event_date);
+    const datePrefix = dateLabel ? `${dateLabel} · ` : "";
     const walletsNote = wallets.length ? ` · ${wallets.length} общ. кошелёк` : "";
-    subEl.textContent = `${members.length} уч.${walletsNote} · ${statusText}`;
+    subEl.textContent = `${datePrefix}${members.length} уч.${walletsNote} · ${statusText}`;
   }
 
   const cur = ev.base_currency || "RUB";

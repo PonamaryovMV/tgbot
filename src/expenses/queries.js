@@ -422,6 +422,38 @@ export async function loadEventAuditLog(db, eventId, limit = 50) {
   });
 }
 
+export async function ensureEventDateColumn(db) {
+  try {
+    await db.prepare("ALTER TABLE events ADD COLUMN event_date TEXT").run();
+  } catch (error) {
+    const msg = String(error?.message || error || "");
+    if (!/duplicate column|already exists/i.test(msg)) {
+      throw error;
+    }
+  }
+}
+
+export async function persistEventDate(db, eventId, eventDate) {
+  const val = eventDate ? String(eventDate) : null;
+  try {
+    await db
+      .prepare("UPDATE events SET event_date = ? WHERE id = ?")
+      .bind(val, eventId)
+      .run();
+  } catch (error) {
+    const msg = String(error?.message || error || "");
+    if (/no such column.*event_date/i.test(msg)) {
+      await ensureEventDateColumn(db);
+      await db
+        .prepare("UPDATE events SET event_date = ? WHERE id = ?")
+        .bind(val, eventId)
+        .run();
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function requireEventAccess(db, eventId, userProfileId, { requireAdmin = false } = {}) {
   const eventRow = await db
     .prepare("SELECT * FROM events WHERE id = ?")
@@ -458,6 +490,7 @@ export function serializeEventDetail(eventRow, members, viewerMember, operations
     title: eventRow.title,
     description: eventRow.description || "",
     icon: eventRow.icon || "🎉",
+    event_date: eventRow.event_date || "",
     base_currency: eventRow.base_currency || "RUB",
     creator_id: eventRow.creator_id,
     simplify_debts: simplify,
@@ -499,19 +532,26 @@ function crossUnitKey(unit) {
 }
 
 export async function listUserEventsSummary(db, userProfileId) {
-  const rowsResult = await db
-    .prepare(
-      `SELECT e.id, e.title, e.description, e.icon, e.base_currency, e.creator_id,
+  const summarySql = `SELECT e.id, e.title, e.description, e.icon, e.event_date, e.base_currency, e.creator_id,
               e.simplify_debts, e.status, e.invite_token, e.created_at, e.updated_at,
               em.id AS member_id, em.role AS member_role, em.default_weight,
               (SELECT COUNT(*) FROM event_members em2 WHERE em2.event_id = e.id) AS members_count
        FROM events e
        JOIN event_members em ON em.event_id = e.id
        WHERE em.user_id = ?
-       ORDER BY e.updated_at DESC, e.created_at DESC`
-    )
-    .bind(userProfileId)
-    .all();
+       ORDER BY e.updated_at DESC, e.created_at DESC`;
+  let rowsResult;
+  try {
+    rowsResult = await db.prepare(summarySql).bind(userProfileId).all();
+  } catch (error) {
+    const msg = String(error?.message || error || "");
+    if (/no such column.*event_date/i.test(msg)) {
+      await ensureEventDateColumn(db);
+      rowsResult = await db.prepare(summarySql).bind(userProfileId).all();
+    } else {
+      throw error;
+    }
+  }
 
   const events = Array.isArray(rowsResult?.results) ? rowsResult.results : [];
   const activeEvents = [];
@@ -540,6 +580,7 @@ export async function listUserEventsSummary(db, userProfileId) {
       title: row.title,
       description: row.description || "",
       icon: row.icon || "🎉",
+      event_date: row.event_date || "",
       base_currency: cur,
       creator_id: row.creator_id,
       simplify_debts: simplify,

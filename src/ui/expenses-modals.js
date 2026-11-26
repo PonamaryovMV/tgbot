@@ -964,6 +964,7 @@ export function openNewEventModal() {
   }
 
   const titleInput = document.getElementById("newEventTitleInput");
+  const dateInput = document.getElementById("newEventDateInput");
   const curSelect = document.getElementById("newEventCurrencySelect");
   const copySelect = document.getElementById("newEventCopyMembersSelect");
   const usernameInput = document.getElementById("newEventMemberUsernameInput");
@@ -971,6 +972,8 @@ export function openNewEventModal() {
   const helpEl = document.getElementById("newEventSelectionHelp");
 
   if (titleInput) titleInput.value = "";
+  if (dateInput) dateInput.value = "";
+  syncNewEventDateClearBtn();
   if (curSelect) curSelect.value = hub?.profile?.default_currency || "RUB";
   if (usernameInput) usernameInput.value = "";
   if (simplifyInput) simplifyInput.checked = true;
@@ -994,6 +997,21 @@ export function closeNewEventModal() {
   document.getElementById("newEventModalBackdrop")?.classList.remove("open");
 }
 
+export function syncNewEventDateClearBtn() {
+  const dateInput = document.getElementById("newEventDateInput");
+  const clearBtn = document.getElementById("newEventClearDateBtn");
+  if (clearBtn) {
+    clearBtn.hidden = !String(dateInput?.value || "").trim();
+  }
+}
+
+export function clearNewEventDate() {
+  const dateInput = document.getElementById("newEventDateInput");
+  if (dateInput) dateInput.value = "";
+  syncNewEventDateClearBtn();
+  triggerHaptic("light");
+}
+
 export function selectNewEventIcon(icon) {
   const exp = getExpensesState();
   exp.newEventIcon = icon;
@@ -1011,6 +1029,7 @@ export async function handleCreateExpenseEventSubmit(event) {
     showToast("Введите название события");
     return;
   }
+  const eventDate = String(document.getElementById("newEventDateInput")?.value || "").trim();
   const baseCurrency = String(document.getElementById("newEventCurrencySelect")?.value || "RUB").toUpperCase();
   const copyFromEventId = String(document.getElementById("newEventCopyMembersSelect")?.value || "").trim();
   const simplifyDebts = Boolean(document.getElementById("newEventSimplifyInput")?.checked);
@@ -1029,6 +1048,7 @@ export async function handleCreateExpenseEventSubmit(event) {
         body: JSON.stringify({
           title,
           icon: exp.newEventIcon,
+          event_date: eventDate || undefined,
           base_currency: baseCurrency,
           simplify_debts: simplifyDebts,
           copy_from_event_id: copyFromEventId || undefined,
@@ -1115,6 +1135,7 @@ export async function handleCreateExpenseEventSubmit(event) {
     title,
     description: "",
     icon: exp.newEventIcon,
+    event_date: eventDate,
     base_currency: baseCurrency,
     creator_id: "usr_1001",
     simplify_debts: simplifyDebts,
@@ -1608,6 +1629,7 @@ export function openEditEventModal() {
   exp.editEventDraft = {
     title: ev.title || "",
     icon: ev.icon || "🎉",
+    event_date: ev.event_date || "",
     base_currency: ev.base_currency || "RUB",
     simplify_debts: Boolean(ev.simplify_debts)
   };
@@ -1629,6 +1651,14 @@ export function selectEditEventIcon(icon) {
   const exp = getExpensesState();
   if (!exp.editEventDraft) return;
   exp.editEventDraft.icon = icon;
+  renderEditEventModal();
+  triggerHaptic("light");
+}
+
+export function clearEditEventDate() {
+  const exp = getExpensesState();
+  if (!exp.editEventDraft) return;
+  exp.editEventDraft.event_date = "";
   renderEditEventModal();
   triggerHaptic("light");
 }
@@ -1659,6 +1689,13 @@ export function renderEditEventModal() {
               <button type="button" class="cat-preset-btn ${ico === d.icon ? "selected" : ""}" onclick="selectEditEventIcon('${ico}')" aria-label="${escapeHtml(resolveEventIconKey(ico).key)}">${renderEventIcon(ico, "ico-badge-sm")}</button>
             `).join("")}
           </div>
+        </div>
+        <div class="field-block span-2">
+          <div class="field-label">
+            <label for="editEventDateInput">Дата события <span style="font-weight: 500; opacity: 0.7; text-transform: none;">(необязательно)</span></label>
+            ${d.event_date ? `<button type="button" class="btn-mini" onclick="clearEditEventDate()">${renderIcon("x", "app-icon-sm")} Очистить</button>` : ""}
+          </div>
+          <input type="date" class="input-modern" id="editEventDateInput" value="${escapeHtml(d.event_date || "")}" oninput="getExpensesState().editEventDraft.event_date=this.value" onchange="getExpensesState().editEventDraft.event_date=this.value;renderEditEventModal()" />
         </div>
         <div class="field-block span-2">
           <label class="field-label" for="editEventCurrencySelect">Базовая валюта</label>
@@ -1732,6 +1769,7 @@ export async function handleEditExpenseEventSubmit(event) {
   await patchCurrentExpenseEvent({
     title,
     icon: d.icon,
+    event_date: String(d.event_date || "").trim(),
     base_currency: d.base_currency,
     simplify_debts: Boolean(d.simplify_debts)
   });

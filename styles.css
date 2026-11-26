@@ -1452,6 +1452,14 @@ button {
   opacity: 0.75;
 }
 
+input[type="date"].input-modern {
+  color-scheme: dark;
+}
+
+body[data-theme="light"] input[type="date"].input-modern {
+  color-scheme: light;
+}
+
 .input-modern:focus {
   border-color: var(--tg-theme-button-color);
   box-shadow: 0 0 0 3px var(--accent-soft);

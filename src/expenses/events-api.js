@@ -11,11 +11,13 @@ import {
   ExpensesApiError,
   sanitizeCurrency,
   sanitizeEventIcon,
+  sanitizeOptionalDateISO,
   sanitizeWeight,
   generateInviteToken
 } from "./schema.js";
 import {
   appendAuditLog,
+  persistEventDate,
   loadEventMembers,
   loadEventOperations,
   loadEventSettlements,
@@ -141,6 +143,7 @@ export async function handleEventsRoute(request, db, user, path, method, env = n
 
     const description = cleanPlainText(body.description, 240);
     const icon = sanitizeEventIcon(body.icon);
+    const eventDate = sanitizeOptionalDateISO(body.event_date);
     const baseCurrency = sanitizeCurrency(body.base_currency, user.default_currency || "RUB");
     const simplifyDebts = body.simplify_debts === false || body.simplify_debts === 0 ? 0 : 1;
 
@@ -184,6 +187,10 @@ export async function handleEventsRoute(request, db, user, path, method, env = n
       )
       .bind(eventId, title, description, icon, baseCurrency, user.id, simplifyDebts, inviteToken, now, now)
       .run();
+
+    if (eventDate) {
+      await persistEventDate(db, eventId, eventDate);
+    }
 
     const ownerMemberId = crypto.randomUUID();
     const ownerName = cleanPlainText(body.owner_name, 64) || user.display_name || "Участник";
@@ -271,6 +278,7 @@ export async function handleEventsRoute(request, db, user, path, method, env = n
         title: eventRow.title,
         description: eventRow.description || "",
         icon: eventRow.icon || "🎉",
+        event_date: eventRow.event_date || "",
         base_currency: eventRow.base_currency || "RUB",
         status: eventRow.status || "ACTIVE",
         invite_token: eventRow.invite_token,
@@ -370,6 +378,9 @@ export async function handleEventsRoute(request, db, user, path, method, env = n
     const title = body.title !== undefined ? (cleanPlainText(body.title, 80) || eventRow.title) : eventRow.title;
     const description = body.description !== undefined ? cleanPlainText(body.description, 240) : (eventRow.description || "");
     const icon = body.icon !== undefined ? sanitizeEventIcon(body.icon) : (eventRow.icon || "🎉");
+    const eventDate = body.event_date !== undefined
+      ? sanitizeOptionalDateISO(body.event_date)
+      : (eventRow.event_date || "");
     const baseCurrency = body.base_currency !== undefined
       ? sanitizeCurrency(body.base_currency, eventRow.base_currency)
       : eventRow.base_currency;
@@ -394,6 +405,10 @@ export async function handleEventsRoute(request, db, user, path, method, env = n
       .bind(title, description, icon, baseCurrency, simplifyDebts, status, now, eventId)
       .run();
 
+    if (body.event_date !== undefined && eventDate !== (eventRow.event_date || "")) {
+      await persistEventDate(db, eventId, eventDate);
+    }
+
     if (status !== eventRow.status) {
       const statusText = status === "ARCHIVED"
         ? "Событие перемещено в архив"
@@ -406,10 +421,17 @@ export async function handleEventsRoute(request, db, user, path, method, env = n
         simplify_debts: Boolean(simplifyDebts),
         text: simplifyDebts ? "Включено упрощение долгов" : "Включены прямые долги"
       });
-    } else if (title !== eventRow.title || icon !== (eventRow.icon || "🎉") || baseCurrency !== eventRow.base_currency || description !== (eventRow.description || "")) {
+    } else if (
+      title !== eventRow.title ||
+      icon !== (eventRow.icon || "🎉") ||
+      eventDate !== (eventRow.event_date || "") ||
+      baseCurrency !== eventRow.base_currency ||
+      description !== (eventRow.description || "")
+    ) {
       await appendAuditLog(db, eventId, user.id, "EVENT_UPDATED", {
         title,
         icon,
+        event_date: eventDate,
         base_currency: baseCurrency,
         text: `Параметры события «${title}» обновлены`
       });

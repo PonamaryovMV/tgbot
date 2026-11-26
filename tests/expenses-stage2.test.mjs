@@ -201,6 +201,12 @@ function createStage2MockD1() {
           }
           return { success: true };
         }
+        if (q.startsWith("update events set event_date")) {
+          const [eventDate, eventId] = this._params;
+          const ev = eventsById.get(String(eventId));
+          if (ev) ev.event_date = eventDate ? String(eventDate) : "";
+          return { success: true };
+        }
         if (q.startsWith("update events set updated_at")) {
           const [updatedAt, eventId] = this._params;
           const ev = eventsById.get(String(eventId));
@@ -439,12 +445,12 @@ test("Stage 2 event creation with real users, rejects ghosts, bot selection, edi
     const dimaMem = refreshedEv.event.members.find(m => m.telegram_id === 3003);
     assert.ok(dimaMem?.user_id);
 
-    // 5. Редактирование события (title, icon, base_currency) и изменение веса участника
+    // 5. Редактирование события (title, icon, event_date, base_currency) и изменение веса участника
     const editEvRes = await handleExpensesApi(
       new Request(`${baseOrigin}/api/expenses/events/${ev.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Байкал 2027", icon: "🚗", base_currency: "USD" })
+        body: JSON.stringify({ title: "Байкал 2027", icon: "🚗", event_date: "2027-07-15", base_currency: "USD" })
       }),
       env,
       owner,
@@ -454,7 +460,20 @@ test("Stage 2 event creation with real users, rejects ghosts, bot selection, edi
     const edited = (await editEvRes.json()).event;
     assert.equal(edited.title, "Байкал 2027");
     assert.equal(edited.icon, "🚗");
+    assert.equal(edited.event_date, "2027-07-15");
     assert.equal(edited.base_currency, "USD");
+
+    const invalidDateRes = await handleExpensesApi(
+      new Request(`${baseOrigin}/api/expenses/events/${ev.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_date: "2027-02-31" })
+      }),
+      env,
+      owner,
+      new URL(`${baseOrigin}/api/expenses/events/${ev.id}`)
+    );
+    assert.equal(invalidDateRes.status, 400);
 
     const weightReq = new Request(`${baseOrigin}/api/expenses/events/${ev.id}/members/${annaMem.id}`, {
       method: "PATCH",

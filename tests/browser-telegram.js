@@ -223,6 +223,7 @@ export default async (page, baseUrl) => {
         id: evId,
         title: body.title,
         icon: body.icon || "🎉",
+        event_date: body.event_date || "",
         base_currency: body.base_currency || "RUB",
         simplify_debts: body.simplify_debts !== false,
         status: "ACTIVE",
@@ -250,6 +251,7 @@ export default async (page, baseUrl) => {
       const body = request.postDataJSON();
       if (body.title !== undefined) found.title = body.title;
       if (body.icon !== undefined) found.icon = body.icon;
+      if (body.event_date !== undefined) found.event_date = body.event_date;
       if (body.base_currency !== undefined) found.base_currency = body.base_currency;
       if (body.simplify_debts !== undefined) found.simplify_debts = Boolean(body.simplify_debts);
       if (body.status !== undefined) found.status = body.status;
@@ -431,6 +433,9 @@ export default async (page, baseUrl) => {
 
   await page.locator("#openNewEventHeaderBtn").click();
   await page.locator("#newEventModalBackdrop.open").waitFor();
+  assert(await page.locator("#newEventDateInput").isVisible(), "Optional event date input must be visible");
+  assert((await page.locator("#newEventDateInput").inputValue()) === "", "Event date input must start empty (optional)");
+  await page.locator("#newEventDateInput").fill("2027-07-15");
   await page.locator("#newEventTitleInput").fill("Поездка в Сочи");
   await page.locator("#newEventMemberUsernameInput").fill("@dima1");
   await page.locator("#newEventAddMemberBtn").click();
@@ -438,6 +443,7 @@ export default async (page, baseUrl) => {
   await page.locator("#submitCreateEventBtn").click();
   await page.locator("#expenseEventDetailView").waitFor({ state: "visible" });
   assert((await page.locator("#expDetailTitle").textContent()).includes("Поездка в Сочи"), "Created event title must render");
+  assert((await page.locator("#expDetailSub").textContent()).includes("15 июл 2027"), "Selected event date must render in detail subtitle");
 
   await page.locator("#expEventMenuBtn").click();
   await page.locator("#expenseEventMenuBackdrop.open").waitFor();

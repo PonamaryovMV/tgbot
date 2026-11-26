@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS events (
   title TEXT NOT NULL,
   description TEXT,
   icon TEXT NOT NULL DEFAULT '🎉',
+  event_date TEXT,
   base_currency TEXT NOT NULL DEFAULT 'RUB',
   creator_id TEXT NOT NULL REFERENCES users(id),
   telegram_chat_id INTEGER,
@@ -235,6 +236,21 @@ export function sanitizeDateISO(value) {
   const raw = String(value || "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   return new Date().toISOString().slice(0, 10);
+}
+
+export function sanitizeOptionalDateISO(value) {
+  if (value === undefined || value === null) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new ExpensesApiError(400, "Invalid event date format");
+  }
+  const [y, m, d] = raw.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+    throw new ExpensesApiError(400, "Invalid event date");
+  }
+  return raw;
 }
 
 export function generateInviteToken() {
