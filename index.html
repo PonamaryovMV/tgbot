@@ -15,26 +15,26 @@
         <span class="studio-tag"><span class="pulse-dot"></span> Demo Studio</span>
         <div class="pill-Segmented" role="group" aria-label="Переключение роли в демо">
           <button type="button" class="role-pill-btn active" data-role="owner" onclick="switchDemoRole('owner')">
-            👑 Владелец
+            <span data-icon="crown" data-icon-class="app-icon-sm"></span> Владелец
           </button>
           <button type="button" class="role-pill-btn" data-role="guest1" onclick="switchDemoRole('guest1')">
-            ✨ Анна
+            <span data-icon="sparkles" data-icon-class="app-icon-sm"></span> Анна
           </button>
           <button type="button" class="role-pill-btn" data-role="guest2" onclick="switchDemoRole('guest2')">
-            🚀 Дима
+            <span data-icon="rocket" data-icon-class="app-icon-sm"></span> Дима
           </button>
         </div>
       </div>
 
       <div class="demo-dock-right">
         <div class="pill-Segmented" role="group" aria-label="Выбор темы">
-          <button type="button" class="studio-tool-btn active" data-theme-btn="dark" onclick="setThemePreset('dark')">🌑 Dark</button>
-          <button type="button" class="studio-tool-btn" data-theme-btn="light" onclick="setThemePreset('light')">☀️ Light</button>
-          <button type="button" class="studio-tool-btn" data-theme-btn="amethyst" onclick="setThemePreset('amethyst')">🔮 Amethyst</button>
+          <button type="button" class="studio-tool-btn active" data-theme-btn="dark" onclick="setThemePreset('dark')"><span data-icon="moon" data-icon-class="app-icon-sm"></span> Dark</button>
+          <button type="button" class="studio-tool-btn" data-theme-btn="light" onclick="setThemePreset('light')"><span data-icon="sun" data-icon-class="app-icon-sm"></span> Light</button>
+          <button type="button" class="studio-tool-btn" data-theme-btn="amethyst" onclick="setThemePreset('amethyst')"><span data-icon="palette" data-icon-class="app-icon-sm"></span> Amethyst</button>
         </div>
-        <button type="button" class="studio-tool-btn" onclick="openSuperappHub()">🧭 Меню</button>
-        <button type="button" class="studio-tool-btn" onclick="previewSkeletons()">⏳ Скелетон</button>
-        <button type="button" class="studio-tool-btn" onclick="resetDemoData()">🔄 Сброс</button>
+        <button type="button" class="studio-tool-btn" onclick="openSuperappHub()"><span data-icon="compass" data-icon-class="app-icon-sm"></span> Меню</button>
+        <button type="button" class="studio-tool-btn" onclick="previewSkeletons()"><span data-icon="hourglass" data-icon-class="app-icon-sm"></span> Скелетон</button>
+        <button type="button" class="studio-tool-btn" onclick="resetDemoData()"><span data-icon="refresh" data-icon-class="app-icon-sm"></span> Сброс</button>
       </div>
     </div>
   </div>
@@ -48,12 +48,12 @@
         <div class="hub-user-sub" id="hubUserPhoneSub">Телефон для СБП не указан</div>
       </div>
       <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 12px;" onclick="toggleHubTheme()" aria-label="Переключить тему">
-        🌓
+        <span data-icon="palette"></span>
       </button>
     </div>
 
     <button type="button" class="hub-profile-row" id="openSbpProfileBtn" onclick="openSbpProfileModal()">
-      <span class="hub-profile-ico">💳</span>
+      <span class="hub-profile-ico" data-icon="creditCard"></span>
       <span class="hub-profile-copy">
         <strong>Профиль и реквизиты</strong>
         <span id="hubSbpSummaryBadge">Телефон для СБП · банки · валюта</span>
@@ -65,7 +65,7 @@
 
     <button type="button" class="hub-module-card hub-module-wishlist" id="hubModuleWishlistBtn" onclick="selectSuperappModule('wishlist')">
       <div class="hub-module-top">
-        <div class="hub-module-icon">🎁</div>
+        <div class="hub-module-icon"><span data-icon="gift" data-icon-class="app-icon-lg"></span></div>
         <div class="hub-module-title-wrap">
           <div class="hub-module-title">Вишлисты и подарки</div>
           <div class="hub-module-sub">Собирайте желания, бронируйте и скидывайтесь вместе</div>
@@ -86,7 +86,7 @@
 
     <button type="button" class="hub-module-card hub-module-primary" id="hubModuleExpensesBtn" onclick="selectSuperappModule('expenses')">
       <div class="hub-module-top">
-        <div class="hub-module-icon">₽</div>
+        <div class="hub-module-icon"><span data-icon="wallet" data-icon-class="app-icon-lg"></span></div>
         <div class="hub-module-title-wrap">
           <div class="hub-module-title">Совместные расходы</div>
           <div class="hub-module-sub" id="hubExpensesEventsSub">0 активных событий</div>
@@ -115,11 +115,11 @@
     <div id="expensesDashboardView">
       <div class="expenses-head-bar">
         <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 12px;" id="backFromExpensesBtn" onclick="openSuperappHub()">
-          ‹ Меню
+          <span data-icon="chevronLeft" data-icon-class="app-icon-sm"></span> Меню
         </button>
-        <h1 class="expenses-head-title">💰 Совместные расходы</h1>
+        <h1 class="expenses-head-title"><span data-icon="wallet"></span> Совместные расходы</h1>
         <button type="button" class="btn-accent" style="min-height: 40px; padding: 0 14px;" id="openNewEventHeaderBtn" onclick="openNewEventModal()">
-          ＋ Событие
+          <span data-icon="plus" data-icon-class="app-icon-sm"></span> Событие
         </button>
       </div>
 
@@ -140,7 +140,7 @@
       <div id="expensesActiveEventsList"></div>
 
       <button type="button" class="btn-accent" style="width: 100%; margin-top: 6px;" id="openNewEventFooterBtn" onclick="openNewEventModal()">
-        ＋ Новое событие
+        <span data-icon="plus" data-icon-class="app-icon-sm"></span> Новое событие
       </button>
 
       <div id="expensesArchivedSection" hidden>
@@ -152,20 +152,20 @@
     <div id="expenseEventDetailView" hidden>
       <div class="expenses-head-bar">
         <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 12px;" id="backToExpensesDashBtn" onclick="backToExpensesDashboard()">
-          ‹ События
+          <span data-icon="chevronLeft" data-icon-class="app-icon-sm"></span> События
         </button>
         <div style="flex: 1; min-width: 0;">
-          <div class="expenses-head-title" id="expDetailTitle">🎉 Событие</div>
+          <div class="expenses-head-title" id="expDetailTitle"><span data-icon="party"></span> Событие</div>
           <div style="font-size: 12px; color: var(--tg-theme-hint-color);" id="expDetailSub">1 уч. · Активно</div>
         </div>
         <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 10px;" id="expShareInviteBtn" onclick="openEventInviteShareModal()" title="Пригласить">
-          📤
+          <span data-icon="share"></span>
         </button>
         <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 10px;" id="expParticipantsBtn" onclick="openEventParticipantsModal()" title="Участники">
-          👥
+          <span data-icon="users"></span>
         </button>
         <button type="button" class="btn-glass" style="min-height: 40px; padding: 0 10px;" id="expEventMenuBtn" onclick="openExpenseEventMenuModal()" title="Ещё">
-          ⋯
+          <span data-icon="more"></span>
         </button>
       </div>
 
@@ -196,13 +196,13 @@
       <div class="hero-top-row">
         <div class="hero-identity">
           <div class="avatar-ring">
-            <div class="avatar-inner" id="heroAvatarEmoji">🎁</div>
+            <div class="avatar-inner" id="heroAvatarEmoji"><span data-icon="gift" data-icon-class="app-icon-lg"></span></div>
             <span class="avatar-status-badge" title="Онлайн"></span>
           </div>
           <div class="hero-title-group">
             <div class="hero-title-line">
-              <h1 class="hero-title" id="headerTitle">🎁 Мой вишлист</h1>
-              <span class="role-mode-badge" id="roleBadge">👑 Владелец списка</span>
+              <h1 class="hero-title" id="headerTitle"><span data-icon="gift"></span> Мой вишлист</h1>
+              <span class="role-mode-badge" id="roleBadge"><span data-icon="crown" data-icon-class="app-icon-sm"></span> Владелец списка</span>
             </div>
             <p class="hero-subtitle" id="headerSubtitle">
               Добавляйте желанные подарки и делитесь списком с близкими в Telegram
@@ -212,16 +212,17 @@
 
         <div class="hero-actions">
           <button type="button" class="btn-glass" id="openSuperappHubFromWishlistBtn" onclick="openSuperappHub()">
-            🧭 Меню
+            <span data-icon="compass" data-icon-class="app-icon-sm"></span> Меню
           </button>
           <button type="button" class="btn-glass" id="backToOwnListBtn" style="display: none;" onclick="returnToOwnWishlist()">
-            ↩ Мой список
+            <span data-icon="rotateCcw" data-icon-class="app-icon-sm"></span> Мой список
           </button>
           <button type="button" class="btn-accent" id="subscribeListBtn" style="display: none;" onclick="toggleCurrentWishlistSubscription()">
             <span id="subscribeListBtnText">Подписаться</span>
           </button>
           <button type="button" class="btn-accent" id="shareListBtn" onclick="openShareModal()">
-            <span>📤 Поделиться списком</span>
+            <span data-icon="share" data-icon-class="app-icon-sm"></span>
+            <span>Поделиться списком</span>
           </button>
         </div>
       </div>
@@ -267,14 +268,14 @@
               required
             />
             <button type="submit" class="btn-accent" id="addSubmitBtn">
-              <span>＋</span>
+              <span data-icon="plus" data-icon-class="app-icon-sm"></span>
               <span>Добавить</span>
             </button>
           </div>
 
           <div class="composer-bar-bottom">
             <button type="button" class="expand-drawer-btn" id="toggleDetailsBtn" onclick="toggleAddDetails()">
-              <span>⚙️ Цена, фото, повод, теги и доступ</span>
+              <span><span data-icon="settings" data-icon-class="app-icon-sm"></span> Цена, фото, повод, теги и доступ</span>
               <span class="expand-chevron">▾</span>
             </button>
             <span class="composer-hint">Быстро добавьте название или раскройте детали</span>
@@ -308,11 +309,11 @@
               <div class="field-block span-2">
                 <label class="field-label" for="addCategoryInput">Категория</label>
                 <div class="category-preset-row" id="addCategoryChips">
-                  <button type="button" class="cat-preset-btn" data-cat="Техника" onclick="selectPresetCategory('add', 'Техника')">🎧 Техника</button>
-                  <button type="button" class="cat-preset-btn" data-cat="Дом" onclick="selectPresetCategory('add', 'Дом')">☕ Дом</button>
-                  <button type="button" class="cat-preset-btn" data-cat="Одежда" onclick="selectPresetCategory('add', 'Одежда')">👟 Одежда</button>
-                  <button type="button" class="cat-preset-btn" data-cat="Хобби" onclick="selectPresetCategory('add', 'Хобби')">🎨 Хобби</button>
-                  <button type="button" class="cat-preset-btn" data-cat="Впечатления" onclick="selectPresetCategory('add', 'Впечатления')">🎟 Впечатления</button>
+                  <button type="button" class="cat-preset-btn" data-cat="Техника" onclick="selectPresetCategory('add', 'Техника')"><span data-icon="sparkles" data-icon-class="app-icon-sm"></span> Техника</button>
+                  <button type="button" class="cat-preset-btn" data-cat="Дом" onclick="selectPresetCategory('add', 'Дом')"><span data-icon="heart" data-icon-class="app-icon-sm"></span> Дом</button>
+                  <button type="button" class="cat-preset-btn" data-cat="Одежда" onclick="selectPresetCategory('add', 'Одежда')"><span data-icon="tag" data-icon-class="app-icon-sm"></span> Одежда</button>
+                  <button type="button" class="cat-preset-btn" data-cat="Хобби" onclick="selectPresetCategory('add', 'Хобби')"><span data-icon="palette" data-icon-class="app-icon-sm"></span> Хобби</button>
+                  <button type="button" class="cat-preset-btn" data-cat="Впечатления" onclick="selectPresetCategory('add', 'Впечатления')"><span data-icon="star" data-icon-class="app-icon-sm"></span> Впечатления</button>
                 </div>
                 <input
                   type="text"
@@ -328,16 +329,16 @@
                 <span class="field-label">Фотография подарка</span>
                 <div class="source-Segment" role="group" aria-label="Источник изображения">
                   <button type="button" class="source-tab-btn active" id="addTabFileBtn" onclick="switchPhotoTab('add', 'file')">
-                    📁 Загрузить файл
+                    <span data-icon="upload" data-icon-class="app-icon-sm"></span> Загрузить файл
                   </button>
                   <button type="button" class="source-tab-btn" id="addTabUrlBtn" onclick="switchPhotoTab('add', 'url')">
-                    🔗 Вставить ссылку
+                    <span data-icon="link" data-icon-class="app-icon-sm"></span> Вставить ссылку
                   </button>
                 </div>
 
                 <div id="addPhotoFileWrap">
                   <label class="dropzone-modern" for="addFileInput">
-                    <div class="dropzone-icon">🖼️</div>
+                    <div class="dropzone-icon"><span data-icon="image" data-icon-class="app-icon-lg"></span></div>
                     <div style="font-size: 13px; font-weight: 700;">Нажмите, чтобы выбрать фото с устройства</div>
                     <div style="font-size: 11px; color: var(--tg-theme-hint-color);">
                       Автосжатие до 600px (WebP / JPEG) · до 512 КБ
@@ -414,7 +415,7 @@
               <div class="field-block span-2">
                 <span class="field-label">Насколько хочется</span>
                 <div class="desire-segment" id="addDesireControl">
-                  <button type="button" class="desire-btn" data-desire="high" onclick="setDesire('add', 'high')">🔥 Очень хочу</button>
+                  <button type="button" class="desire-btn" data-desire="high" onclick="setDesire('add', 'high')"><span data-icon="flame" data-icon-class="app-icon-sm"></span> Очень хочу</button>
                   <button type="button" class="desire-btn active" data-desire="medium" onclick="setDesire('add', 'medium')">Среднее хочу</button>
                   <button type="button" class="desire-btn" data-desire="wait" onclick="setDesire('add', 'wait')">Пока подождёт</button>
                 </div>
@@ -430,7 +431,7 @@
                 <div class="bento-switches-grid">
                   <label class="bento-switch-card" for="addCrowdfundToggle">
                     <div class="switch-text-wrap">
-                      <span class="switch-title">🤝 Можно скинуться</span>
+                      <span class="switch-title"><span data-icon="handHeart" data-icon-class="app-icon-sm"></span> Можно скинуться</span>
                       <span class="switch-subtitle">Несколько друзей смогут разделить покупку</span>
                     </div>
                     <span class="ios-switch">
@@ -441,7 +442,7 @@
 
                   <label class="bento-switch-card" for="addReusableToggle">
                     <div class="switch-text-wrap">
-                      <span class="switch-title">♻️ Можно дарить несколько раз</span>
+                      <span class="switch-title"><span data-icon="repeat" data-icon-class="app-icon-sm"></span> Можно дарить несколько раз</span>
                       <span class="switch-subtitle">Подходит для сертификатов и универсальных знаков внимания</span>
                     </div>
                     <span class="ios-switch">
@@ -493,7 +494,7 @@
       <header class="bento-hero">
         <div class="hero-top-row">
           <div class="hero-title-group">
-            <h1 class="hero-title">🎁 Я участвую</h1>
+            <h1 class="hero-title"><span data-icon="gift"></span> Я участвую</h1>
             <p class="hero-subtitle">Подарки, которые вы забронировали, отметили к вручению или для которых присоединились к сбору</p>
           </div>
           <button type="button" class="btn-glass" onclick="loadParticipations()">Обновить</button>
@@ -565,7 +566,7 @@
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
         <h2 class="modal-title" id="newEventModalTitle">Новое событие</h2>
-        <button type="button" class="btn-close-circle" onclick="closeNewEventModal()" aria-label="Закрыть">✕</button>
+        <button type="button" class="btn-close-circle" onclick="closeNewEventModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
       <form id="createExpenseEventForm" onsubmit="handleCreateExpenseEventSubmit(event)">
         <div class="form-bento-grid">
@@ -597,7 +598,7 @@
           <div class="field-block span-2">
             <div class="field-label">
               <span>Участники (Telegram)</span>
-              <button type="button" class="btn-mini" onclick="refreshExpensesContacts()">↻ Обновить</button>
+              <button type="button" class="btn-mini" onclick="refreshExpensesContacts()"><span data-icon="refresh" data-icon-class="app-icon-sm"></span> Обновить</button>
             </div>
             <div class="audience-editor" id="newEventSelectedMembers"></div>
             <div class="social-add-form" style="margin-top: 8px; margin-bottom: 6px;">
@@ -612,10 +613,10 @@
                 maxlength="33"
                 onkeydown="if(event.key==='Enter'){event.preventDefault();addDraftNewEventMemberByUsername();}"
               />
-              <button type="button" class="btn-glass" id="newEventAddMemberBtn" onclick="addDraftNewEventMemberByUsername()">＋ Добавить</button>
+              <button type="button" class="btn-glass" id="newEventAddMemberBtn" onclick="addDraftNewEventMemberByUsername()"><span data-icon="plus" data-icon-class="app-icon-sm"></span> Добавить</button>
             </div>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
-              <button type="button" class="btn-mini" id="newEventRequestTelegramUserBtn" onclick="requestTelegramContactForExpenses(null)">📱 Выбрать в Telegram</button>
+              <button type="button" class="btn-mini" id="newEventRequestTelegramUserBtn" onclick="requestTelegramContactForExpenses(null)"><span data-icon="phone" data-icon-class="app-icon-sm"></span> Выбрать в Telegram</button>
               <span style="font-size: 11.5px; color: var(--tg-theme-hint-color);">Если @username скрыт или не указан</span>
             </div>
             <div class="selection-help" id="newEventSelectionHelp" hidden>
@@ -648,8 +649,8 @@
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="editEventModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="editEventModalTitle">✏️ Редактировать событие</h2>
-        <button type="button" class="btn-close-circle" onclick="closeEditEventModal()" aria-label="Закрыть">✕</button>
+        <h2 class="modal-title" id="editEventModalTitle"><span data-icon="pencil"></span> Редактировать событие</h2>
+        <button type="button" class="btn-close-circle" onclick="closeEditEventModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
       <div id="editEventModalBody"></div>
     </div>
@@ -660,8 +661,8 @@
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="eventParticipantsModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="eventParticipantsModalTitle">👥 Участники и кошельки</h2>
-        <button type="button" class="btn-close-circle" onclick="closeEventParticipantsModal()" aria-label="Закрыть">✕</button>
+        <h2 class="modal-title" id="eventParticipantsModalTitle"><span data-icon="users"></span> Участники и кошельки</h2>
+        <button type="button" class="btn-close-circle" onclick="closeEventParticipantsModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
       <div id="eventParticipantsModalBody"></div>
     </div>
@@ -673,7 +674,7 @@
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
         <h2 class="modal-title" id="expenseEventMenuTitle">Настройки события</h2>
-        <button type="button" class="btn-close-circle" onclick="closeExpenseEventMenuModal()" aria-label="Закрыть">✕</button>
+        <button type="button" class="btn-close-circle" onclick="closeExpenseEventMenuModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
       <div id="expenseEventMenuBody"></div>
     </div>
@@ -684,8 +685,8 @@
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="claimProfileModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="claimProfileModalTitle">🔗 Приглашение в событие</h2>
-        <button type="button" class="btn-close-circle" onclick="closeClaimProfileModal()" aria-label="Закрыть">✕</button>
+        <h2 class="modal-title" id="claimProfileModalTitle"><span data-icon="link"></span> Приглашение в событие</h2>
+        <button type="button" class="btn-close-circle" onclick="closeClaimProfileModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
       <div id="claimProfileModalBody"></div>
     </div>
@@ -696,8 +697,8 @@
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="sbpProfileModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="sbpProfileModalTitle">💳 Профиль и реквизиты СБП</h2>
-        <button type="button" class="btn-close-circle" onclick="closeSbpProfileModal()" aria-label="Закрыть">✕</button>
+        <h2 class="modal-title" id="sbpProfileModalTitle"><span data-icon="creditCard"></span> Профиль и реквизиты СБП</h2>
+        <button type="button" class="btn-close-circle" onclick="closeSbpProfileModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
       <form id="superappProfileForm" onsubmit="handleSaveSuperappProfile(event)">
         <div class="form-bento-grid">
@@ -727,7 +728,7 @@
         </div>
         <div style="display: flex; gap: 10px; margin-top: 18px;">
           <button type="button" class="btn-glass" style="flex: 1;" onclick="closeSbpProfileModal()">Отмена</button>
-          <button type="submit" class="btn-accent" id="saveSuperappProfileBtn" style="flex: 2;">💾 Сохранить</button>
+          <button type="submit" class="btn-accent" id="saveSuperappProfileBtn" style="flex: 2;"><span data-icon="check" data-icon-class="app-icon-sm"></span> Сохранить</button>
         </div>
       </form>
     </div>
@@ -738,8 +739,8 @@
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="editModalTitle">✏️ Редактировать подарок</h2>
-        <button type="button" class="btn-close-circle" onclick="closeEditModal()" aria-label="Закрыть">✕</button>
+        <h2 class="modal-title" id="editModalTitle"><span data-icon="pencil"></span> Редактировать подарок</h2>
+        <button type="button" class="btn-close-circle" onclick="closeEditModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
 
       <form id="editGiftForm" onsubmit="handleEditGiftSubmit(event)">
@@ -764,11 +765,11 @@
           <div class="field-block span-2">
             <label class="field-label" for="editCategoryInput">Категория</label>
             <div class="category-preset-row" id="editCategoryChips">
-              <button type="button" class="cat-preset-btn" data-cat="Техника" onclick="selectPresetCategory('edit', 'Техника')">🎧 Техника</button>
-              <button type="button" class="cat-preset-btn" data-cat="Дом" onclick="selectPresetCategory('edit', 'Дом')">☕ Дом</button>
-              <button type="button" class="cat-preset-btn" data-cat="Одежда" onclick="selectPresetCategory('edit', 'Одежда')">👟 Одежда</button>
-              <button type="button" class="cat-preset-btn" data-cat="Хобби" onclick="selectPresetCategory('edit', 'Хобби')">🎨 Хобби</button>
-              <button type="button" class="cat-preset-btn" data-cat="Впечатления" onclick="selectPresetCategory('edit', 'Впечатления')">🎟 Впечатления</button>
+              <button type="button" class="cat-preset-btn" data-cat="Техника" onclick="selectPresetCategory('edit', 'Техника')"><span data-icon="sparkles" data-icon-class="app-icon-sm"></span> Техника</button>
+              <button type="button" class="cat-preset-btn" data-cat="Дом" onclick="selectPresetCategory('edit', 'Дом')"><span data-icon="heart" data-icon-class="app-icon-sm"></span> Дом</button>
+              <button type="button" class="cat-preset-btn" data-cat="Одежда" onclick="selectPresetCategory('edit', 'Одежда')"><span data-icon="tag" data-icon-class="app-icon-sm"></span> Одежда</button>
+              <button type="button" class="cat-preset-btn" data-cat="Хобби" onclick="selectPresetCategory('edit', 'Хобби')"><span data-icon="palette" data-icon-class="app-icon-sm"></span> Хобби</button>
+              <button type="button" class="cat-preset-btn" data-cat="Впечатления" onclick="selectPresetCategory('edit', 'Впечатления')"><span data-icon="star" data-icon-class="app-icon-sm"></span> Впечатления</button>
             </div>
             <input type="text" id="editCategoryInput" class="input-modern" maxlength="40" oninput="syncCategoryChipHighlight('edit')" />
           </div>
@@ -777,10 +778,10 @@
             <span class="field-label">Фотография</span>
             <div class="source-Segment">
               <button type="button" class="source-tab-btn active" id="editTabFileBtn" onclick="switchPhotoTab('edit', 'file')">
-                📁 Загрузить файл
+                <span data-icon="upload" data-icon-class="app-icon-sm"></span> Загрузить файл
               </button>
               <button type="button" class="source-tab-btn" id="editTabUrlBtn" onclick="switchPhotoTab('edit', 'url')">
-                🔗 Вставить ссылку
+                <span data-icon="link" data-icon-class="app-icon-sm"></span> Вставить ссылку
               </button>
             </div>
 
@@ -855,7 +856,7 @@
           <div class="field-block span-2">
             <span class="field-label">Насколько хочется</span>
             <div class="desire-segment" id="editDesireControl">
-              <button type="button" class="desire-btn" data-desire="high" onclick="setDesire('edit', 'high')">🔥 Очень хочу</button>
+              <button type="button" class="desire-btn" data-desire="high" onclick="setDesire('edit', 'high')"><span data-icon="flame" data-icon-class="app-icon-sm"></span> Очень хочу</button>
               <button type="button" class="desire-btn active" data-desire="medium" onclick="setDesire('edit', 'medium')">Среднее хочу</button>
               <button type="button" class="desire-btn" data-desire="wait" onclick="setDesire('edit', 'wait')">Пока подождёт</button>
             </div>
@@ -871,7 +872,7 @@
             <div class="bento-switches-grid">
               <label class="bento-switch-card" for="editCrowdfundToggle">
                 <div class="switch-text-wrap">
-                  <span class="switch-title">🤝 Можно скинуться</span>
+                  <span class="switch-title"><span data-icon="handHeart" data-icon-class="app-icon-sm"></span> Можно скинуться</span>
                   <span class="switch-subtitle">Совместный сбор средств</span>
                 </div>
                 <span class="ios-switch">
@@ -882,7 +883,7 @@
 
               <label class="bento-switch-card" for="editReusableToggle">
                 <div class="switch-text-wrap">
-                  <span class="switch-title">♻️ Можно дарить несколько раз</span>
+                  <span class="switch-title"><span data-icon="repeat" data-icon-class="app-icon-sm"></span> Можно дарить несколько раз</span>
                   <span class="switch-subtitle">Независимые отметки нескольких гостей</span>
                 </div>
                 <span class="ios-switch">
@@ -896,7 +897,7 @@
 
         <div style="display: flex; gap: 10px; margin-top: 18px;">
           <button type="button" class="btn-glass" style="flex: 1;" onclick="closeEditModal()">Отмена</button>
-          <button type="submit" class="btn-accent" style="flex: 2;">💾 Сохранить изменения</button>
+          <button type="submit" class="btn-accent" style="flex: 2;"><span data-icon="check" data-icon-class="app-icon-sm"></span> Сохранить изменения</button>
         </div>
       </form>
     </div>
@@ -905,7 +906,7 @@
   <!-- МОДАЛЬНОЕ ОКНО: ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ ПОДАРКА -->
   <div class="modal-overlay" id="deleteConfirmBackdrop" onclick="handleBackdropClick(event, 'deleteConfirmBackdrop')">
     <div class="confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="deleteDialogTitle">
-      <div class="empty-orb" style="margin: 0 auto 12px;">🗑</div>
+      <div class="empty-orb" style="margin: 0 auto 12px;"><span data-icon="trash" data-icon-class="app-icon-lg"></span></div>
       <h3 id="deleteDialogTitle" style="font-family: var(--font-display); font-size: 18px; font-weight: 800; margin-bottom: 6px;">
         Удалить подарок?
       </h3>
@@ -924,8 +925,8 @@
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="renameGroupModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="renameGroupModalTitle">✏️ Переименовать группу</h2>
-        <button type="button" class="btn-close-circle" onclick="closeRenameGroupModal()" aria-label="Закрыть">✕</button>
+        <h2 class="modal-title" id="renameGroupModalTitle"><span data-icon="pencil"></span> Переименовать группу</h2>
+        <button type="button" class="btn-close-circle" onclick="closeRenameGroupModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
       <form id="renameGroupForm" onsubmit="handleRenameGroupSubmit(event)">
         <div class="field-block">
@@ -943,7 +944,7 @@
   <!-- МОДАЛЬНОЕ ОКНО: ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ ГРУППЫ ДОСТУПА -->
   <div class="modal-overlay" id="deleteGroupModalBackdrop" onclick="handleBackdropClick(event, 'deleteGroupModalBackdrop')">
     <div class="confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="deleteGroupDialogTitle">
-      <div class="empty-orb" style="margin: 0 auto 12px;">👥</div>
+      <div class="empty-orb" style="margin: 0 auto 12px;"><span data-icon="users" data-icon-class="app-icon-lg"></span></div>
       <h3 id="deleteGroupDialogTitle" style="font-family: var(--font-display); font-size: 18px; font-weight: 800; margin-bottom: 6px;">
         Удалить группу доступа?
       </h3>
@@ -962,8 +963,8 @@
     <div class="modal-sheet-box" role="dialog" aria-modal="true" aria-labelledby="occasionModalTitle">
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
-        <h2 class="modal-title" id="occasionModalTitle">🎯 Подборки по поводам</h2>
-        <button type="button" class="btn-close-circle" onclick="closeOccasionManagerModal()" aria-label="Закрыть">✕</button>
+        <h2 class="modal-title" id="occasionModalTitle"><span data-icon="calendar"></span> Подборки по поводам</h2>
+        <button type="button" class="btn-close-circle" onclick="closeOccasionManagerModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
       <form class="social-add-form" id="createOccasionForm" onsubmit="handleCreateOccasionModalSubmit(event)">
         <input type="text" id="newOccasionTitleInput" class="input-modern" placeholder="Новый повод, например «Новый год»" maxlength="40" required />
@@ -979,14 +980,14 @@
       <div class="sheet-pill-handle"></div>
       <div class="modal-head">
         <h2 class="modal-title" id="shareModalTitle">Поделиться вишлистом</h2>
-        <button type="button" class="btn-close-circle" onclick="closeShareModal()" aria-label="Закрыть">✕</button>
+        <button type="button" class="btn-close-circle" onclick="closeShareModal()" aria-label="Закрыть"><span data-icon="x"></span></button>
       </div>
       <p class="social-panel-copy">Выберите, отправить ссылку на весь вишлист или только на конкретную подборку по поводу:</p>
       <div class="audience-editor" id="shareOccasionOptions"></div>
       <div class="share-preview-box" id="shareUrlPreview"></div>
       <div style="display: flex; gap: 10px; margin-top: 18px;">
-        <button type="button" class="btn-glass" style="flex: 1;" onclick="copyShareLinkOnly()">📋 Копировать</button>
-        <button type="button" class="btn-accent" id="confirmShareBtn" style="flex: 2;" onclick="confirmShareWishlist()">📤 Отправить в Telegram</button>
+        <button type="button" class="btn-glass" style="flex: 1;" onclick="copyShareLinkOnly()"><span data-icon="copy" data-icon-class="app-icon-sm"></span> Копировать</button>
+        <button type="button" class="btn-accent" id="confirmShareBtn" style="flex: 2;" onclick="confirmShareWishlist()"><span data-icon="send" data-icon-class="app-icon-sm"></span> Отправить в Telegram</button>
       </div>
     </div>
   </div>

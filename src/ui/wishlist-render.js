@@ -33,6 +33,7 @@ import {
   renderAudienceEditor,
   renderOccasionEditor
 } from "./wishlist-social.js";
+import { renderIcon } from "./icons.js";
 
 const wishlistHooks = {
   renderSuperappHub: () => {}
@@ -130,7 +131,7 @@ export async function fetchGifts() {
 export async function mutateGifts(action, payload) {
   if (isTelegramSession) {
     if (!API_ORIGIN) {
-      showToast("❌ Сначала укажите адрес Cloudflare Worker");
+      showToast("Сначала укажите адрес Cloudflare Worker");
       return false;
     }
     try {
@@ -151,7 +152,7 @@ export async function mutateGifts(action, payload) {
       if (["toggle_book", "toggle_crowdfund"].includes(action)) loadParticipations(true);
       return true;
     } catch (error) {
-      showToast(`❌ ${error.message || "Ошибка синхронизации с сервером"}`);
+      showToast(error.message || "Ошибка синхронизации с сервером");
       return false;
     }
   }
@@ -159,7 +160,7 @@ export async function mutateGifts(action, payload) {
   if (["toggle_book", "toggle_crowdfund"].includes(action)) {
     const gift = state.gifts.find(item => item.id === payload.id);
     if (!gift || !canDemoViewerAccessGift(gift, state.viewerId)) {
-      showToast("⚠️ Это желание недоступно для вашей группы");
+      showToast("Это желание недоступно для вашей группы");
       return false;
     }
   }
@@ -167,13 +168,13 @@ export async function mutateGifts(action, payload) {
   if (action === "save_occasion") {
     const title = String(payload.title || "").trim().slice(0, 40);
     if (!title) {
-      showToast("⚠️ Укажите название повода");
+      showToast("Укажите название повода");
       return false;
     }
     const key = title.toLocaleLowerCase("ru-RU");
     const dup = state.occasions.some(item => item.id !== payload.id && item.title.toLocaleLowerCase("ru-RU") === key);
     if (dup) {
-      showToast("⚠️ Повод с таким названием уже есть");
+      showToast("Повод с таким названием уже есть");
       return false;
     }
     if (payload.id) {
@@ -289,9 +290,9 @@ export async function copyGiftToOwnWishlist(giftId) {
 
     state.copiedGiftIds.add(giftId);
     triggerHaptic("success");
-    showToast("✓ Добавлено в ваш вишлист");
+    showToast("Добавлено в ваш вишлист");
   } catch (error) {
-    showToast(`❌ ${error.message || "Не удалось скопировать желание"}`);
+    showToast(error.message || "Не удалось скопировать желание");
   } finally {
     state.copyingGiftIds.delete(giftId);
     renderAll();
@@ -327,7 +328,7 @@ export function renderTagEditor(formPrefix) {
   selected.innerHTML = tags.map((tag, index) => `
     <span class="selected-tag">
       ${escapeHtml(tag)}
-      <button type="button" aria-label="Удалить тег ${escapeHtml(tag)}" onclick="removeTagByIndex('${formPrefix}', ${index})">×</button>
+      <button type="button" style="display:inline-flex;align-items:center;justify-content:center;" aria-label="Удалить тег ${escapeHtml(tag)}" onclick="removeTagByIndex('${formPrefix}', ${index})">${renderIcon("x", "app-icon-sm")}</button>
     </span>
   `).join("");
 }
@@ -348,7 +349,7 @@ export function toggleTag(formPrefix, rawTag) {
   if (index >= 0) tags.splice(index, 1);
   else {
     if (tags.length >= 8) {
-      showToast("⚠️ Можно выбрать не больше 8 тегов");
+      showToast("Можно выбрать не больше 8 тегов");
       return;
     }
     tags.push(tag);
@@ -365,7 +366,7 @@ export function addCustomTag(formPrefix) {
   if (tags.some(item => item.toLocaleLowerCase("ru-RU") === tag.toLocaleLowerCase("ru-RU"))) {
     showToast("Этот тег уже добавлен");
   } else if (tags.length >= 8) {
-    showToast("⚠️ Можно выбрать не больше 8 тегов");
+    showToast("Можно выбрать не больше 8 тегов");
     return;
   } else {
     tags.push(tag);
@@ -436,7 +437,7 @@ export async function handleAddGiftSubmit(event) {
   const isReusable = !isCrowdfund && Boolean(document.getElementById("addReusableToggle")?.checked);
 
   if (rawLink && !isValidHttpUrl(rawLink)) {
-    showToast("⚠️ Ссылка должна начинаться с https:// или http://");
+    showToast("Ссылка должна начинаться с https:// или http://");
     return;
   }
 
@@ -464,7 +465,7 @@ export async function handleAddGiftSubmit(event) {
   const ok = await mutateGifts("add", newGift);
   if (ok) {
     triggerHaptic("success");
-    showToast("🎁 Желание добавлено в ваш вишлист!");
+    showToast("Желание добавлено в ваш вишлист!");
     document.getElementById("addGiftForm")?.reset();
     clearPhoto("add");
     state.desireDraft.add = "medium";
@@ -541,7 +542,7 @@ export async function handleEditGiftSubmit(event) {
   const isReusable = !isCrowdfund && Boolean(document.getElementById("editReusableToggle")?.checked);
 
   if (rawLink && !isValidHttpUrl(rawLink)) {
-    showToast("⚠️ Укажите корректный URL магазина (http:// или https://)");
+    showToast("Укажите корректный URL магазина (http:// или https://)");
     return;
   }
 
@@ -566,7 +567,7 @@ export async function handleEditGiftSubmit(event) {
   if (ok) {
     triggerHaptic("success");
     closeEditModal();
-    showToast("✓ Изменения сохранены");
+    showToast("Изменения сохранены");
   }
 }
 
@@ -600,7 +601,7 @@ export async function toggleGiftArchive(giftId) {
   const ok = await mutateGifts("toggle_gifted", { id: giftId });
   if (ok) {
     triggerHaptic("success");
-    showToast(willBeGifted ? "🎉 Перенесено в «Уже подарили»" : "↩ Возвращено в «Актуальные»");
+    showToast(willBeGifted ? "Перенесено в «Уже подарили»" : "Возвращено в «Актуальные»");
   }
 }
 
@@ -617,13 +618,13 @@ export async function toggleBookSingleGift(giftId) {
       showToast(
         isUnbooking
           ? "Отметка участия снята"
-          : "🎁 Вы отметили, что подарите этот подарок! Владелец не видит имена."
+          : "Вы отметили, что подарите этот подарок! Владелец не видит имена."
       );
     } else {
       showToast(
         isUnbooking
           ? "Бронь снята — подарок снова свободен"
-          : "🎁 Вы забронировали подарок! Владелец не видит имя дарителя."
+          : "Вы забронировали подарок! Владелец не видит имя дарителя."
       );
     }
   }
@@ -639,14 +640,14 @@ export async function toggleCrowdfundJoin(giftId) {
     showToast(
       isLeaving
         ? "Вы вышли из совместного сбора"
-        : "🤝 Вы присоединились к сбору! Доля автоматически пересчитана."
+        : "Вы присоединились к сбору! Доля автоматически пересчитана."
     );
   }
 }
 
 export function openStoreLink(url) {
   if (!isValidHttpUrl(url)) {
-    showToast("⚠️ Некорректная ссылка на магазин");
+    showToast("Некорректная ссылка на магазин");
     return;
   }
   triggerHaptic("light");
@@ -851,7 +852,7 @@ export function renderParticipations() {
   if (state.participationsError) {
     grid.innerHTML = `
       <div class="empty-bento">
-        <div class="empty-orb">⚠️</div>
+        <div class="empty-orb">${renderIcon("info", "app-icon-lg")}</div>
         <div class="empty-heading">Не удалось загрузить участия</div>
         <div class="empty-subtext">${escapeHtml(state.participationsError)}</div>
         <button type="button" class="btn-glass" onclick="loadParticipations()">Повторить</button>
@@ -863,7 +864,7 @@ export function renderParticipations() {
   if (state.participations.length === 0) {
     grid.innerHTML = `
       <div class="empty-bento">
-        <div class="empty-orb">🎁</div>
+        <div class="empty-orb">${renderIcon("gift", "app-icon-lg")}</div>
         <div class="empty-heading">Пока нет участий</div>
         <div class="empty-subtext">Откройте вишлист друга по его ссылке и забронируйте подарок или присоединитесь к совместному сбору.</div>
         <button type="button" class="btn-glass" onclick="showWishlistWorkspace()">Перейти к вишлисту</button>
@@ -880,16 +881,16 @@ function buildParticipationCardHtml(item) {
   const ownerId = parsePositiveId(item.owner?.id);
   const ownerName = escapeHtml(item.owner?.first_name || "Пользователь");
   const title = escapeHtml(gift.title || "Подарок");
-  let typeLabel = "🔒 Вы забронировали";
-  if (item.type === "crowdfund") typeLabel = "🤝 Совместный сбор";
-  else if (item.type === "reusable") typeLabel = "♻️ Многоразовый подарок";
+  let typeLabel = `${renderIcon("lock", "app-icon-sm")}<span>Вы забронировали</span>`;
+  if (item.type === "crowdfund") typeLabel = `${renderIcon("handHeart", "app-icon-sm")}<span>Совместный сбор</span>`;
+  else if (item.type === "reusable") typeLabel = `${renderIcon("repeat", "app-icon-sm")}<span>Многоразовый подарок</span>`;
 
   const price = formatPrice(gift.price);
   const tags = Array.isArray(gift.tags) ? gift.tags : [];
   const tagsHtml = tags.map(tag => `<span class="gift-tag">#${escapeHtml(tag)}</span>`).join("");
   const statusHtml = gift.is_gifted
-    ? `<span class="participation-type">🎉 Подарок уже вручён</span>`
-    : `<span class="participation-type">${typeLabel}</span>`;
+    ? `<span class="participation-type" style="display:inline-flex;align-items:center;gap:5px;">${renderIcon("party", "app-icon-sm")}<span>Подарок уже вручён</span></span>`
+    : `<span class="participation-type" style="display:inline-flex;align-items:center;gap:5px;">${typeLabel}</span>`;
 
   let extraMetaHtml = "";
   if (item.type === "crowdfund") {
@@ -978,8 +979,8 @@ export function switchDemoRole(roleKey) {
   loadParticipations(true);
   showToast(
     roleKey === "owner"
-      ? "👑 Режим Владельца: доступно добавление и управление"
-      : `👤 Гостевой режим (${DEMO_USERS[roleKey].name}): доступно бронирование и складчина`
+      ? "Режим Владельца: доступно добавление и управление"
+      : `Гостевой режим (${DEMO_USERS[roleKey].name}): доступно бронирование и складчина`
   );
 }
 
@@ -1017,7 +1018,7 @@ export function resetDemoData() {
   resetAllFilters();
   loadParticipations(true);
   triggerHaptic("success");
-  showToast("🔄 Демо-вишлист восстановлен по умолчанию");
+  showToast("Демо-вишлист восстановлен по умолчанию");
 }
 
 export function renderSkeletons() {
@@ -1064,12 +1065,12 @@ function renderOccasionsBar(visibleGifts, isOwner) {
     `<button type="button" class="filter-pill ${state.occasionFilter === "all" ? "active" : ""}" data-occasion-filter="all" onclick="clearOccasionFilter()">Все</button>`,
     ...availableOccasions.map(occ => {
       const active = state.occasionFilter === occ.id;
-      return `<button type="button" class="filter-pill ${active ? "active" : ""}" data-occasion-filter="${escapeHtml(occ.id)}" onclick="selectOccasionFilter(this.dataset.occasionFilter)">🎯 ${escapeHtml(occ.title)}</button>`;
+      return `<button type="button" class="filter-pill ${active ? "active" : ""}" data-occasion-filter="${escapeHtml(occ.id)}" onclick="selectOccasionFilter(this.dataset.occasionFilter)">${renderIcon("target", "app-icon-sm")}<span>${escapeHtml(occ.title)}</span></button>`;
     })
   ];
 
   if (isOwner) {
-    chipsHtml.push(`<button type="button" class="filter-pill" id="manageOccasionsBtn" onclick="openOccasionManagerModal()">＋ Поводы</button>`);
+    chipsHtml.push(`<button type="button" class="filter-pill" id="manageOccasionsBtn" onclick="openOccasionManagerModal()">${renderIcon("plus", "app-icon-sm")}<span>Поводы</span></button>`);
   }
   bar.innerHTML = chipsHtml.join("");
 
@@ -1077,7 +1078,7 @@ function renderOccasionsBar(visibleGifts, isOwner) {
   if (banner && bannerTitle) {
     if (activeOccasion) {
       banner.hidden = false;
-      bannerTitle.textContent = `🎯 ${activeOccasion.title}`;
+      bannerTitle.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px;">${renderIcon("target", "app-icon-sm")}<span>${escapeHtml(activeOccasion.title)}</span></span>`;
     } else {
       banner.hidden = true;
     }
@@ -1092,7 +1093,7 @@ export function renderAll() {
 
   const isOwner = state.viewerId === state.ownerId;
   const currentUser = isTelegramSession
-    ? { name: state.viewerName, avatar: "✨" }
+    ? { name: state.viewerName, avatar: "sparkles" }
     : DEMO_USERS[state.activeRoleKey] || DEMO_USERS.owner;
 
   const headerTitle = document.getElementById("headerTitle");
@@ -1106,23 +1107,27 @@ export function renderAll() {
   const addSection = document.getElementById("ownerAddSection");
 
   if (isOwner) {
-    if (headerTitle) headerTitle.textContent = "🎁 Мой вишлист";
-    if (roleBadge) roleBadge.textContent = "👑 Владелец списка";
+    if (headerTitle) headerTitle.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;">${renderIcon("gift")}<span>Мой вишлист</span></span>`;
+    if (roleBadge) roleBadge.innerHTML = `${renderIcon("crown", "app-icon-sm")}<span>Владелец списка</span>`;
     if (headerSubtitle) headerSubtitle.textContent = "Добавляйте желанные подарки и делитесь списком с близкими в Telegram";
-    if (avatarEmoji) avatarEmoji.textContent = "🎁";
+    if (avatarEmoji) avatarEmoji.innerHTML = renderIcon("gift", "app-icon-lg");
     if (shareBtn) shareBtn.style.display = "inline-flex";
     if (subscribeBtn) subscribeBtn.style.display = "none";
     if (backBtn) backBtn.style.display = "none";
     if (addSection) addSection.style.display = "block";
   } else {
-    if (headerTitle) headerTitle.textContent = `🎁 Вишлист ${state.ownerName}`;
-    if (roleBadge) roleBadge.textContent = `Гостевой режим · Вы: ${currentUser.name}`;
+    if (headerTitle) headerTitle.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;">${renderIcon("gift")}<span>Вишлист ${escapeHtml(state.ownerName)}</span></span>`;
+    if (roleBadge) roleBadge.innerHTML = `${renderIcon("users", "app-icon-sm")}<span>Гостевой режим · Вы: ${escapeHtml(currentUser.name)}</span>`;
     const ownerAccount = state.ownerUsername ? `@${state.ownerUsername} · ` : "";
     if (headerSubtitle) headerSubtitle.textContent = `${ownerAccount}Бронируйте подарки в 1 клик или скидывайтесь с друзьями — именинник не узнает заранее`;
-    if (avatarEmoji) avatarEmoji.textContent = currentUser.avatar;
+    if (avatarEmoji) avatarEmoji.innerHTML = renderIcon(currentUser.avatar || "sparkles", "app-icon-lg");
     if (shareBtn) shareBtn.style.display = "none";
     if (subscribeBtn) subscribeBtn.style.display = "inline-flex";
-    if (subscribeBtnText) subscribeBtnText.textContent = state.isSubscribed ? "✓ Вы подписаны" : "Подписаться";
+    if (subscribeBtnText) {
+      subscribeBtnText.innerHTML = state.isSubscribed
+        ? `<span style="display:inline-flex;align-items:center;gap:6px;">${renderIcon("check", "app-icon-sm")}<span>Вы подписаны</span></span>`
+        : `<span style="display:inline-flex;align-items:center;gap:6px;">${renderIcon("bell", "app-icon-sm")}<span>Подписаться</span></span>`;
+    }
     if (backBtn) backBtn.style.display = "inline-flex";
     if (addSection) addSection.style.display = "none";
   }
@@ -1199,7 +1204,8 @@ function renderFiltersBar(tabItems) {
       Все желания
     </button>
     <button type="button" class="filter-pill ${state.onlyFreeFilter ? "active" : ""}" onclick="toggleOnlyFreeFilter()">
-      🔓 Только свободные
+      ${renderIcon("unlock", "app-icon-sm")}
+      <span>Только свободные</span>
     </button>
     <span class="rail-divider"></span>
     <button type="button" class="filter-pill tabular-nums ${state.priceFilter === "under2k" ? "active" : ""}" onclick="setPriceFilter('under2k')">
@@ -1221,7 +1227,7 @@ function renderFiltersBar(tabItems) {
       const safeCat = escapeHtml(cat);
       html += `
         <button type="button" class="filter-pill ${activeClass}" data-cat="${safeCat}" onclick="setCategoryFilter(this.getAttribute('data-cat'))">
-          <span>${styleObj.emoji}</span>
+          ${renderIcon(styleObj.icon, "app-icon-sm")}
           <span>${safeCat}</span>
         </button>
       `;
@@ -1238,7 +1244,7 @@ function renderGiftCards(items, isTabCompletelyEmpty, isOwner) {
   if (state.loadError) {
     grid.innerHTML = `
       <div class="empty-bento">
-        <div class="empty-orb">⚠️</div>
+        <div class="empty-orb">${renderIcon("info", "app-icon-lg")}</div>
         <div class="empty-heading">Не удалось загрузить вишлист</div>
         <div class="empty-subtext">${escapeHtml(state.loadError)}</div>
         <button type="button" class="btn-glass" style="margin-top: 6px;" onclick="fetchGifts()">
@@ -1253,7 +1259,7 @@ function renderGiftCards(items, isTabCompletelyEmpty, isOwner) {
     if (isTabCompletelyEmpty) {
       grid.innerHTML = `
         <div class="empty-bento">
-          <div class="empty-orb">${state.activeTab === "active" ? "🎁" : "🎉"}</div>
+          <div class="empty-orb">${renderIcon(state.activeTab === "active" ? "gift" : "party", "app-icon-lg")}</div>
           <div class="empty-heading">
             ${state.activeTab === "active" ? "Список желаний пока пуст" : "В архиве пока нет подарков"}
           </div>
@@ -1271,7 +1277,7 @@ function renderGiftCards(items, isTabCompletelyEmpty, isOwner) {
     } else {
       grid.innerHTML = `
         <div class="empty-bento">
-          <div class="empty-orb">🔍</div>
+          <div class="empty-orb">${renderIcon("search", "app-icon-lg")}</div>
           <div class="empty-heading">По выбранным фильтрам ничего не найдено</div>
           <div class="empty-subtext">Попробуйте отключить фильтр «Только свободные» или изменить ценовой диапазон.</div>
           <button type="button" class="btn-glass" style="margin-top: 6px;" onclick="resetAllFilters()">
@@ -1296,9 +1302,9 @@ function buildGiftCardHtml(gift, isOwner) {
   const hasValidLink = isValidHttpUrl(gift.link);
   const desire = getGiftDesire(gift);
   const desireMeta = DESIRE_META[desire];
-  const desireBadgeHtml = `<span class="glass-pill ${desireMeta.className}">${desireMeta.label}</span>`;
+  const desireBadgeHtml = `<span class="glass-pill ${desireMeta.className}">${desireMeta.icon ? renderIcon(desireMeta.icon, "app-icon-sm") : ""}${desireMeta.label}</span>`;
   const reusableBadgeHtml = gift.is_reusable
-    ? `<span class="glass-pill pill-status-reusable">♻️ Можно дарить несколько раз</span>`
+    ? `<span class="glass-pill pill-status-reusable">${renderIcon("repeat", "app-icon-sm")}Можно дарить несколько раз</span>`
     : "";
   const giftGroupIds = Array.isArray(gift.group_ids) ? gift.group_ids : [];
   const giftGroupNames = state.groups.filter(group => giftGroupIds.includes(group.id)).map(group => group.name);
@@ -1325,14 +1331,14 @@ function buildGiftCardHtml(gift, isOwner) {
         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
       />
       <div class="card-art-placeholder" style="display: ${useProtectedImage ? "flex" : "none"}; background: ${catStyle.gradient};">
-        <div class="art-icon-orb">${catStyle.emoji}</div>
+        <div class="art-icon-orb">${renderIcon(catStyle.icon, "app-icon-lg")}</div>
         <span class="art-cat-caption">${safeCategory}</span>
       </div>
     `;
   } else {
     mediaContentHtml = `
       <div class="card-art-placeholder" style="background: ${catStyle.gradient};">
-        <div class="art-icon-orb">${catStyle.emoji}</div>
+        <div class="art-icon-orb">${renderIcon(catStyle.icon, "app-icon-lg")}</div>
         <span class="art-cat-caption">${safeCategory}</span>
       </div>
     `;
@@ -1347,19 +1353,19 @@ function buildGiftCardHtml(gift, isOwner) {
 
   let rightBadgeHtml = "";
   if (gift.is_gifted) {
-    rightBadgeHtml = `<span class="glass-pill pill-status-mine">✓ Подарено</span>`;
+    rightBadgeHtml = `<span class="glass-pill pill-status-mine">${renderIcon("checkCircle", "app-icon-sm")}Подарено</span>`;
   } else if (gift.is_crowdfund) {
-    rightBadgeHtml = `<span class="glass-pill pill-status-crowdfund">🤝 Сбор · ${participants.length} чел.</span>`;
+    rightBadgeHtml = `<span class="glass-pill pill-status-crowdfund">${renderIcon("handHeart", "app-icon-sm")}Сбор · ${participants.length} чел.</span>`;
   } else if (gift.is_reusable) {
     if (isOwner && reusableGivers.length > 0) {
       rightBadgeHtml = `<span class="glass-pill pill-status-booked">Отметили: ${reusableGivers.length}</span>`;
     } else if (!isOwner && isReusableMine) {
-      rightBadgeHtml = `<span class="glass-pill pill-status-mine">✓ Вы выбрали этот подарок</span>`;
+      rightBadgeHtml = `<span class="glass-pill pill-status-mine">${renderIcon("checkCircle", "app-icon-sm")}Вы выбрали этот подарок</span>`;
     }
   } else if (isBookedByMe && !isOwner) {
-    rightBadgeHtml = `<span class="glass-pill pill-status-mine">🔒 Вы забронировали</span>`;
+    rightBadgeHtml = `<span class="glass-pill pill-status-mine">${renderIcon("lock", "app-icon-sm")}Вы забронировали</span>`;
   } else if (gift.booked_by !== null) {
-    rightBadgeHtml = `<span class="glass-pill pill-status-booked">🔒 Забронировано</span>`;
+    rightBadgeHtml = `<span class="glass-pill pill-status-booked">${renderIcon("lock", "app-icon-sm")}Забронировано</span>`;
   }
 
   let crowdfundWidgetHtml = "";
@@ -1409,13 +1415,14 @@ function buildGiftCardHtml(gift, isOwner) {
     footerHtml = `
       <div class="owner-btn-row">
         <button type="button" class="action-btn btn-owner-edit" onclick="openEditModal(${gift.id})">
-          <span>✏️ Изменить</span>
+          ${renderIcon("pencil", "app-icon-sm")}
+          <span>Изменить</span>
         </button>
         <button type="button" class="action-btn btn-owner-archive" onclick="toggleGiftArchive(${gift.id})" title="${gift.is_gifted ? "Вернуть в актуальные" : "Отметить, что подарок вручён"}">
-          <span>${gift.is_gifted ? "↩ Вернуть" : "Отметить вручение"}</span>
+          ${gift.is_gifted ? `${renderIcon("rotateCcw", "app-icon-sm")}<span>Вернуть</span>` : `${renderIcon("check", "app-icon-sm")}<span>Отметить вручение</span>`}
         </button>
         <button type="button" class="action-btn btn-owner-delete" onclick="requestDeleteGift(${gift.id})" title="Удалить подарок" aria-label="Удалить подарок">
-          🗑
+          ${renderIcon("trash", "app-icon-sm")}
         </button>
       </div>
     `;
@@ -1424,21 +1431,23 @@ function buildGiftCardHtml(gift, isOwner) {
     if (gift.is_gifted) {
       primaryBtnHtml = `
         <button type="button" class="action-btn btn-guest-locked" disabled>
-          🎉 Подарок уже вручён
+          ${renderIcon("party", "app-icon-sm")}
+          <span>Подарок уже вручён</span>
         </button>
       `;
     } else if (gift.is_crowdfund) {
       primaryBtnHtml = isJoinedByMe
-        ? `<button type="button" class="action-btn btn-guest-unbook" onclick="toggleCrowdfundJoin(${gift.id})">✓ Вы участвуете · Выйти</button>`
-        : `<button type="button" class="action-btn btn-guest-crowdfund" onclick="toggleCrowdfundJoin(${gift.id})">🤝 Скинуться</button>`;
+        ? `<button type="button" class="action-btn btn-guest-unbook" onclick="toggleCrowdfundJoin(${gift.id})">${renderIcon("check", "app-icon-sm")}<span>Вы участвуете · Выйти</span></button>`
+        : `<button type="button" class="action-btn btn-guest-crowdfund" onclick="toggleCrowdfundJoin(${gift.id})">${renderIcon("handHeart", "app-icon-sm")}<span>Скинуться</span></button>`;
     } else if (gift.is_reusable) {
       primaryBtnHtml = isReusableMine
         ? `<button type="button" class="action-btn btn-guest-unbook" onclick="toggleBookSingleGift(${gift.id})">Отменить участие</button>`
-        : `<button type="button" class="action-btn btn-guest-book" onclick="toggleBookSingleGift(${gift.id})">🎁 Я подарю</button>`;
+        : `<button type="button" class="action-btn btn-guest-book" onclick="toggleBookSingleGift(${gift.id})">${renderIcon("gift", "app-icon-sm")}<span>Я подарю</span></button>`;
     } else if (gift.booked_by === null) {
       primaryBtnHtml = `
         <button type="button" class="action-btn btn-guest-book" onclick="toggleBookSingleGift(${gift.id})">
-          🎁 Я подарю
+          ${renderIcon("gift", "app-icon-sm")}
+          <span>Я подарю</span>
         </button>
       `;
     } else if (isBookedByMe) {
@@ -1450,7 +1459,8 @@ function buildGiftCardHtml(gift, isOwner) {
     } else if (isBookedByOther) {
       primaryBtnHtml = `
         <button type="button" class="action-btn btn-guest-locked" disabled>
-          🔒 Забронировано
+          ${renderIcon("lock", "app-icon-sm")}
+          <span>Забронировано</span>
         </button>
       `;
     }
@@ -1458,8 +1468,8 @@ function buildGiftCardHtml(gift, isOwner) {
     const isCopied = state.copiedGiftIds.has(gift.id);
     const isCopying = state.copyingGiftIds.has(gift.id);
     const copyBtnHtml = isCopied
-      ? `<button type="button" class="action-btn btn-guest-copy copied" disabled>✓ В вашем списке</button>`
-      : `<button type="button" class="action-btn btn-guest-copy" ${isCopying ? "disabled" : ""} onclick="copyGiftToOwnWishlist(${gift.id})">${isCopying ? "Добавляем..." : "➕ Добавить себе"}</button>`;
+      ? `<button type="button" class="action-btn btn-guest-copy copied" disabled>${renderIcon("check", "app-icon-sm")}<span>В вашем списке</span></button>`
+      : `<button type="button" class="action-btn btn-guest-copy" ${isCopying ? "disabled" : ""} onclick="copyGiftToOwnWishlist(${gift.id})">${isCopying ? "Добавляем..." : `${renderIcon("plus", "app-icon-sm")}<span>Добавить себе</span>`}</button>`;
 
     footerHtml = primaryBtnHtml + copyBtnHtml;
   }
@@ -1472,7 +1482,7 @@ function buildGiftCardHtml(gift, isOwner) {
           ${desireBadgeHtml}
           ${reusableBadgeHtml}
           ${audienceBadgeHtml}
-          <span class="glass-pill pill-category">${catStyle.emoji} ${safeCategory}</span>
+          <span class="glass-pill pill-category">${renderIcon(catStyle.icon, "app-icon-sm")}${safeCategory}</span>
         </div>
         <div class="media-badge-right">
           ${rightBadgeHtml}
@@ -1492,7 +1502,7 @@ function buildGiftCardHtml(gift, isOwner) {
             hasValidLink
               ? `<button type="button" class="store-ext-btn" data-url="${escapeHtml(gift.link)}" onclick="openStoreLink(this.getAttribute('data-url'))">
                   <span>В магазин</span>
-                  <span>↗</span>
+                  ${renderIcon("externalLink", "app-icon-sm")}
                  </button>`
               : ""
           }

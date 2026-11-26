@@ -1,3 +1,4 @@
+import { hydrateDataIcons } from "./icons.js";
 import {
   API_ORIGIN,
   tg,
@@ -382,7 +383,7 @@ document.getElementById("confirmDeleteBtn")?.addEventListener("click", async () 
   const ok = await mutateGifts("delete", { id });
   if (ok) {
     triggerHaptic("light");
-    showToast("🗑 Подарок удалён из списка");
+    showToast("Подарок удалён из списка");
   }
 });
 
@@ -403,6 +404,8 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
   }
+
+  hydrateDataIcons();
 
   if (tg?.colorScheme === "light") {
     setThemePreset("light", true);

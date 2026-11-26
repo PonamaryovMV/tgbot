@@ -26,6 +26,11 @@ import {
   openExpenseEvent
 } from "./expenses-state.js";
 import { renderExpensesModule, renderExpenseEventDetail } from "./expenses-views.js";
+import {
+  renderIcon,
+  renderEventIcon,
+  resolveEventIconKey
+} from "./icons.js";
 
 function createDefaultOperationDraft(ev, existingOp) {
   const members = Array.isArray(ev.members) ? ev.members : [];
@@ -121,7 +126,7 @@ export function openExpenseOperationModal(opId) {
   if (!ev) return;
 
   if (!opId && (ev.status === "SETTLING" || ev.status === "ARCHIVED")) {
-    showToast("❄️ Траты заморожены");
+    showToast("Траты заморожены");
     return;
   }
 
@@ -154,7 +159,7 @@ export function renderExpenseOperationModal() {
       <h2 class="modal-title" id="expenseOperationModalTitle">${d.id ? "Изменить операцию" : "Новая операция"}</h2>
       <div style="display: flex; gap: 6px; align-items: center;">
         ${d.id && !isFrozen ? `<button type="button" class="btn-mini danger" id="deleteExpenseOpBtn" onclick="deleteCurrentExpenseOperation()">Удалить</button>` : ""}
-        <button type="button" class="btn-close-circle" onclick="closeExpenseOperationModal()" aria-label="Закрыть">✕</button>
+        <button type="button" class="btn-close-circle" onclick="closeExpenseOperationModal()" aria-label="Закрыть">${renderIcon("x", "app-icon-sm")}</button>
       </div>
     </div>
 
@@ -169,7 +174,7 @@ export function renderExpenseOperationModal() {
           <span class="field-label">Категория</span>
           <div class="category-preset-row">
             ${EXPENSE_CATEGORIES.map(c => `
-              <button type="button" class="cat-preset-btn ${d.category === c.label ? "selected" : ""}" onclick="setDraftOperationCategory('${escapeHtml(c.label)}')">${c.icon} ${escapeHtml(c.label)}</button>
+              <button type="button" class="cat-preset-btn ${d.category === c.label ? "selected" : ""}" onclick="setDraftOperationCategory('${escapeHtml(c.label)}')">${renderIcon(c.icon, "app-icon-sm")} <span>${escapeHtml(c.label)}</span></button>
             `).join("")}
           </div>
         </div>
@@ -326,7 +331,7 @@ function renderOperationSplitEditor() {
                    oninput="getExpensesState().opDraft.weights['${escapeHtml(m.id)}']=this.value; refreshOperationSplitPreview()" />
           ` : ""}
           <button type="button" class="exp-merge-check ${checked ? "on" : ""}" onclick="toggleDraftSplitMember('${escapeHtml(m.id)}')">
-            ${checked ? "✓" : ""}
+            ${checked ? renderIcon("check", "app-icon-sm") : ""}
           </button>
           <span class="exp-split-share-hint" data-op-share="${escapeHtml(m.id)}"></span>
         </div>
@@ -367,7 +372,7 @@ function renderOperationSplitEditor() {
                  oninput="getExpensesState().opDraft.items[${idx}].title=this.value" />
           <input type="number" step="0.01" min="0" class="exp-split-num-input" placeholder="0" value="${escapeHtml(it.amount)}"
                  oninput="getExpensesState().opDraft.items[${idx}].amount=this.value; refreshOperationSplitPreview()" />
-          <button type="button" class="btn-mini danger" onclick="removeDraftReceiptItem(${idx})">✕</button>
+          <button type="button" class="btn-mini danger" onclick="removeDraftReceiptItem(${idx})" aria-label="Удалить позицию">${renderIcon("x", "app-icon-sm")}</button>
         </div>
         <div class="audience-editor">
           ${members.map(m => `
@@ -379,7 +384,7 @@ function renderOperationSplitEditor() {
       </div>
     `).join("")}
     <button type="button" class="btn-glass" style="width: 100%; min-height: 38px; font-size: 13px; margin-bottom: 8px;" onclick="addDraftReceiptItem()">
-      ＋ Добавить позицию
+      ${renderIcon("plus", "app-icon-sm")} Добавить позицию
     </button>
     ${members.map(m => `
       <div class="exp-split-row">
@@ -539,17 +544,17 @@ export async function submitExpenseOperation() {
 
   const title = String(d.title || "").trim();
   if (!title) {
-    showToast("⚠️ Введите название операции");
+    showToast("Введите название операции");
     return;
   }
 
   const preview = computeClientDraftPreview(ev, d);
   if (preview.origMinor <= 0) {
-    showToast("⚠️ Укажите сумму больше нуля");
+    showToast("Укажите сумму больше нуля");
     return;
   }
   if (!preview.valid) {
-    showToast("⚠️ Проверьте распределение долей");
+    showToast("Проверьте распределение долей");
     return;
   }
 
@@ -611,9 +616,9 @@ export async function submitExpenseOperation() {
         loadExpensesDashboard();
       }
       triggerHaptic("success");
-      showToast(d.id ? "✓ Операция обновлена" : "✓ Операция добавлена");
+      showToast(d.id ? "Операция обновлена" : "Операция добавлена");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось сохранить операцию"}`);
+      showToast(error.message || "Не удалось сохранить операцию");
     }
     return;
   }
@@ -694,7 +699,7 @@ export async function submitExpenseOperation() {
   closeExpenseOperationModal();
   renderExpenseEventDetail();
   loadExpensesDashboard();
-  showToast(d.id ? "✓ Операция обновлена" : "✓ Операция добавлена");
+  showToast(d.id ? "Операция обновлена" : "Операция добавлена");
 }
 
 export async function deleteCurrentExpenseOperation() {
@@ -716,9 +721,9 @@ export async function deleteCurrentExpenseOperation() {
         renderExpenseEventDetail();
         loadExpensesDashboard();
       }
-      showToast("🗑 Операция удалена");
+      showToast("Операция удалена");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось удалить операцию"}`);
+      showToast(error.message || "Не удалось удалить операцию");
     }
     return;
   }
@@ -733,13 +738,13 @@ export async function deleteCurrentExpenseOperation() {
   closeExpenseOperationModal();
   renderExpenseEventDetail();
   loadExpensesDashboard();
-  showToast("🗑 Операция удалена");
+  showToast("Операция удалена");
 }
 
 function normalizeExpenseUsername(value) {
   const username = String(value || "").trim().replace(/^@+/, "");
   if (!/^[A-Za-z0-9_]{5,32}$/.test(username)) {
-    showToast("⚠️ Введите корректный @username Telegram");
+    showToast("Введите корректный @username Telegram");
     return "";
   }
   return username.toLowerCase();
@@ -775,12 +780,12 @@ export function renderNewEventMembersSection() {
   if (selectedEl) {
     const myLabel = state.viewerName || "Вы";
     const chips = [
-      `<span class="audience-chip active" style="cursor: default;">👑 ${escapeHtml(myLabel)} (Вы)</span>`,
+      `<span class="audience-chip active" style="cursor: default;">${renderIcon("crown", "app-icon-sm")} ${escapeHtml(myLabel)} (Вы)</span>`,
       ...selected.map(m => {
         const sub = m.username ? ` @${escapeHtml(m.username)}` : "";
         return `
           <button type="button" class="audience-chip active" onclick="removeDraftNewEventMember(${Number(m.telegram_id)})" title="Убрать из события">
-            ${escapeHtml(m.display_name || "Пользователь")}${sub} ✕
+            ${escapeHtml(m.display_name || "Пользователь")}${sub} ${renderIcon("x", "app-icon-sm")}
           </button>
         `;
       })
@@ -797,7 +802,7 @@ export function renderNewEventMembersSection() {
         <div class="audience-editor">
           ${available.map(c => `
             <button type="button" class="audience-chip" onclick="toggleDraftNewEventContact(${Number(c.telegram_id)})">
-              ＋ ${escapeHtml(c.display_name || "Пользователь")}${c.username ? ` (@${escapeHtml(c.username)})` : ""}
+              ${renderIcon("plus", "app-icon-sm")} ${escapeHtml(c.display_name || "Пользователь")}${c.username ? ` (@${escapeHtml(c.username)})` : ""}
             </button>
           `).join("")}
         </div>
@@ -879,10 +884,10 @@ export async function addDraftNewEventMemberByUsername() {
         await loadExpensesContacts(true);
         renderNewEventMembersSection();
         triggerHaptic("success");
-        showToast(`✓ ${data.user.display_name} добавлен(а) в список`);
+        showToast(`${data.user.display_name} добавлен(а) в список`);
       }
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось найти пользователя"}`);
+      showToast(error.message || "Не удалось найти пользователя");
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -891,11 +896,11 @@ export async function addDraftNewEventMemberByUsername() {
 
   const found = resolveDemoUserByInput({ username });
   if (!found) {
-    showToast("⚠️ В демо доступны @maxim, @anna1 и @dima1");
+    showToast("В демо доступны @maxim, @anna1 и @dima1");
     return;
   }
   if (Number(found.telegram_id) === Number(state.viewerId)) {
-    showToast("⚠️ Вы уже являетесь создателем события");
+    showToast("Вы уже являетесь создателем события");
     return;
   }
   if (!exp.newEventMembers.some(m => Number(m.telegram_id) === Number(found.telegram_id))) {
@@ -903,7 +908,7 @@ export async function addDraftNewEventMemberByUsername() {
   }
   if (input) input.value = "";
   renderNewEventMembersSection();
-  showToast(`✓ ${found.display_name} добавлен(а) в список`);
+  showToast(`${found.display_name} добавлен(а) в список`);
 }
 
 export async function requestTelegramContactForExpenses(eventId = null) {
@@ -940,7 +945,7 @@ export async function requestTelegramContactForExpenses(eventId = null) {
       showToast("Откройте чат с ботом и выберите контакт");
     }
   } catch (error) {
-    showToast(`❌ ${error.message || "Не удалось запросить выбор пользователя"}`);
+    showToast(error.message || "Не удалось запросить выбор пользователя");
   }
 }
 
@@ -954,7 +959,7 @@ export function openNewEventModal() {
   const iconsBox = document.getElementById("newEventIconsPicker");
   if (iconsBox) {
     iconsBox.innerHTML = EXPENSE_ICONS.map(ico => `
-      <button type="button" class="cat-preset-btn ${ico === exp.newEventIcon ? "selected" : ""}" data-ne-icon="${ico}" onclick="selectNewEventIcon('${ico}')">${ico}</button>
+      <button type="button" class="cat-preset-btn ${ico === exp.newEventIcon ? "selected" : ""}" data-ne-icon="${ico}" onclick="selectNewEventIcon('${ico}')" aria-label="${escapeHtml(resolveEventIconKey(ico).key)}">${renderEventIcon(ico, "ico-badge-sm")}</button>
     `).join("");
   }
 
@@ -974,7 +979,7 @@ export function openNewEventModal() {
   if (copySelect) {
     const pastEvents = [...exp.activeEvents, ...exp.archivedEvents];
     copySelect.innerHTML = `<option value="">— не копировать —</option>` + pastEvents.map(e => `
-      <option value="${escapeHtml(e.id)}">${escapeHtml(e.icon || "🎉")} ${escapeHtml(e.title)} (${Number(e.members_count || e.members?.length || 1)})</option>
+      <option value="${escapeHtml(e.id)}">${escapeHtml(e.title)} (${Number(e.members_count || e.members?.length || 1)})</option>
     `).join("");
   }
 
@@ -1003,7 +1008,7 @@ export async function handleCreateExpenseEventSubmit(event) {
   const exp = getExpensesState();
   const title = String(document.getElementById("newEventTitleInput")?.value || "").trim();
   if (!title) {
-    showToast("⚠️ Введите название события");
+    showToast("Введите название события");
     return;
   }
   const baseCurrency = String(document.getElementById("newEventCurrencySelect")?.value || "RUB").toUpperCase();
@@ -1043,9 +1048,9 @@ export async function handleCreateExpenseEventSubmit(event) {
         renderExpensesModule();
       }
       triggerHaptic("success");
-      showToast("✓ Событие создано");
+      showToast("Событие создано");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось создать событие"}`);
+      showToast(error.message || "Не удалось создать событие");
     }
     return;
   }
@@ -1138,7 +1143,7 @@ export async function handleCreateExpenseEventSubmit(event) {
   exp.currentEvent = created;
   exp.view = "event";
   renderExpensesModule();
-  showToast("✓ Событие создано");
+  showToast("Событие создано");
 }
 
 export function openEventParticipantsModal() {
@@ -1176,8 +1181,8 @@ export function renderEventParticipantsModal() {
       ${wallets.map(w => `
         <div class="exp-wallet-card">
           <div style="flex: 1; min-width: 0;">
-            <strong style="font-size: 14px; display: block;">🤝 ${escapeHtml(w.name)}</strong>
-            <span style="font-size: 12px; color: var(--tg-theme-hint-color);">Общий баланс и расчёт в одном юните</span>
+            <strong style="font-size: 14px; display: inline-flex; align-items: center; gap: 6px;">${renderIcon("wallet", "app-icon-sm")} <span>${escapeHtml(w.name)}</span></strong>
+            <span style="font-size: 12px; color: var(--tg-theme-hint-color); display: block;">Общий баланс и расчёт в одном юните</span>
           </div>
           <button type="button" class="btn-mini" onclick="unmergeUnifiedWallet('${escapeHtml(w.head_member_id)}')">Разъединить</button>
         </div>
@@ -1207,10 +1212,10 @@ export function renderEventParticipantsModal() {
               <button type="button" onclick="adjustMemberWeight('${escapeHtml(m.id)}', 0.5)" aria-label="Увеличить вес">+</button>
             </div>
             <button type="button" class="exp-merge-check ${selected ? "on" : ""}" onclick="toggleMergeMemberSelection('${escapeHtml(m.id)}')" title="Выбрать для единого кошелька">
-              ${selected ? "✓" : ""}
+              ${selected ? renderIcon("check", "app-icon-sm") : ""}
             </button>
             ${canManage && m.role !== "OWNER" ? `
-              <button type="button" class="btn-mini danger" onclick="removeExpenseMember('${escapeHtml(m.id)}')" title="Удалить участника">✕</button>
+              <button type="button" class="btn-mini danger" onclick="removeExpenseMember('${escapeHtml(m.id)}')" title="Удалить участника" aria-label="Удалить участника">${renderIcon("x", "app-icon-sm")}</button>
             ` : ""}
           </div>
         `;
@@ -1219,7 +1224,7 @@ export function renderEventParticipantsModal() {
 
     ${exp.mergeSelection.length >= 2 ? `
       <button type="button" class="btn-accent" style="width: 100%; margin-bottom: 14px;" onclick="mergeSelectedIntoUnifiedWallet()">
-        🤝 Объединить в единый кошелёк (${exp.mergeSelection.length})
+        ${renderIcon("wallet", "app-icon-sm")} Объединить в единый кошелёк (${exp.mergeSelection.length})
       </button>
     ` : `
       <div class="composer-hint" style="margin-bottom: 14px;">Отметьте галочками 2 и более участников, чтобы объединить их в единый кошелёк.</div>
@@ -1228,11 +1233,11 @@ export function renderEventParticipantsModal() {
     <div class="hub-section-label">Добавить участника (Telegram)</div>
     <form class="social-add-form" style="margin-top: 6px; margin-bottom: 8px;" onsubmit="handleAddRealMemberSubmit(event)">
       <input type="text" class="input-modern" id="addRealMemberUsernameInput" maxlength="33" placeholder="@username" autocomplete="off" autocapitalize="none" spellcheck="false" required />
-      <button type="submit" class="btn-glass">＋ Добавить</button>
+      <button type="submit" class="btn-glass">${renderIcon("plus", "app-icon-sm")} Добавить</button>
     </form>
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
-      <button type="button" class="btn-mini" onclick="requestTelegramContactForExpenses('${escapeHtml(ev.id)}')">📱 Выбрать в Telegram</button>
-      <button type="button" class="btn-mini" onclick="refreshExpensesContacts()">↻ Обновить</button>
+      <button type="button" class="btn-mini" onclick="requestTelegramContactForExpenses('${escapeHtml(ev.id)}')">${renderIcon("phone", "app-icon-sm")} Выбрать в Telegram</button>
+      <button type="button" class="btn-mini" onclick="refreshExpensesContacts()">${renderIcon("refresh", "app-icon-sm")} Обновить</button>
     </div>
     <div class="selection-help" id="expParticipantsSelectionHelp" hidden>
       <p>Пользователь пока неизвестен приложению. Откройте чат с ботом и выберите человека через Telegram.</p>
@@ -1243,7 +1248,7 @@ export function renderEventParticipantsModal() {
       <div class="audience-editor">
         ${availableContacts.map(c => `
           <button type="button" class="audience-chip" onclick="addRealMemberToCurrentEvent({ telegram_id: ${Number(c.telegram_id)} })">
-            ＋ ${escapeHtml(c.display_name || "Пользователь")}${c.username ? ` (@${escapeHtml(c.username)})` : ""}
+            ${renderIcon("plus", "app-icon-sm")} ${escapeHtml(c.display_name || "Пользователь")}${c.username ? ` (@${escapeHtml(c.username)})` : ""}
           </button>
         `).join("")}
       </div>
@@ -1310,10 +1315,10 @@ export async function addRealMemberToCurrentEvent({ username = "", telegram_id =
         loadExpensesContacts(true);
       }
       triggerHaptic("success");
-      showToast("✓ Участник добавлен");
+      showToast("Участник добавлен");
       return true;
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось добавить участника"}`);
+      showToast(error.message || "Не удалось добавить участника");
       return false;
     }
   }
@@ -1323,11 +1328,11 @@ export async function addRealMemberToCurrentEvent({ username = "", telegram_id =
   if (!target) return false;
   const resolved = resolveDemoUserByInput({ username, telegram_id });
   if (!resolved) {
-    showToast("⚠️ В демо доступны @maxim, @anna1 и @dima1");
+    showToast("В демо доступны @maxim, @anna1 и @dima1");
     return false;
   }
   if (target.members.some(m => Number(m.telegram_id) === Number(resolved.telegram_id))) {
-    showToast("⚠️ Этот пользователь уже участвует в событии");
+    showToast("Этот пользователь уже участвует в событии");
     return false;
   }
   const now = new Date().toISOString();
@@ -1361,7 +1366,7 @@ export async function addRealMemberToCurrentEvent({ username = "", telegram_id =
   }
   renderExpenseEventDetail();
   loadExpensesDashboard();
-  showToast(`✓ Участник «${resolved.display_name}» добавлен`);
+  showToast(`Участник «${resolved.display_name}» добавлен`);
   return true;
 }
 
@@ -1391,7 +1396,7 @@ export async function adjustMemberWeight(memberId, delta) {
         renderExpenseEventDetail();
       }
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось изменить вес"}`);
+      showToast(error.message || "Не удалось изменить вес");
     }
     return;
   }
@@ -1432,9 +1437,9 @@ export async function removeExpenseMember(memberId) {
         renderExpenseEventDetail();
         loadExpensesDashboard();
       }
-      showToast("🗑 Участник удалён");
+      showToast("Участник удалён");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось удалить участника"}`);
+      showToast(error.message || "Не удалось удалить участника");
     }
     return;
   }
@@ -1484,9 +1489,9 @@ export async function mergeSelectedIntoUnifiedWallet() {
         loadExpensesDashboard();
       }
       triggerHaptic("success");
-      showToast("🤝 Единый кошелёк создан");
+      showToast("Единый кошелёк создан");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось объединить кошелёк"}`);
+      showToast(error.message || "Не удалось объединить кошелёк");
     }
     return;
   }
@@ -1514,7 +1519,7 @@ export async function mergeSelectedIntoUnifiedWallet() {
   renderEventParticipantsModal();
   renderExpenseEventDetail();
   loadExpensesDashboard();
-  showToast("🤝 Единый кошелёк создан");
+  showToast("Единый кошелёк создан");
 }
 
 export async function unmergeUnifiedWallet(headMemberId) {
@@ -1537,7 +1542,7 @@ export async function unmergeUnifiedWallet(headMemberId) {
       }
       showToast("Единый кошелёк разъединён");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось разъединить кошелёк"}`);
+      showToast(error.message || "Не удалось разъединить кошелёк");
     }
     return;
   }
@@ -1573,22 +1578,22 @@ export function openExpenseEventMenuModal() {
     <div style="display: flex; flex-direction: column; gap: 10px;">
       ${canManage ? `
         <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); openEditEventModal();">
-          ✏️ Редактировать событие и участников
+          ${renderIcon("pencil", "app-icon-sm")} Редактировать событие и участников
         </button>
       ` : ""}
       <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); openEventParticipantsModal();">
-        👥 Участники, веса и единые кошельки
+        ${renderIcon("users", "app-icon-sm")} Участники, веса и единые кошельки
       </button>
       <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="closeExpenseEventMenuModal(); openEventInviteShareModal();">
-        🔗 Пригласить по ссылке
+        ${renderIcon("link", "app-icon-sm")} Пригласить по ссылке
       </button>
       ${!isArchived ? `
         <button type="button" class="btn-glass" style="justify-content: flex-start;" onclick="toggleExpenseEventFreeze()">
-          ${isFrozen ? "☀️ Разморозить траты" : "❄️ Заморозить траты на время расчётов"}
+          ${isFrozen ? `${renderIcon("sun", "app-icon-sm")} Разморозить траты` : `${renderIcon("snowflake", "app-icon-sm")} Заморозить траты на время расчётов`}
         </button>
       ` : ""}
       <button type="button" class="btn-glass" style="justify-content: flex-start; color: ${isArchived ? "var(--tg-theme-text-color)" : "var(--tg-theme-destructive-text-color)"};" onclick="toggleExpenseEventArchive()">
-        ${isArchived ? "↩️ Вернуть событие из архива" : "📦 Переместить событие в архив"}
+        ${isArchived ? `${renderIcon("rotateCcw", "app-icon-sm")} Вернуть событие из архива` : `${renderIcon("archive", "app-icon-sm")} Переместить событие в архив`}
       </button>
     </div>
   `;
@@ -1651,7 +1656,7 @@ export function renderEditEventModal() {
           <span class="field-label">Иконка</span>
           <div class="category-preset-row">
             ${EXPENSE_ICONS.map(ico => `
-              <button type="button" class="cat-preset-btn ${ico === d.icon ? "selected" : ""}" onclick="selectEditEventIcon('${ico}')">${ico}</button>
+              <button type="button" class="cat-preset-btn ${ico === d.icon ? "selected" : ""}" onclick="selectEditEventIcon('${ico}')" aria-label="${escapeHtml(resolveEventIconKey(ico).key)}">${renderEventIcon(ico, "ico-badge-sm")}</button>
             `).join("")}
           </div>
         </div>
@@ -1679,18 +1684,18 @@ export function renderEditEventModal() {
         ${members.map(m => `
           <span class="audience-chip active" style="cursor: default;">
             ${escapeHtml(m.member_name)}${m.username ? ` (@${escapeHtml(m.username)})` : ""}
-            ${canManage && m.role !== "OWNER" ? `<button type="button" style="background:none;border:0;color:inherit;margin-left:4px;cursor:pointer;" onclick="removeExpenseMember('${escapeHtml(m.id)}')" aria-label="Удалить">✕</button>` : ""}
+            ${canManage && m.role !== "OWNER" ? `<button type="button" style="background:none;border:0;color:inherit;margin-left:4px;cursor:pointer;display:inline-flex;align-items:center;" onclick="removeExpenseMember('${escapeHtml(m.id)}')" aria-label="Удалить">${renderIcon("x", "app-icon-sm")}</button>` : ""}
           </span>
         `).join("")}
       </div>
 
       <div class="social-add-form" style="margin-top: 6px; margin-bottom: 6px;">
         <input type="text" class="input-modern" id="editEventMemberUsernameInput" maxlength="33" placeholder="@username" autocomplete="off" autocapitalize="none" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();handleAddRealMemberSubmit(event);}" />
-        <button type="button" class="btn-glass" onclick="handleAddRealMemberSubmit(event)">＋ Добавить</button>
+        <button type="button" class="btn-glass" onclick="handleAddRealMemberSubmit(event)">${renderIcon("plus", "app-icon-sm")} Добавить</button>
       </div>
       <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;">
-        <button type="button" class="btn-mini" onclick="requestTelegramContactForExpenses('${escapeHtml(ev.id)}')">📱 Выбрать в Telegram</button>
-        <button type="button" class="btn-mini" onclick="refreshExpensesContacts()">↻ Обновить</button>
+        <button type="button" class="btn-mini" onclick="requestTelegramContactForExpenses('${escapeHtml(ev.id)}')">${renderIcon("phone", "app-icon-sm")} Выбрать в Telegram</button>
+        <button type="button" class="btn-mini" onclick="refreshExpensesContacts()">${renderIcon("refresh", "app-icon-sm")} Обновить</button>
       </div>
       <div class="selection-help" id="editEventSelectionHelp" hidden>
         <p>Пользователь пока неизвестен приложению. Откройте чат с ботом и выберите человека через Telegram.</p>
@@ -1700,7 +1705,7 @@ export function renderEditEventModal() {
         <div class="audience-editor" style="margin-bottom: 8px;">
           ${availableContacts.map(c => `
             <button type="button" class="audience-chip" onclick="addRealMemberToCurrentEvent({ telegram_id: ${Number(c.telegram_id)} })">
-              ＋ ${escapeHtml(c.display_name || "Пользователь")}${c.username ? ` (@${escapeHtml(c.username)})` : ""}
+              ${renderIcon("plus", "app-icon-sm")} ${escapeHtml(c.display_name || "Пользователь")}${c.username ? ` (@${escapeHtml(c.username)})` : ""}
             </button>
           `).join("")}
         </div>
@@ -1708,7 +1713,7 @@ export function renderEditEventModal() {
 
       <div style="display: flex; gap: 10px; margin-top: 16px;">
         <button type="button" class="btn-glass" style="flex: 1;" onclick="closeEditEventModal()">Отмена</button>
-        <button type="submit" class="btn-accent" id="submitEditEventBtn" style="flex: 2;">💾 Сохранить</button>
+        <button type="submit" class="btn-accent" id="submitEditEventBtn" style="flex: 2;">${renderIcon("check", "app-icon-sm")} Сохранить</button>
       </div>
     </form>
   `;
@@ -1721,7 +1726,7 @@ export async function handleEditExpenseEventSubmit(event) {
   if (!d) return;
   const title = String(d.title || "").trim();
   if (!title) {
-    showToast("⚠️ Введите название события");
+    showToast("Введите название события");
     return;
   }
   await patchCurrentExpenseEvent({
@@ -1732,7 +1737,7 @@ export async function handleEditExpenseEventSubmit(event) {
   });
   closeEditEventModal();
   triggerHaptic("success");
-  showToast("✓ Событие обновлено");
+  showToast("Событие обновлено");
 }
 
 export function closeExpenseEventMenuModal() {
@@ -1761,7 +1766,7 @@ async function patchCurrentExpenseEvent(patch) {
         loadExpensesDashboard();
       }
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось обновить событие"}`);
+      showToast(error.message || "Не удалось обновить событие");
     }
     return;
   }
@@ -1790,7 +1795,7 @@ export async function toggleExpenseEventFreeze() {
   closeExpenseEventMenuModal();
   const nextStatus = ev.status === "SETTLING" ? "ACTIVE" : "SETTLING";
   await patchCurrentExpenseEvent({ status: nextStatus });
-  showToast(nextStatus === "SETTLING" ? "❄️ Траты заморожены" : "☀️ Траты разморожены");
+  showToast(nextStatus === "SETTLING" ? "Траты заморожены" : "Траты разморожены");
 }
 
 export async function toggleExpenseEventArchive() {
@@ -1799,7 +1804,7 @@ export async function toggleExpenseEventArchive() {
   closeExpenseEventMenuModal();
   const nextStatus = ev.status === "ARCHIVED" ? "ACTIVE" : "ARCHIVED";
   await patchCurrentExpenseEvent({ status: nextStatus });
-  showToast(nextStatus === "ARCHIVED" ? "📦 Событие перенесено в архив" : "↩️ Событие возвращено из архива");
+  showToast(nextStatus === "ARCHIVED" ? "Событие перенесено в архив" : "Событие возвращено из архива");
 }
 
 function buildExpenseInviteUrl(inviteToken) {
@@ -1822,7 +1827,7 @@ export function openEventInviteShareModal() {
     <div class="share-preview-box" id="expenseInviteUrlBox">${escapeHtml(inviteUrl)}</div>
     <div style="display: flex; gap: 10px; margin-top: 12px;">
       <button type="button" class="btn-accent" style="flex: 1;" onclick="copyExpenseInviteLink('${escapeHtml(inviteUrl)}')">
-        📋 Скопировать ссылку
+        ${renderIcon("copy", "app-icon-sm")} Скопировать ссылку
       </button>
     </div>
   `;
@@ -1835,7 +1840,7 @@ export async function copyExpenseInviteLink(url) {
     await navigator.clipboard.writeText(url).catch(() => {});
   }
   triggerHaptic("success");
-  showToast("🔗 Скопировано");
+  showToast("Скопировано");
 }
 
 export function closeClaimProfileModal() {
@@ -1863,7 +1868,7 @@ export async function checkPendingExpenseInvite() {
       }
       renderIncomingClaimModal(token, data.event);
     } catch (error) {
-      showToast(`❌ ${error.message || "Недействительная ссылка приглашения"}`);
+      showToast(error.message || "Недействительная ссылка приглашения");
     }
   }
 }
@@ -1874,11 +1879,11 @@ function renderIncomingClaimModal(token, eventInfo) {
 
   body.innerHTML = `
     <p class="social-panel-copy">
-      Вас пригласили в событие <strong>${escapeHtml(eventInfo.icon || "🎉")} «${escapeHtml(eventInfo.title)}»</strong>.
+      Вас пригласили в событие <strong style="display: inline-flex; align-items: center; gap: 6px; vertical-align: middle;">${renderEventIcon(eventInfo.icon || "🎉", "ico-badge-sm")} <span>«${escapeHtml(eventInfo.title)}»</span></strong>.
     </p>
     <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
       <button type="button" class="btn-accent" style="width: 100%; margin-top: 4px;" onclick="submitClaimExpenseProfile('${escapeHtml(token)}')">
-        ➕ Присоединиться к событию
+        ${renderIcon("plus", "app-icon-sm")} Присоединиться к событию
       </button>
     </div>
   `;
@@ -1917,9 +1922,9 @@ export async function submitClaimExpenseProfile(token) {
       renderExpensesModule();
     }
     triggerHaptic("success");
-    showToast("✓ Вы присоединились к событию");
+    showToast("Вы присоединились к событию");
   } catch (error) {
-    showToast(`❌ ${error.message || "Не удалось присоединиться к событию"}`);
+    showToast(error.message || "Не удалось присоединиться к событию");
   }
 }
 
@@ -2001,11 +2006,11 @@ function openDebtReminderModal(debtorName, amountMinor, currency) {
 
   body.innerHTML = `
     <div class="modal-head">
-      <h2 class="modal-title" id="settleTransferModalTitle">🔔 Напоминание о долге</h2>
-      <button type="button" class="btn-close-circle" onclick="closeSettleTransferModal()" aria-label="Закрыть">✕</button>
+      <h2 class="modal-title" id="settleTransferModalTitle" style="display: inline-flex; align-items: center; gap: 8px;">${renderIcon("bell", "app-icon-sm")} <span>Напоминание о долге</span></h2>
+      <button type="button" class="btn-close-circle" onclick="closeSettleTransferModal()" aria-label="Закрыть">${renderIcon("x", "app-icon-sm")}</button>
     </div>
     <div class="exp-recipient-box">
-      <div class="exp-member-avatar" style="width: 46px; height: 46px; font-size: 18px;">🔔</div>
+      <div class="exp-member-avatar" style="width: 46px; height: 46px;">${renderIcon("bell")}</div>
       <div style="flex: 1; min-width: 0;">
         <strong style="font-size: 16px; display: block;">${escapeHtml(debtorName)}</strong>
         <div style="font-size: 13px; color: var(--tg-theme-hint-color); margin-top: 3px;">Вам должны ${formatExpenseMinor(amountMinor, currency)}</div>
@@ -2015,7 +2020,7 @@ function openDebtReminderModal(debtorName, amountMinor, currency) {
       «Привет! Напоминаю про общий бюджет (${formatExpenseMinor(amountMinor, currency)}) — скинь, пожалуйста, когда будет удобно. Спасибо!»
     </div>
     <button type="button" class="btn-accent" style="width: 100%;" onclick="sendDebtReminder('${escapeHtml(debtorName)}', '${escapeHtml(formatExpenseMinor(amountMinor, currency))}')">
-      📋 Скопировать напоминание
+      ${renderIcon("copy", "app-icon-sm")} Скопировать напоминание
     </button>
   `;
 
@@ -2028,7 +2033,7 @@ export async function sendDebtReminder(name, formattedAmount) {
     await navigator.clipboard.writeText(text).catch(() => {});
   }
   closeSettleTransferModal();
-  showToast("📋 Текст напоминания скопирован");
+  showToast("Текст напоминания скопирован");
 }
 
 function renderSettleTransferModal() {
@@ -2043,7 +2048,7 @@ function renderSettleTransferModal() {
   body.innerHTML = `
     <div class="modal-head">
       <h2 class="modal-title" id="settleTransferModalTitle">Погашение долга</h2>
-      <button type="button" class="btn-close-circle" onclick="closeSettleTransferModal()" aria-label="Закрыть">✕</button>
+      <button type="button" class="btn-close-circle" onclick="closeSettleTransferModal()" aria-label="Закрыть">${renderIcon("x", "app-icon-sm")}</button>
     </div>
 
     <div class="exp-recipient-box">
@@ -2148,9 +2153,9 @@ export async function submitSettlePayment() {
       if (exp.currentEvent) await openExpenseEvent(exp.currentEvent.id);
       await loadExpensesDashboard();
       triggerHaptic("success");
-      showToast("✓ Перевод отправлен на подтверждение");
+      showToast("Перевод отправлен на подтверждение");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось зафиксировать перевод"}`);
+      showToast(error.message || "Не удалось зафиксировать перевод");
     }
     return;
   }
@@ -2186,7 +2191,7 @@ export async function submitSettlePayment() {
   closeSettleTransferModal();
   if (exp.currentEvent) renderExpenseEventDetail();
   await loadExpensesDashboard();
-  showToast("✓ Перевод отправлен на подтверждение");
+  showToast("Перевод отправлен на подтверждение");
 }
 
 export async function confirmIncomingSettlement(settlementId) {
@@ -2200,9 +2205,9 @@ export async function confirmIncomingSettlement(settlementId) {
       await readApiResponse(response);
       if (exp.currentEvent) await openExpenseEvent(exp.currentEvent.id);
       await loadExpensesDashboard();
-      showToast("✓ Перевод подтверждён");
+      showToast("Перевод подтверждён");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось подтвердить перевод"}`);
+      showToast(error.message || "Не удалось подтвердить перевод");
     }
     return;
   }
@@ -2219,7 +2224,7 @@ export async function confirmIncomingSettlement(settlementId) {
   saveDemoExpensesStore(demo);
   if (exp.currentEvent) renderExpenseEventDetail();
   await loadExpensesDashboard();
-  showToast("✓ Перевод подтверждён");
+  showToast("Перевод подтверждён");
 }
 
 export async function rejectIncomingSettlement(settlementId) {
@@ -2235,7 +2240,7 @@ export async function rejectIncomingSettlement(settlementId) {
       await loadExpensesDashboard();
       showToast("Отмечено: деньги не пришли");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось отклонить перевод"}`);
+      showToast(error.message || "Не удалось отклонить перевод");
     }
     return;
   }
@@ -2266,9 +2271,9 @@ export async function cancelPendingSettlement(settlementId) {
       await readApiResponse(response);
       if (exp.currentEvent) await openExpenseEvent(exp.currentEvent.id);
       await loadExpensesDashboard();
-      showToast("✓ Перевод отозван");
+      showToast("Перевод отозван");
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось отозвать перевод"}`);
+      showToast(error.message || "Не удалось отозвать перевод");
     }
     return;
   }
@@ -2293,5 +2298,5 @@ export async function cancelPendingSettlement(settlementId) {
   saveDemoExpensesStore(demo);
   if (exp.currentEvent) renderExpenseEventDetail();
   await loadExpensesDashboard();
-  showToast("✓ Перевод отозван");
+  showToast("Перевод отозван");
 }

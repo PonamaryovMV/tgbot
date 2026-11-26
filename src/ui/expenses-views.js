@@ -1,5 +1,10 @@
 import { escapeHtml, triggerHaptic } from "./state.js";
 import {
+  renderIcon,
+  renderEventIcon,
+  renderCategoryIcon
+} from "./icons.js";
+import {
   getCategoryIconByLabel,
   getExpensesCurrencySymbol,
   formatExpenseMinor,
@@ -27,48 +32,48 @@ export function registerExpensesViewHooks(hooks) {
 export function getAuditEventMeta(action) {
   const act = String(action || "").toUpperCase();
   if (act === "EXPENSE_CREATED" || act === "OPERATION_ADDED") {
-    return { icon: "💳", badge: "Расход", bg: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" };
+    return { icon: renderIcon("creditCard"), iconKey: "creditCard", badge: "Расход", bg: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" };
   }
   if (act === "EXPENSE_UPDATED" || act === "OPERATION_UPDATED") {
-    return { icon: "✏️", badge: "Изменение", bg: "rgba(245, 158, 11, 0.15)", color: "#fbbf24" };
+    return { icon: renderIcon("pencil"), iconKey: "pencil", badge: "Изменение", bg: "rgba(245, 158, 11, 0.15)", color: "#fbbf24" };
   }
   if (act === "EXPENSE_DELETED" || act === "OPERATION_DELETED") {
-    return { icon: "🗑", badge: "Удаление", bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" };
+    return { icon: renderIcon("trash"), iconKey: "trash", badge: "Удаление", bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" };
   }
   if (act === "SETTLEMENT_SENT") {
-    return { icon: "📤", badge: "Перевод отправлен", bg: "rgba(99, 102, 241, 0.15)", color: "#818cf8" };
+    return { icon: renderIcon("send"), iconKey: "send", badge: "Перевод отправлен", bg: "rgba(99, 102, 241, 0.15)", color: "#818cf8" };
   }
   if (act === "SETTLEMENT_CONFIRMED") {
-    return { icon: "✅", badge: "Перевод подтверждён", bg: "rgba(34, 197, 94, 0.15)", color: "#4ade80" };
+    return { icon: renderIcon("checkCircle"), iconKey: "checkCircle", badge: "Перевод подтверждён", bg: "rgba(34, 197, 94, 0.15)", color: "#4ade80" };
   }
   if (act === "SETTLEMENT_REJECTED") {
-    return { icon: "❌", badge: "Перевод отклонён", bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" };
+    return { icon: renderIcon("xCircle"), iconKey: "xCircle", badge: "Перевод отклонён", bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" };
   }
   if (act === "SETTLEMENT_CANCELLED") {
-    return { icon: "↩️", badge: "Перевод отозван", bg: "rgba(156, 163, 175, 0.18)", color: "#9ca3af" };
+    return { icon: renderIcon("rotateCcw"), iconKey: "rotateCcw", badge: "Перевод отозван", bg: "rgba(156, 163, 175, 0.18)", color: "#9ca3af" };
   }
   if (act === "MEMBER_ADDED" || act === "MEMBER_JOINED") {
-    return { icon: "👤", badge: "Участник", bg: "rgba(168, 85, 247, 0.15)", color: "#c084fc" };
+    return { icon: renderIcon("userPlus"), iconKey: "userPlus", badge: "Участник", bg: "rgba(168, 85, 247, 0.15)", color: "#c084fc" };
   }
   if (act === "MEMBER_REMOVED") {
-    return { icon: "🚪", badge: "Участник удалён", bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" };
+    return { icon: renderIcon("userMinus"), iconKey: "userMinus", badge: "Участник удалён", bg: "rgba(239, 68, 68, 0.15)", color: "#f87171" };
   }
   if (act === "MEMBER_WEIGHT_UPDATED") {
-    return { icon: "⚖️", badge: "Вес участника", bg: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" };
+    return { icon: renderIcon("scale"), iconKey: "scale", badge: "Вес участника", bg: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" };
   }
   if (act === "EVENT_CREATED") {
-    return { icon: "🎉", badge: "Событие создано", bg: "rgba(16, 185, 129, 0.15)", color: "#34d399" };
+    return { icon: renderIcon("party"), iconKey: "party", badge: "Событие создано", bg: "rgba(16, 185, 129, 0.15)", color: "#34d399" };
   }
   if (act === "EVENT_UPDATED" || act === "STATUS_CHANGED" || act === "SIMPLIFY_TOGGLED") {
-    return { icon: "⚙️", badge: "Настройки", bg: "rgba(148, 163, 184, 0.15)", color: "#94a3b8" };
+    return { icon: renderIcon("settings"), iconKey: "settings", badge: "Настройки", bg: "rgba(148, 163, 184, 0.15)", color: "#94a3b8" };
   }
   if (act.startsWith("GOAL_")) {
-    return { icon: "🎯", badge: "Целевой сбор", bg: "rgba(236, 72, 153, 0.15)", color: "#f472b6" };
+    return { icon: renderIcon("target"), iconKey: "target", badge: "Целевой сбор", bg: "rgba(236, 72, 153, 0.15)", color: "#f472b6" };
   }
   if (act === "WALLET_MERGED" || act === "WALLET_UNMERGED") {
-    return { icon: "🤝", badge: "Единый кошелёк", bg: "rgba(6, 182, 212, 0.15)", color: "#22d3ee" };
+    return { icon: renderIcon("wallet"), iconKey: "wallet", badge: "Единый кошелёк", bg: "rgba(6, 182, 212, 0.15)", color: "#22d3ee" };
   }
-  return { icon: "📝", badge: "Событие", bg: "rgba(148, 163, 184, 0.15)", color: "#94a3b8" };
+  return { icon: renderIcon("receipt"), iconKey: "receipt", badge: "Событие", bg: "rgba(148, 163, 184, 0.15)", color: "#94a3b8" };
 }
 
 function getEventStatusBadge(status) {
@@ -162,7 +167,7 @@ export function renderExpensesDashboard() {
     const balCls = bal > 0 ? "pos" : bal < 0 ? "neg" : "";
     return `
       <button type="button" class="exp-event-card" data-event-id="${escapeHtml(ev.id)}" onclick="openExpenseEvent('${escapeHtml(ev.id)}')">
-        <div class="exp-event-icon">${escapeHtml(ev.icon || "🎉")}</div>
+        <div class="exp-event-icon">${renderEventIcon(ev.icon || "🎉")}</div>
         <div class="exp-event-info">
           <div class="exp-event-title">${escapeHtml(ev.title)}</div>
           <div class="exp-event-meta">${count} уч. · ${formatExpenseMinor(totalSpent, ev.base_currency)}</div>
@@ -178,7 +183,7 @@ export function renderExpensesDashboard() {
   if (exp.activeEvents.length === 0) {
     activeContainer.innerHTML = `
       <div class="empty-bento" style="padding: 32px 18px;">
-        <div class="empty-orb">💸</div>
+        <div class="empty-orb">${renderIcon("wallet", "app-icon-lg")}</div>
         <div class="empty-heading" style="font-size: 17px;">Пока нет активных событий</div>
         <div class="empty-subtext">Создайте поездку, ужин или праздник и добавьте участников, чтобы вести общий бюджет.</div>
       </div>
@@ -213,7 +218,9 @@ export function renderExpenseEventDetail() {
   const wallets = computeWalletsFromClientMembers(members);
   ev.wallets = wallets;
 
-  if (titleEl) titleEl.textContent = `${ev.icon || "🎉"} ${ev.title}`;
+  if (titleEl) {
+    titleEl.innerHTML = `<span style="display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%;">${renderEventIcon(ev.icon || "🎉", "ico-badge-sm")}<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(ev.title || "")}</span></span>`;
+  }
   if (subEl) {
     const statusText = ev.status === "ARCHIVED"
       ? "Архив"
@@ -247,14 +254,14 @@ export function renderExpenseEventDetail() {
           const payersNames = (op.payers || []).map(id => nameById.get(id) || "Участник").join(", ");
           const personal = buildOperationPersonalLabel(ev, op);
           const foreign = op.original_currency && op.original_currency !== cur;
-          const ico = op.operation_type === "TRANSFER"
-            ? "🔁"
+          const icoHtml = op.operation_type === "TRANSFER"
+            ? renderCategoryIcon("TRANSFER")
             : op.operation_type === "PREPAYMENT"
-              ? "🫙"
-              : getCategoryIconByLabel(op.category);
+              ? renderCategoryIcon("PREPAYMENT")
+              : renderCategoryIcon(op.category || getCategoryIconByLabel(op.category));
           return `
             <button type="button" class="exp-op-card" data-op-id="${escapeHtml(op.id)}" onclick="openExpenseOperationModal('${escapeHtml(op.id)}')">
-              <div class="exp-op-icon">${ico}</div>
+              <div class="exp-op-icon">${icoHtml}</div>
               <div class="exp-op-main">
                 <div class="exp-op-title">${escapeHtml(op.title || "Без названия")}</div>
                 <div class="exp-op-meta">${escapeHtml(payersNames || "—")} · ${escapeHtml(op.expense_date || "")}${foreign ? ` · ${formatExpenseMinor(op.base_amount_minor, cur)}` : ""}</div>
@@ -266,20 +273,21 @@ export function renderExpenseEventDetail() {
             </button>
           `;
         }).join("")
-      : `<div class="composer-card" style="text-align: center; color: var(--tg-theme-hint-color);">Пока нет операций. Нажмите «＋ Добавить операцию», чтобы внести первую трату.</div>`;
+      : `<div class="composer-card" style="text-align: center; color: var(--tg-theme-hint-color);">Пока нет операций. Нажмите «Добавить операцию», чтобы внести первую трату.</div>`;
 
     bodyEl.innerHTML = `
       <div class="hub-section-label" style="display: flex; align-items: center; justify-content: space-between;">
         <span>Операции (${operations.length})</span>
-        <button type="button" class="btn-mini" onclick="openEventParticipantsModal()">👥 Участники (${members.length})</button>
+        <button type="button" class="btn-mini" onclick="openEventParticipantsModal()">${renderIcon("users", "app-icon-sm")} Участники (${members.length})</button>
       </div>
       ${opsHtml}
       ${isFrozen
-        ? `<div class="composer-card" style="text-align: center; color: var(--tg-theme-hint-color); margin-top: 10px;">
-             ❄️ Траты заморожены (${ev.status === "ARCHIVED" ? "событие в архиве" : "идут расчёты"}). Разморозьте событие в меню «⋯».
+        ? `<div class="composer-card" style="text-align: center; color: var(--tg-theme-hint-color); margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+             ${renderIcon("snowflake", "app-icon-sm")}
+             <span>Траты заморожены (${ev.status === "ARCHIVED" ? "событие в архиве" : "идут расчёты"}). Разморозьте событие в меню «⋯».</span>
            </div>`
         : `<button type="button" class="btn-accent" style="width: 100%; margin-top: 8px;" id="openAddExpenseOpBtn" onclick="openExpenseOperationModal(null)">
-             ＋ Добавить операцию
+             ${renderIcon("plus", "app-icon-sm")} Добавить операцию
            </button>`}
     `;
     return;
@@ -306,7 +314,7 @@ export function renderExpenseEventDetail() {
             <div class="exp-op-amt">${formatExpenseMinor(e.amount_minor, cur)}</div>
           </button>
         `).join("")
-      : `<div style="text-align: center; color: var(--tg-theme-hint-color); padding: 18px 8px;">Все расчёты завершены 🎉</div>`;
+      : `<div style="text-align: center; color: var(--tg-theme-hint-color); padding: 18px 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%;">${renderIcon("checkCircle", "app-icon-sm")} <span>Все расчёты завершены</span></div>`;
 
     const pendingHtml = pendingSettlements.length ? `
       <div class="hub-section-label">Ожидают подтверждения (${pendingSettlements.length})</div>
@@ -318,7 +326,7 @@ export function renderExpenseEventDetail() {
         return `
           <div class="composer-card" style="padding: 13px; margin-bottom: 10px;">
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: ${incoming || outgoing ? "10px" : "0"};">
-              <div class="exp-member-avatar">${incoming ? "↓" : "↑"}</div>
+              <div class="exp-member-avatar">${incoming ? renderIcon("download", "app-icon-sm") : renderIcon("send", "app-icon-sm")}</div>
               <div style="flex: 1; min-width: 0;">
                 <div style="font-size: 14px; font-weight: 700;">${escapeHtml(unitName(fromU))} → ${escapeHtml(unitName(toU))}</div>
                 <div style="font-size: 12px; color: var(--tg-theme-hint-color);">${escapeHtml(s.payment_method || "СБП")}${s.comment ? " · " + escapeHtml(s.comment) : ""}</div>
@@ -382,7 +390,7 @@ export function renderExpenseEventDetail() {
             const meta = getAuditEventMeta(item.action);
             return `
               <div class="exp-history-row" style="display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-hairline);">
-                <div class="exp-history-icon-box" style="width: 36px; height: 36px; border-radius: 10px; background: ${meta.bg}; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                <div class="exp-history-icon-box" style="width: 36px; height: 36px; border-radius: 10px; background: ${meta.bg}; color: ${meta.color}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                   ${meta.icon}
                 </div>
                 <div style="flex: 1; min-width: 0;">
@@ -413,7 +421,7 @@ export function renderSettlementSvgGraph(ev) {
 
   if (edges.length === 0) {
     host.style.height = "auto";
-    host.innerHTML = `<div style="text-align: center; color: var(--tg-theme-hint-color); padding: 26px 12px;">Все расчёты завершены 🎉</div>`;
+    host.innerHTML = `<div style="text-align: center; color: var(--tg-theme-hint-color); padding: 26px 12px; display: flex; align-items: center; justify-content: center; gap: 6px;">${renderIcon("checkCircle", "app-icon-sm")} <span>Все расчёты завершены</span></div>`;
     return;
   }
 

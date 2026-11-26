@@ -13,12 +13,12 @@ import { getSuperappState, renderSuperappHub } from "./hub.js";
 export const EXPENSES_DEMO_STORAGE_KEY = "tg_expenses_stage4_demo_v1";
 export const EXPENSE_ICONS = ["🎉", "🎄", "🍸", "🏖", "🎂", "🚗", "🏕", "🏙", "⚽", "🎮"];
 export const EXPENSE_CATEGORIES = [
-  { id: "food", label: "Еда", icon: "🍽" },
-  { id: "grocery", label: "Продукты", icon: "🛒" },
-  { id: "home", label: "Жильё", icon: "🏠" },
-  { id: "taxi", label: "Транспорт", icon: "🚕" },
-  { id: "fun", label: "Развлечения", icon: "🎉" },
-  { id: "other", label: "Другое", icon: "📦" }
+  { id: "food", label: "Еда", icon: "food" },
+  { id: "grocery", label: "Продукты", icon: "grocery" },
+  { id: "home", label: "Жильё", icon: "home" },
+  { id: "taxi", label: "Транспорт", icon: "taxi" },
+  { id: "fun", label: "Развлечения", icon: "fun" },
+  { id: "other", label: "Другое", icon: "package" }
 ];
 
 const viewHooks = {
@@ -31,7 +31,7 @@ export function registerExpensesStateHooks(hooks) {
 
 export function getCategoryIconByLabel(label) {
   const found = EXPENSE_CATEGORIES.find(c => c.label === label || c.id === label);
-  return found ? found.icon : "📦";
+  return found ? found.icon : "package";
 }
 
 export function getExpensesCurrencySymbol(code) {
@@ -409,7 +409,7 @@ export async function loadExpensesContacts(silent = false) {
         }
       }
     } catch (error) {
-      if (!silent) showToast(`❌ ${error.message || "Не удалось загрузить контакты"}`);
+      if (!silent) showToast(error.message || "Не удалось загрузить контакты");
     } finally {
       exp.contactsLoading = false;
     }
@@ -477,7 +477,7 @@ export async function loadExpensesDashboard() {
       exp.archivedEvents = Array.isArray(data.archived_events) ? data.archived_events : [];
       exp.crossEventDebts = Array.isArray(data.cross_event_debts) ? data.cross_event_debts : [];
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось загрузить события"}`);
+      showToast(error.message || "Не удалось загрузить события");
     } finally {
       exp.loading = false;
       syncExpensesSummaryToHub();
@@ -556,7 +556,7 @@ export async function openExpenseEvent(eventId) {
         viewHooks.renderExpensesModule();
       }
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось открыть событие"}`);
+      showToast(error.message || "Не удалось открыть событие");
     }
     return;
   }

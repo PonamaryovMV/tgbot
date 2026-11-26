@@ -13,6 +13,7 @@ import {
   loadBotConfig,
   saveLocalGifts
 } from "./state.js";
+import { renderIcon } from "./icons.js";
 
 const uiHooks = {
   renderAll: () => {},
@@ -178,7 +179,7 @@ export async function socialMutate(action, payload) {
       if (state.activeWorkspace === "friends") renderSocial();
       return result;
     } catch (error) {
-      showToast(`⚠️ ${error.message}`);
+      showToast(error.message);
       return { status: "error" };
     }
   }
@@ -204,7 +205,7 @@ export async function socialMutate(action, payload) {
     if (state.activeWorkspace === "friends") renderSocial();
     return { status: "ok" };
   } catch (error) {
-    showToast(`❌ ${error.message || "Не удалось изменить данные"}`);
+    showToast(error.message || "Не удалось изменить данные");
     return { status: "error" };
   }
 }
@@ -217,7 +218,7 @@ export async function handleCreateGroupSubmit(event) {
   const result = await socialMutate("create_group", { name });
   if (result.status === "ok") {
     if (input) input.value = "";
-    showToast(`✓ Группа «${name}» создана`);
+    showToast(`Группа «${name}» создана`);
     triggerHaptic("success");
   }
 }
@@ -248,7 +249,7 @@ export async function handleRenameGroupSubmit(event) {
   if (result.status === "ok") {
     closeRenameGroupModal();
     uiHooks.renderAll();
-    showToast("✓ Группа переименована");
+    showToast("Группа переименована");
     triggerHaptic("success");
   }
 }
@@ -288,7 +289,7 @@ export async function confirmDeleteGroup() {
     } else {
       uiHooks.renderAll();
     }
-    showToast("🗑 Группа удалена");
+    showToast("Группа удалена");
     triggerHaptic("light");
   }
 }
@@ -296,7 +297,7 @@ export async function confirmDeleteGroup() {
 function validateUsernameInput(value) {
   const username = String(value || "").trim().replace(/^@+/, "");
   if (!/^[A-Za-z0-9_]{5,32}$/.test(username)) {
-    showToast("⚠️ Введите корректный @username Telegram");
+    showToast("Введите корректный @username Telegram");
     return "";
   }
   return username;
@@ -313,7 +314,7 @@ export async function handleSubscribeSubmit(event) {
   if (button) button.disabled = false;
   if (result.status === "ok") {
     if (input) input.value = "";
-    showToast("✓ Вишлист добавлен в подписки");
+    showToast("Вишлист добавлен в подписки");
     triggerHaptic("success");
   }
 }
@@ -326,7 +327,7 @@ export async function handleGroupAddSubmit(event, groupId) {
   const result = await socialMutate("add_group_member", { group_id: groupId, username });
   if (result.status === "ok") {
     if (input) input.value = "";
-    showToast("✓ Пользователь добавлен в группу");
+    showToast("Пользователь добавлен в группу");
     triggerHaptic("success");
   }
 }
@@ -358,7 +359,7 @@ export async function toggleCurrentWishlistSubscription() {
     state.isSubscribed = !wasSubscribed;
     uiHooks.renderAll();
     if (state.activeWorkspace === "friends") renderSocial();
-    showToast(wasSubscribed ? "Подписка удалена" : "✓ Вы подписались на этот вишлист");
+    showToast(wasSubscribed ? "Подписка удалена" : "Вы подписались на этот вишлист");
     triggerHaptic("success");
   }
 }
@@ -375,7 +376,7 @@ export async function openBotForSelection() {
   }
   username = String(username || "").replace(/^@/, "");
   if (!username) {
-    showToast("⚠️ Не удалось получить адрес бота");
+    showToast("Не удалось получить адрес бота");
     return;
   }
   const url = `https://t.me/${username}`;
@@ -500,7 +501,7 @@ export function renderOccasionEditor(formPrefix) {
   }
   container.innerHTML = state.occasions.map(occ => {
     const active = selected.includes(occ.id);
-    return `<button type="button" class="audience-chip ${active ? "active" : ""}" data-occasion="${escapeHtml(occ.id)}" aria-pressed="${active}" onclick="toggleGiftOccasion('${formPrefix}', this.dataset.occasion)">🎯 ${escapeHtml(occ.title)}</button>`;
+    return `<button type="button" class="audience-chip ${active ? "active" : ""}" data-occasion="${escapeHtml(occ.id)}" aria-pressed="${active}" onclick="toggleGiftOccasion('${formPrefix}', this.dataset.occasion)">${renderIcon("target", "app-icon-sm")}<span>${escapeHtml(occ.title)}</span></button>`;
   }).join("");
 }
 
@@ -527,7 +528,7 @@ export async function quickCreateOccasionInForm(formPrefix) {
       state.occasionDraft[formPrefix].push(created.id);
     }
     renderOccasionEditor(formPrefix);
-    showToast(`✓ Повод «${title}» создан`);
+    showToast(`Повод «${title}» создан`);
     triggerHaptic("success");
   }
 }
@@ -571,7 +572,7 @@ export function renderOccasionManagerList() {
     return `
       <div class="social-person-row">
         <div class="social-person-main">
-          <div class="social-person-name">🎯 ${safeTitle}</div>
+          <div class="social-person-name" style="display:flex;align-items:center;gap:6px;">${renderIcon("target", "app-icon-sm")}<span>${safeTitle}</span></div>
           <div class="social-person-meta">Желаний: ${count}</div>
         </div>
         <div class="social-person-actions">
@@ -591,7 +592,7 @@ export async function handleCreateOccasionModalSubmit(event) {
   if (ok) {
     if (input) input.value = "";
     renderOccasionManagerList();
-    showToast(`✓ Повод «${title}» добавлен`);
+    showToast(`Повод «${title}» добавлен`);
     triggerHaptic("success");
   }
 }
@@ -600,7 +601,7 @@ export async function deleteOccasion(occasionId) {
   const ok = await uiHooks.mutateGifts("delete_occasion", { id: occasionId });
   if (ok) {
     renderOccasionManagerList();
-    showToast("🗑 Повод удалён");
+    showToast("Повод удалён");
     triggerHaptic("light");
   }
 }
@@ -613,7 +614,7 @@ export async function openShareModal() {
   }
   if (!state.botUsername) await loadBotConfig();
   if (!state.botUsername) {
-    showToast("⚠️ Не удалось получить username бота. Проверьте BOT_TOKEN и Worker.");
+    showToast("Не удалось получить username бота. Проверьте BOT_TOKEN и Worker.");
     return;
   }
 
@@ -633,7 +634,7 @@ export function renderShareOccasionOptions() {
   const options = [{ id: "all", title: "Весь вишлист" }, ...state.occasions];
   container.innerHTML = options.map(opt => {
     const active = state.shareOccasionId === opt.id;
-    return `<button type="button" class="audience-chip ${active ? "active" : ""}" data-share-occ="${escapeHtml(opt.id)}" aria-pressed="${active}" onclick="selectShareOccasion(this.dataset.shareOcc)">${opt.id === "all" ? "🎁 " : "🎯 "}${escapeHtml(opt.title)}</button>`;
+    return `<button type="button" class="audience-chip ${active ? "active" : ""}" data-share-occ="${escapeHtml(opt.id)}" aria-pressed="${active}" onclick="selectShareOccasion(this.dataset.shareOcc)">${renderIcon(opt.id === "all" ? "gift" : "target", "app-icon-sm")}<span>${escapeHtml(opt.title)}</span></button>`;
   }).join("");
 }
 
@@ -666,7 +667,7 @@ export function updateShareModalPreview() {
 export async function copyShareLinkOnly() {
   const { shareUrl } = buildSharePayload();
   const copied = await uiHooks.copyToClipboard(shareUrl);
-  showToast(copied ? "🔗 Ссылка скопирована в буфер обмена!" : "🔗 Скопируйте ссылку из поля выше");
+  showToast(copied ? "Ссылка скопирована в буфер обмена!" : "Скопируйте ссылку из поля выше");
   triggerHaptic("success");
 }
 
@@ -674,7 +675,7 @@ export async function confirmShareWishlist() {
   const { shareUrl, shareText } = buildSharePayload();
   const telegramShareLink = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
   const copied = await uiHooks.copyToClipboard(shareUrl);
-  showToast(copied ? "🔗 Ссылка скопирована!" : "🔗 Откройте меню отправки ссылки");
+  showToast(copied ? "Ссылка скопирована!" : "Откройте меню отправки ссылки");
   closeShareModal();
 
   if (tg?.openTelegramLink && tg?.initData) {

@@ -325,7 +325,7 @@ export async function handleSaveSuperappProfile(event) {
         nextProfile.default_currency = String(data.user.default_currency || nextProfile.default_currency).toUpperCase();
       }
     } catch (error) {
-      showToast(`❌ ${error.message || "Не удалось сохранить профиль"}`);
+      showToast(error.message || "Не удалось сохранить профиль");
       hub.savingProfile = false;
       if (btn) btn.disabled = false;
       return;
@@ -339,6 +339,6 @@ export async function handleSaveSuperappProfile(event) {
   renderSuperappHub();
   closeSbpProfileModal();
   triggerHaptic("success");
-  showToast("✓ Профиль и реквизиты СБП сохранены");
+  showToast("Профиль и реквизиты СБП сохранены");
   renderAll();
 }

@@ -33,9 +33,9 @@ export function triggerHaptic(type = "light") {
 }
 
 export const DEMO_USERS = {
-  owner: { id: 1001, name: "Максим", username: "maxim", label: "Владелец (Максим)", avatar: "🎁", initials: "М" },
-  guest1: { id: 2002, name: "Анна", username: "anna1", label: "Гость 1 (Анна)", avatar: "✨", initials: "А" },
-  guest2: { id: 3003, name: "Дима", username: "dima1", label: "Гость 2 (Дима)", avatar: "🚀", initials: "Д" }
+  owner: { id: 1001, name: "Максим", username: "maxim", label: "Владелец (Максим)", avatar: "gift", initials: "М" },
+  guest1: { id: 2002, name: "Анна", username: "anna1", label: "Гость 1 (Анна)", avatar: "sparkles", initials: "А" },
+  guest2: { id: 3003, name: "Дима", username: "dima1", label: "Гость 2 (Дима)", avatar: "rocket", initials: "Д" }
 };
 
 export function parsePositiveId(value) {
@@ -144,36 +144,36 @@ export const state = {
 
 export const CATEGORY_STYLES = {
   "Техника": {
-    emoji: "🎧",
+    icon: "phone",
     gradient: "linear-gradient(135deg, #1d4ed8 0%, #4338ca 50%, #6d28d9 100%)"
   },
   "Дом": {
-    emoji: "☕",
+    icon: "home",
     gradient: "linear-gradient(135deg, #047857 0%, #0d9488 100%)"
   },
   "Одежда": {
-    emoji: "👟",
+    icon: "tag",
     gradient: "linear-gradient(135deg, #be185d 0%, #e11d48 100%)"
   },
   "Хобби": {
-    emoji: "🎨",
+    icon: "palette",
     gradient: "linear-gradient(135deg, #b45309 0%, #ea580c 100%)"
   },
   "Впечатления": {
-    emoji: "🎟",
+    icon: "sparkles",
     gradient: "linear-gradient(135deg, #4f46e5 0%, #0891b2 100%)"
   },
   "default": {
-    emoji: "🎁",
+    icon: "gift",
     gradient: "linear-gradient(135deg, #334155 0%, #0f172a 100%)"
   }
 };
 
 export const DEFAULT_TAGS = ["Новый год", "День рождения", "8 Марта", "23 Февраля", "Новоселье", "Свадьба"];
 export const DESIRE_META = {
-  high: { label: "🔥 Очень хочу", className: "pill-priority", rank: 0 },
-  medium: { label: "Среднее хочу", className: "pill-desire-medium", rank: 1 },
-  wait: { label: "◷ Пока подождёт", className: "pill-desire-wait", rank: 2 }
+  high: { icon: "flame", label: "Очень хочу", className: "pill-priority", rank: 0 },
+  medium: { icon: "", label: "Среднее хочу", className: "pill-desire-medium", rank: 1 },
+  wait: { icon: "hourglass", label: "Пока подождёт", className: "pill-desire-wait", rank: 2 }
 };
 
 export function getGiftDesire(gift) {
@@ -478,7 +478,7 @@ export function saveLocalGifts() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.gifts));
   } catch {
-    showToast("⚠️ Локальное хранилище переполнено");
+    showToast("Локальное хранилище переполнено");
   }
 }
 
@@ -599,7 +599,7 @@ export async function handleFileSelect(event, formPrefix) {
     updatePhotoPreviewUI(formPrefix, result.url, result.meta);
     triggerHaptic("success");
   } catch (err) {
-    showToast(`❌ ${err.message || "Не удалось обработать выбранное изображение"}`);
+    showToast(err.message || "Не удалось обработать выбранное изображение");
   }
 }
 
